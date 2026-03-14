@@ -1,0 +1,842 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* LIGHT MODE */
+:root {
+  --button-outline: rgba(0,0,0, .10);
+  --badge-outline: rgba(0,0,0, .05);
+  --opaque-button-border-intensity: -8;
+  --elevate-1: rgba(0,0,0, .03);
+  --elevate-2: rgba(0,0,0, .08);
+  --background: 0 0% 100%;
+  --foreground: 0 0% 9%;
+  --border: 0 0% 91%;
+  --card: 0 0% 98%;
+  --card-foreground: 0 0% 9%;
+  --card-border: 0 0% 94%;
+  --sidebar: 0 0% 96%;
+  --sidebar-foreground: 0 0% 9%;
+  --sidebar-border: 0 0% 92%;
+  --sidebar-primary: 26 85% 48%;
+  --sidebar-primary-foreground: 26 85% 98%;
+  --sidebar-accent: 0 0% 92%;
+  --sidebar-accent-foreground: 0 0% 9%;
+  --sidebar-ring: 26 85% 48%;
+  --popover: 0 0% 94%;
+  --popover-foreground: 0 0% 9%;
+  --popover-border: 0 0% 90%;
+  --primary: 26 85% 48%;
+  --primary-foreground: 26 85% 98%;
+  --secondary: 0 0% 90%;
+  --secondary-foreground: 0 0% 9%;
+  --muted: 0 3% 88%;
+  --muted-foreground: 0 0% 35%;
+  --accent: 24 8% 89%;
+  --accent-foreground: 0 0% 9%;
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 0% 98%;
+  --input: 0 0% 75%;
+  --ring: 26 85% 48%;
+  --chart-1: 26 85% 42%;
+  --chart-2: 16 75% 48%;
+  --chart-3: 36 65% 45%;
+  --chart-4: 6 70% 50%;
+  --chart-5: 46 60% 48%;
+  --font-sans: Inter, system-ui, sans-serif;
+  --font-serif: Playfair Display, Merriweather, Georgia, serif;
+  --font-mono: JetBrains Mono, monospace;
+  --radius: .5rem;
+  --shadow-2xs: 0px 2px 0px 0px hsl(0 0% 0% / 0.00);
+  --shadow-xs: 0px 2px 0px 0px hsl(0 0% 0% / 0.00);
+  --shadow-sm: 0px 2px 0px 0px hsl(0 0% 0% / 0.00), 0px 1px 2px -1px hsl(0 0% 0% / 0.00);
+  --shadow: 0px 2px 0px 0px hsl(0 0% 0% / 0.00), 0px 1px 2px -1px hsl(0 0% 0% / 0.00);
+  --shadow-md: 0px 2px 0px 0px hsl(0 0% 0% / 0.00), 0px 2px 4px -1px hsl(0 0% 0% / 0.00);
+  --shadow-lg: 0px 2px 0px 0px hsl(0 0% 0% / 0.00), 0px 4px 6px -1px hsl(0 0% 0% / 0.00);
+  --shadow-xl: 0px 2px 0px 0px hsl(0 0% 0% / 0.00), 0px 8px 10px -1px hsl(0 0% 0% / 0.00);
+  --shadow-2xl: 0px 2px 0px 0px hsl(0 0% 0% / 0.00);
+  --tracking-normal: 0em;
+  --spacing: 0.25rem;
+
+  /* Liquid Glass Materials - Light Mode */
+  --glass-blur: 20px;
+  --glass-blur-clear: 12px;
+  --glass-bg: rgba(255, 255, 255, 0.7);
+  --glass-bg-clear: rgba(255, 255, 255, 0.3);
+  --glass-border: rgba(255, 255, 255, 0.2);
+  --dimming-layer: rgba(0, 0, 0, 0.35);
+  --glass-foreground: 0 0% 5%;
+  
+  /* Standard Materials - Light Mode */
+  --material-thin: rgba(255, 255, 255, 0.85);
+  --material-regular: rgba(255, 255, 255, 0.95);
+  --material-thick: rgba(255, 255, 255, 0.98);
+
+/* Fallback for older browsers */
+  --sidebar-primary-border: hsl(var(--sidebar-primary));
+  --sidebar-primary-border: hsl(from hsl(var(--sidebar-primary)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+
+  /* Fallback for older browsers */
+  --sidebar-accent-border: hsl(var(--sidebar-accent));
+  --sidebar-accent-border: hsl(from hsl(var(--sidebar-accent)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+
+  /* Fallback for older browsers */
+  --primary-border: hsl(var(--primary));
+  --primary-border: hsl(from hsl(var(--primary)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+
+  /* Fallback for older browsers */
+  --secondary-border: hsl(var(--secondary));
+  --secondary-border: hsl(from hsl(var(--secondary)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+
+  /* Fallback for older browsers */
+  --muted-border: hsl(var(--muted));
+  --muted-border: hsl(from hsl(var(--muted)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+
+  /* Fallback for older browsers */
+  --accent-border: hsl(var(--accent));
+  --accent-border: hsl(from hsl(var(--accent)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+
+  /* Fallback for older browsers */
+  --destructive-border: hsl(var(--destructive));
+  --destructive-border: hsl(from hsl(var(--destructive)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+}
+
+.dark {
+  --button-outline: rgba(255,255,255, .10);
+  --badge-outline: rgba(255,255,255, .05);
+  --opaque-button-border-intensity: 9;
+  --elevate-1: rgba(255,255,255, .04);
+  --elevate-2: rgba(255,255,255, .09);
+  --background: 0 0% 7%;
+  --foreground: 0 0% 98%;
+  --border: 0 0% 16%;
+  --card: 0 0% 9%;
+  --card-foreground: 0 0% 98%;
+  --card-border: 0 0% 12%;
+  --sidebar: 0 0% 11%;
+  --sidebar-foreground: 0 0% 98%;
+  --sidebar-border: 0 0% 14%;
+  --sidebar-primary: 26 85% 52%;
+  --sidebar-primary-foreground: 26 85% 98%;
+  --sidebar-accent: 0 0% 15%;
+  --sidebar-accent-foreground: 0 0% 98%;
+  --sidebar-ring: 26 85% 52%;
+  --popover: 0 0% 13%;
+  --popover-foreground: 0 0% 98%;
+  --popover-border: 0 0% 16%;
+  --primary: 26 85% 48%;
+  --primary-foreground: 26 85% 98%;
+  --secondary: 0 0% 17%;
+  --secondary-foreground: 0 0% 98%;
+  --muted: 0 3% 18%;
+  --muted-foreground: 0 0% 70%;
+  --accent: 24 8% 19%;
+  --accent-foreground: 0 0% 98%;
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 0% 98%;
+  --input: 0 0% 30%;
+  --ring: 26 85% 52%;
+  --chart-1: 26 85% 65%;
+  --chart-2: 16 75% 68%;
+  --chart-3: 36 65% 70%;
+  --chart-4: 6 70% 65%;
+  --chart-5: 46 60% 68%;
+  --shadow-2xs: 0px 2px 0px 0px hsl(0 0% 0% / 0.00);
+  --shadow-xs: 0px 2px 0px 0px hsl(0 0% 0% / 0.00);
+  --shadow-sm: 0px 2px 0px 0px hsl(0 0% 0% / 0.00), 0px 1px 2px -1px hsl(0 0% 0% / 0.00);
+  --shadow: 0px 2px 0px 0px hsl(0 0% 0% / 0.00), 0px 1px 2px -1px hsl(0 0% 0% / 0.00);
+  --shadow-md: 0px 2px 0px 0px hsl(0 0% 0% / 0.00), 0px 2px 4px -1px hsl(0 0% 0% / 0.00);
+  --shadow-lg: 0px 2px 0px 0px hsl(0 0% 0% / 0.00), 0px 4px 6px -1px hsl(0 0% 0% / 0.00);
+  --shadow-xl: 0px 2px 0px 0px hsl(0 0% 0% / 0.00), 0px 8px 10px -1px hsl(0 0% 0% / 0.00);
+  --shadow-2xl: 0px 2px 0px 0px hsl(0 0% 0% / 0.00);
+
+  /* Liquid Glass Materials - Dark Mode */
+  --glass-blur: 20px;
+  --glass-blur-clear: 12px;
+  --glass-bg: rgba(0, 0, 0, 0.6);
+  --glass-bg-clear: rgba(0, 0, 0, 0.25);
+  --glass-border: rgba(255, 255, 255, 0.1);
+  --dimming-layer: rgba(0, 0, 0, 0.35);
+  --glass-foreground: 0 0% 95%;
+  
+  /* Standard Materials - Dark Mode */
+  --material-thin: rgba(0, 0, 0, 0.75);
+  --material-regular: rgba(0, 0, 0, 0.85);
+  --material-thick: rgba(0, 0, 0, 0.95);
+
+/* Fallback for older browsers */
+  --sidebar-primary-border: hsl(var(--sidebar-primary));
+  --sidebar-primary-border: hsl(from hsl(var(--sidebar-primary)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+
+  /* Fallback for older browsers */
+  --sidebar-accent-border: hsl(var(--sidebar-accent));
+  --sidebar-accent-border: hsl(from hsl(var(--sidebar-accent)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+
+  /* Fallback for older browsers */
+  --primary-border: hsl(var(--primary));
+  --primary-border: hsl(from hsl(var(--primary)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+
+  /* Fallback for older browsers */
+  --secondary-border: hsl(var(--secondary));
+  --secondary-border: hsl(from hsl(var(--secondary)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+
+  /* Fallback for older browsers */
+  --muted-border: hsl(var(--muted));
+  --muted-border: hsl(from hsl(var(--muted)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+
+  /* Fallback for older browsers */
+  --accent-border: hsl(var(--accent));
+  --accent-border: hsl(from hsl(var(--accent)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+
+  /* Fallback for older browsers */
+  --destructive-border: hsl(var(--destructive));
+  --destructive-border: hsl(from hsl(var(--destructive)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply font-sans antialiased bg-background text-foreground;
+  }
+}
+
+/**
+ * Using the elevate system.
+ * Automatic contrast adjustment.
+ *
+ * <element className="hover-elevate" />
+ * <element className="active-elevate-2" />
+ *
+ * // Using the tailwind utility when a data attribute is "on"
+ * <element className="toggle-elevate data-[state=on]:toggle-elevated" />
+ * // Or manually controlling the toggle state
+ * <element className="toggle-elevate toggle-elevated" />
+ *
+ * Elevation systems have to handle many states.
+ * - not-hovered, vs. hovered vs. active  (three mutually exclusive states)
+ * - toggled or not
+ * - focused or not (this is not handled with these utilities)
+ *
+ * Even without handling focused or not, this is six possible combinations that
+ * need to be distinguished from eachother visually.
+ */
+@layer utilities {
+
+  /* Hide ugly search cancel button in Chrome until we can style it properly */
+  input[type="search"]::-webkit-search-cancel-button {
+    @apply hidden;
+  }
+
+  /* Placeholder styling for contentEditable div */
+  [contenteditable][data-placeholder]:empty::before {
+    content: attr(data-placeholder);
+    color: hsl(var(--muted-foreground));
+    pointer-events: none;
+  }
+
+  /* .no-default-hover-elevate/no-default-active-elevate is an escape hatch so consumers of
+   * buttons/badges can remove the automatic brightness adjustment on interactions
+   * and program their own. */
+  .no-default-hover-elevate {}
+
+  .no-default-active-elevate {}
+
+
+  /**
+   * Toggleable backgrounds go behind the content. Hoverable/active goes on top.
+   * This way they can stack/compound. Both will overlap the parent's borders!
+   * So borders will be automatically adjusted both on toggle, and hover/active,
+   * and they will be compounded.
+   */
+  .toggle-elevate::before,
+  .toggle-elevate-2::before {
+    content: "";
+    pointer-events: none;
+    position: absolute;
+    inset: 0px;
+    /*border-radius: inherit;   match rounded corners */
+    border-radius: inherit;
+    z-index: -1;
+    /* sits behind content but above backdrop */
+  }
+
+  .toggle-elevate.toggle-elevated::before {
+    background-color: var(--elevate-2);
+  }
+
+  /* If there's a 1px border, adjust the inset so that it covers that parent's border */
+  .border.toggle-elevate::before {
+    inset: -1px;
+  }
+
+  /* Does not work on elements with overflow:hidden! */
+  .hover-elevate:not(.no-default-hover-elevate),
+  .active-elevate:not(.no-default-active-elevate),
+  .hover-elevate-2:not(.no-default-hover-elevate),
+  .active-elevate-2:not(.no-default-active-elevate) {
+    position: relative;
+    z-index: 0;
+  }
+
+  .hover-elevate:not(.no-default-hover-elevate)::after,
+  .active-elevate:not(.no-default-active-elevate)::after,
+  .hover-elevate-2:not(.no-default-hover-elevate)::after,
+  .active-elevate-2:not(.no-default-active-elevate)::after {
+    content: "";
+    pointer-events: none;
+    position: absolute;
+    inset: 0px;
+    /*border-radius: inherit;   match rounded corners */
+    border-radius: inherit;
+    z-index: 999;
+    /* sits in front of content */
+  }
+
+  .hover-elevate:hover:not(.no-default-hover-elevate)::after,
+  .active-elevate:active:not(.no-default-active-elevate)::after {
+    background-color: var(--elevate-1);
+  }
+
+  .hover-elevate-2:hover:not(.no-default-hover-elevate)::after,
+  .active-elevate-2:active:not(.no-default-active-elevate)::after {
+    background-color: var(--elevate-2);
+  }
+
+  /* If there's a 1px border, adjust the inset so that it covers that parent's border */
+  .border.hover-elevate:not(.no-hover-interaction-elevate)::after,
+  .border.active-elevate:not(.no-active-interaction-elevate)::after,
+  .border.hover-elevate-2:not(.no-hover-interaction-elevate)::after,
+  .border.active-elevate-2:not(.no-active-interaction-elevate)::after,
+  .border.hover-elevate:not(.no-hover-interaction-elevate)::after {
+    inset: -1px;
+  }
+
+  /* ============================================
+   * Liquid Glass Material Utilities
+   * ============================================ */
+  
+  /* Liquid Glass - Regular Variant (for toolbars, navigation) */
+  .glass-regular {
+    backdrop-filter: blur(var(--glass-blur)) saturate(180%);
+    background-color: var(--glass-bg);
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(180%);
+  }
+  
+  /* Liquid Glass - Clear Variant (for overlays on rich content) */
+  .glass-clear {
+    backdrop-filter: blur(var(--glass-blur-clear)) saturate(150%);
+    background-color: var(--glass-bg-clear);
+    -webkit-backdrop-filter: blur(var(--glass-blur-clear)) saturate(150%);
+  }
+  
+  /* Dimming Layer (use with glass-clear on bright backgrounds) */
+  .glass-dimming {
+    background-color: var(--dimming-layer);
+  }
+  
+  /* Glass Border (subtle separator on glass surfaces) */
+  .glass-border {
+    border-color: var(--glass-border);
+  }
+  
+  /* Standard Material Variants (for content layer) */
+  .material-thin {
+    background-color: var(--material-thin);
+  }
+  
+  .material-regular {
+    background-color: var(--material-regular);
+  }
+  
+  .material-thick {
+    background-color: var(--material-thick);
+  }
+  
+  /* Scroll-Edge Effect (enhanced blur when scrolled) */
+  .glass-scrolled {
+    backdrop-filter: blur(calc(var(--glass-blur) * 1.2)) saturate(190%);
+    -webkit-backdrop-filter: blur(calc(var(--glass-blur) * 1.2)) saturate(190%);
+  }
+  
+  /* ============================================
+   * Mobile-First Touch Target Utilities
+   * ============================================ */
+  
+  /* 44pt minimum touch target (iOS guideline = ~59px at standard DPI) */
+  .touch-target {
+    min-width: 3.6875rem; /* 59px = 44pt */
+    min-height: 3.6875rem; /* 59px = 44pt */
+  }
+  
+  /* Comfortable list item height for mobile */
+  .touch-list-item {
+    min-height: 3rem; /* 48px */
+  }
+  
+  /* ============================================
+   * Responsive Spacing Utilities
+   * ============================================ */
+  
+  /* Safe area insets for mobile (notch, home indicator) */
+  .safe-top {
+    padding-top: env(safe-area-inset-top);
+  }
+  
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  
+  .safe-left {
+    padding-left: env(safe-area-inset-left);
+  }
+  
+  .safe-right {
+    padding-right: env(safe-area-inset-right);
+  }
+  
+  /* ============================================
+   * Animation Utilities
+   * ============================================ */
+  
+  /* Smooth backdrop blur transition */
+  .glass-transition {
+    transition: backdrop-filter 300ms ease-out, background-color 300ms ease-out;
+  }
+  
+  /* Slide-up animation for bottom sheets */
+  @keyframes slide-up {
+    from {
+      transform: translateY(100%);
+    }
+    to {
+      transform: translateY(0);
+    }
+  }
+  
+  .animate-slide-up {
+    animation: slide-up 300ms ease-out;
+  }
+  
+  /* Fade-in for overlays */
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  
+  .animate-fade-in {
+    animation: fade-in 200ms ease-out;
+  }
+  
+  /* Hide scrollbar but keep functionality */
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* ============================================
+ * Print Styles for Cookbook
+ * ============================================ */
+
+@media print {
+  @page {
+    size: letter;
+    margin: 0.75in;
+  }
+
+  body {
+    background: white !important;
+    color: black !important;
+    font-size: 11pt;
+    line-height: 1.4;
+  }
+
+  .print\\:hidden {
+    display: none !important;
+  }
+
+  .print\\:block {
+    display: block !important;
+  }
+
+  .print-cookbook {
+    background: white;
+    color: black;
+  }
+
+  .print-title-page {
+    page-break-after: always;
+    min-height: 60vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+  }
+
+  .print-toc {
+    page-break-after: always;
+  }
+
+  .print-recipe-page {
+    page-break-after: always;
+    page-break-inside: avoid;
+  }
+
+  .print-recipe-page:last-child {
+    page-break-after: auto;
+  }
+
+  img {
+    max-width: 100%;
+    height: auto;
+  }
+
+  a {
+    text-decoration: none;
+    color: black;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    page-break-after: avoid;
+    orphans: 3;
+    widows: 3;
+  }
+
+  ul, ol {
+    page-break-inside: avoid;
+  }
+
+  li {
+    orphans: 2;
+    widows: 2;
+  }
+
+  .container {
+    max-width: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  /* Hide app header/toolbar and nav elements when printing */
+  header,
+  nav,
+  .toolbar,
+  .glass-toolbar,
+  [data-testid="sidebar"],
+  .sidebar,
+  button:not(.print-button),
+  .no-print {
+    display: none !important;
+  }
+
+  /* ============================================
+   * Recipe Print Styles
+   * ============================================ */
+  
+  .print-recipe {
+    background: white;
+    color: black;
+    font-family: Georgia, 'Times New Roman', serif;
+  }
+
+  /* Header with title centered */
+  .print-recipe-header {
+    text-align: center;
+    margin-bottom: 0.25rem;
+    padding-bottom: 0.25rem;
+    border-bottom: none;
+  }
+
+  .print-recipe-title {
+    font-size: 16pt;
+    font-weight: bold;
+    margin: 0 0 0.15rem;
+    color: #1a1a1a;
+  }
+
+  .print-recipe-description {
+    font-size: 8pt;
+    font-style: italic;
+    color: #444;
+    margin: 0 0 0.25rem;
+  }
+
+  /* Images row: dish image left, handwritten right */
+  .print-recipe-images {
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    gap: 1rem;
+    margin-bottom: 0.25rem;
+  }
+
+  .print-recipe-dish-image,
+  .print-recipe-handwritten-image {
+    max-width: 2.5in;
+    max-height: 2in;
+    width: auto;
+    height: auto;
+    border-radius: 4px;
+    object-fit: cover;
+    border: 1px solid #ddd;
+  }
+
+  /* Hide the old hero image style */
+  .print-recipe-hero-image {
+    display: none;
+  }
+
+  /* Prep time info on single line below images */
+  .print-recipe-info {
+    display: flex;
+    justify-content: center;
+    gap: 1rem;
+    padding: 0.15rem 0;
+    margin-bottom: 0.3rem;
+    font-size: 8pt;
+    color: #555;
+    border-bottom: 1px solid #ddd;
+  }
+
+  .print-recipe-info span {
+    display: inline-block;
+  }
+
+  .print-recipe-content {
+    display: flex;
+    flex-direction: row;
+    gap: 0.5rem;
+    margin-bottom: 0.25rem;
+  }
+
+  .print-recipe-content > .print-recipe-ingredients {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .print-recipe-content > .print-recipe-instructions {
+    flex: 2;
+    min-width: 0;
+  }
+
+  .print-recipe-ingredients {
+    background: #f9f9f9;
+    padding: 0.3rem 0.5rem;
+    border-radius: 4px;
+    border: 1px solid #e0e0e0;
+    color: #000;
+  }
+
+  .print-recipe-instructions {
+    color: #000;
+  }
+
+  .print-recipe-ingredients h2,
+  .print-recipe-instructions h2,
+  .print-recipe-notes h2,
+  .print-recipe-original h2 {
+    font-size: 9pt;
+    font-weight: bold;
+    margin: 0 0 0.2rem;
+    color: #1a1a1a !important;
+    border-bottom: 1px solid #ccc;
+    padding-bottom: 0.15rem;
+  }
+
+  .print-recipe-ingredients ul {
+    list-style: disc;
+    padding-left: 1rem;
+    margin: 0;
+    color: #000;
+    columns: 2;
+    column-gap: 0.5rem;
+  }
+
+  .print-recipe-ingredients li {
+    font-size: 8pt;
+    margin-bottom: 0.1rem;
+    line-height: 1.2;
+    color: #000 !important;
+    break-inside: avoid;
+  }
+
+  .print-recipe-instructions ol {
+    list-style: decimal;
+    padding-left: 1rem;
+    margin: 0;
+    color: #000;
+  }
+
+  .print-recipe-instructions li {
+    font-size: 8pt;
+    margin-bottom: 0.2rem;
+    line-height: 1.25;
+    color: #000 !important;
+  }
+
+  .print-recipe-notes {
+    margin-top: 0.3rem;
+    padding: 0.3rem 0.5rem;
+    background: #fffbeb;
+    border: 1px solid #e5d7a0;
+    border-radius: 4px;
+  }
+
+  .print-recipe-notes p {
+    font-size: 8pt;
+    margin: 0;
+    font-style: italic;
+    line-height: 1.2;
+  }
+
+  .print-recipe-original {
+    display: none;
+  }
+
+  .print-recipe-handwritten-image {
+    display: none;
+  }
+
+  /* Page break rules for graceful overflow */
+  .print-recipe {
+    page-break-after: always;
+    page-break-inside: avoid;
+  }
+
+  .print-recipe-content {
+    page-break-inside: avoid;
+  }
+
+  .print-recipe-ingredients,
+  .print-recipe-instructions {
+    page-break-inside: avoid;
+  }
+
+  /* Cookbook Print Styles - Each recipe on one page */
+  .cookbook-print-container {
+    background: white;
+    color: black;
+  }
+
+  .cookbook-print-recipe-page {
+    page-break-after: always;
+    page-break-inside: avoid;
+    padding: 0.4in;
+    max-height: 9.5in;
+    overflow: hidden;
+  }
+
+  .cookbook-print-recipe-page:last-child {
+    page-break-after: auto;
+  }
+
+  .cookbook-print-recipe-header {
+    display: flex;
+    gap: 0.75rem;
+    margin-bottom: 0.5rem;
+    align-items: flex-start;
+  }
+
+  .cookbook-print-recipe-image {
+    width: 1.8in;
+    height: 1.8in;
+    object-fit: cover;
+    border-radius: 6px;
+    flex-shrink: 0;
+  }
+
+  .cookbook-print-recipe-title-section {
+    flex: 1;
+  }
+
+  .cookbook-print-recipe-title {
+    font-family: Georgia, serif;
+    font-size: 18pt;
+    font-weight: bold;
+    margin: 0 0 0.25rem 0;
+    color: #1a1a1a;
+    line-height: 1.2;
+  }
+
+  .cookbook-print-recipe-times {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    font-size: 9pt;
+    color: #555;
+  }
+
+  .cookbook-print-recipe-content {
+    display: flex;
+    gap: 1rem;
+  }
+
+  .cookbook-print-ingredients {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .cookbook-print-instructions {
+    flex: 1.5;
+    min-width: 0;
+  }
+
+  .cookbook-print-ingredients h3,
+  .cookbook-print-instructions h3 {
+    font-family: Georgia, serif;
+    font-size: 11pt;
+    font-weight: bold;
+    margin: 0 0 0.3rem 0;
+    padding-bottom: 0.2rem;
+    border-bottom: 1px solid #ccc;
+    color: #1a1a1a;
+  }
+
+  .cookbook-print-ingredients ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+
+  .cookbook-print-ingredients li {
+    font-size: 8pt;
+    line-height: 1.35;
+    padding: 0.1rem 0;
+    color: #000;
+  }
+
+  .cookbook-print-quantity {
+    font-weight: 500;
+    margin-right: 0.15rem;
+  }
+
+  .cookbook-print-prep {
+    color: #555;
+    font-style: italic;
+  }
+
+  .cookbook-print-instructions ol {
+    list-style: decimal;
+    padding-left: 1.1rem;
+    margin: 0;
+  }
+
+  .cookbook-print-instructions li {
+    font-size: 8pt;
+    line-height: 1.35;
+    padding: 0.1rem 0;
+    color: #000;
+  }
+}
