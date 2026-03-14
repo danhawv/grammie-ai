@@ -1,10 +1,10 @@
 [build]
 builder = "nixpacks"
-buildCommand = "npm install && npm run build && npm run db:push"
+buildCommand = "npm install && npm run build"
 nixpacksConfigPath = "nixpacks.toml"
 
 [deploy]
-startCommand = "npm run start"
+startCommand = "npm run db:push && npm run start"
 healthcheckPath = "/health"
 healthcheckTimeout = 300
 restartPolicyType = "on_failure"
