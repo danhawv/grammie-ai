@@ -543,6 +543,18 @@ export const printLayoutDataSchema = z.object({
     showPageNumbers: z.boolean().default(true),
     pageSize: z.enum(['6x9', '8.5x11', 'a4']).default('6x9'),
   }).optional(),
+  // Per-recipe print settings
+  recipePrintSettings: z.record(z.string(), z.object({
+    layoutOverride: z.enum(['full-page', 'text-only', 'two-page-spread']).optional(),
+    includePhoto: z.boolean().optional(),
+  })).optional(),
+  // Cover customization
+  coverData: z.object({
+    backgroundColor: z.string().optional(),
+    spineText: z.string().optional(),
+    backText: z.string().optional(),
+    frontImageUrl: z.string().optional(),
+  }).optional(),
 });
 
 export type PrintLayoutData = z.infer<typeof printLayoutDataSchema>;
@@ -566,8 +578,15 @@ export const cookbookPrintProjects = pgTable("cookbook_print_projects", {
   // Layout JSON structure
   layoutData: jsonb("layout_data").$type<PrintLayoutData>().notNull(),
   
-  // Template style: 'classic' | 'modern' | 'rustic' | 'minimalist'
-  templateStyle: varchar("template_style", { length: 50 }).$type<'classic' | 'modern' | 'rustic' | 'minimalist'>().notNull().default('classic'),
+  // Template style: 'classic' | 'modern' | 'rustic' | 'elegant'
+  templateStyle: varchar("template_style", { length: 50 }).$type<'classic' | 'modern' | 'rustic' | 'elegant'>().notNull().default('classic'),
+
+  // Print specifications (from Lulu POD config)
+  trimSize: varchar("trim_size", { length: 20 }).notNull().default('0600X0900'),
+  bindingType: varchar("binding_type", { length: 5 }).notNull().default('PB'),
+  colorType: varchar("color_type", { length: 5 }).notNull().default('FC'),
+  paperType: varchar("paper_type", { length: 20 }).notNull().default('080CW444'),
+  coverFinish: varchar("cover_finish", { length: 5 }).notNull().default('M'),
   
   // Preflight status: 'pending' | 'passed' | 'warnings' | 'failed'
   preflightStatus: varchar("preflight_status", { length: 20 }).$type<'pending' | 'passed' | 'warnings' | 'failed'>().default('pending'),

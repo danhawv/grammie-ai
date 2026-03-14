@@ -10,9 +10,12 @@ import {
   recipes,
   cookbooks,
 } from "@shared/schema";
-import { generateCookbookPdf, generateCoverPdf } from "../pdf-generator";
+import { generateInteriorPdf, generateCoverPdf, type CookbookPrintData } from "../lib/pdf/generator";
+import { transformRecipe } from "../lib/pdf/recipe-transformer";
+import { buildPodPackageId, BINDING_PAGE_LIMITS } from "../lib/lulu/pod-package";
+import { createPrintJob } from "../lib/lulu/client";
+import type { BookConfig, LuluPrintJobRequest, ShippingLevel } from "../lib/lulu/types";
 import { getUserId, upload, storePdf } from "./route-utils";
-import type { LuluPriceRequest, LuluOrderRequest, PageSizeKey, ColorOption } from "../lulu-api";
 
 const router = Router();
 
@@ -539,7 +542,7 @@ router.post("/cookbooks/:id/print-projects", isAuthenticated, async (req: any, r
 
     const validatedLayout = printLayoutDataSchema.parse(layoutData || { sections: [] });
 
-    const validStyles = ['classic', 'modern', 'rustic', 'minimalist'] as const;
+    const validStyles = ['classic', 'modern', 'rustic', 'elegant'] as const;
     const validTemplateStyle = validStyles.includes(templateStyle) ? templateStyle : 'classic';
 
     const project = await storage.createPrintProject({
@@ -626,7 +629,7 @@ router.patch("/print-projects/:projectId", isAuthenticated, async (req: any, res
     }
 
     if (templateStyle !== undefined) {
-      const validStyles = ['classic', 'modern', 'rustic', 'minimalist'] as const;
+      const validStyles = ['classic', 'modern', 'rustic', 'elegant'] as const;
       if (!validStyles.includes(templateStyle)) {
         return res.status(400).json({ error: "Invalid template style" });
       }
@@ -885,31 +888,16 @@ router.post("/cookbooks/:id/generate-pdf", isAuthenticated, async (req: any, res
       return res.status(400).json({ error: "Invalid layout data", details: validatedLayout.error.issues });
     }
 
-    const validTemplate = templateStyle as 'classic' | 'modern' | 'rustic' | 'minimalist' || 'classic';
-
     const allRecipeIds = validatedLayout.data.sections
       .flatMap(s => Array.isArray(s.recipeIds) ? s.recipeIds : [])
-      .filter((id): id is string => typeof id === 'string' && id.length > 0);
+      .filter((rid): rid is string => typeof rid === 'string' && rid.length > 0);
 
     if (allRecipeIds.length === 0) {
       return res.status(400).json({ error: "No recipes in layout" });
     }
 
-    const recipesResult = await db.select({
-      id: recipes.id,
-      title: recipes.title,
-      description: recipes.description,
-      dishImageThumbnail: recipes.dishImageThumbnail,
-      normalizedIngredients: recipes.normalizedIngredients,
-      normalizedInstructions: recipes.normalizedInstructions,
-      prepTimeMinutes: recipes.prepTimeMinutes,
-      cookTimeMinutes: recipes.cookTimeMinutes,
-      totalTimeMinutes: recipes.totalTimeMinutes,
-      servings: recipes.servings,
-      cuisines: recipes.cuisines,
-      skillLevel: recipes.skillLevel,
-      healthScore: recipes.healthScore,
-    })
+    // Fetch full recipe data for transformation
+    const recipesResult = await db.select()
       .from(recipes)
       .where(inArray(recipes.id, allRecipeIds));
 
@@ -917,52 +905,56 @@ router.post("/cookbooks/:id/generate-pdf", isAuthenticated, async (req: any, res
       return res.status(400).json({ error: "No recipes found in database for this layout" });
     }
 
-    const formattedRecipes = recipesResult.map(r => ({
-      id: r.id,
-      title: r.title,
-      description: r.description,
-      dishImageThumbnail: r.dishImageThumbnail,
-      ingredients: Array.isArray(r.normalizedIngredients)
-        ? r.normalizedIngredients.map((ing: any) => ({
-            name: ing.item || ing.name || '',
-            quantity: ing.quantity?.toString() || '',
-            unit: ing.unit || '',
-          }))
-        : [],
-      instructions: Array.isArray(r.normalizedInstructions)
-        ? r.normalizedInstructions.map((step: any, idx: number) => ({
-            step: step.stepNumber || idx + 1,
-            instruction: step.text || '',
-          }))
-        : [],
-      prepTimeMinutes: r.prepTimeMinutes,
-      cookTimeMinutes: r.cookTimeMinutes,
-      totalTimeMinutes: r.totalTimeMinutes,
-      servings: r.servings,
-      cuisines: r.cuisines,
-      skillLevel: r.skillLevel,
-      healthScore: r.healthScore,
-    }));
+    // Get print project for specs (or use defaults)
+    const printProjects = await storage.getPrintProjectsByCookbook(cookbookId, userId);
+    const printProject = printProjects[0];
 
-    console.log(`[PDF Generation] Starting PDF generation for cookbook ${cookbookId} with ${formattedRecipes.length} recipes`);
+    const trimSize = printProject?.trimSize || '0600X0900';
+    const bindingType = printProject?.bindingType || 'PB';
+    const paperType = printProject?.paperType || '080CW444';
+    const templateId = printProject?.templateStyle || templateStyle || 'classic';
+    const recipePrintSettings = validatedLayout.data.recipePrintSettings || {};
 
-    const result = await generateCookbookPdf(
-      validatedLayout.data,
-      validTemplate,
-      formattedRecipes
-    );
+    // Build cookbook print data using recipe transformer
+    const cookbookPrintData: CookbookPrintData = {
+      title: validatedLayout.data.title || cookbook.name,
+      subtitle: validatedLayout.data.subtitle,
+      authorName: validatedLayout.data.authorName || 'Unknown',
+      templateId,
+      trimSize,
+      bindingType,
+      paperType,
+      sections: validatedLayout.data.sections.map((s, i) => ({
+        id: s.id,
+        title: s.title,
+        sortOrder: i,
+      })),
+      recipes: validatedLayout.data.sections.flatMap((section, sIdx) =>
+        (section.recipeIds || []).map((recipeId, rIdx) => {
+          const recipeData = recipesResult.find(r => r.id === recipeId);
+          if (!recipeData) return null;
+          const settings = recipePrintSettings[recipeId];
+          return {
+            sectionId: section.id,
+            sortOrder: rIdx,
+            layoutOverride: settings?.layoutOverride,
+            data: transformRecipe(recipeData),
+          };
+        }).filter(Boolean)
+      ) as CookbookPrintData['recipes'],
+      coverData: validatedLayout.data.coverData,
+    };
 
-    if (!result.success || !result.pdfBuffer) {
-      console.error(`[PDF Generation] Failed: ${result.error}`);
-      return res.status(500).json({ error: result.error || "PDF generation failed" });
-    }
+    console.log(`[PDF Generation] Starting PDF generation for cookbook ${cookbookId} with ${cookbookPrintData.recipes.length} recipes`);
+
+    const result = await generateInteriorPdf(cookbookPrintData);
 
     console.log(`[PDF Generation] Success - ${result.pageCount} pages generated`);
 
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="${(validatedLayout.data.title || 'cookbook').replace(/[^a-zA-Z0-9]/g, '_')}.pdf"`);
-    res.setHeader('Content-Length', result.pdfBuffer.length);
-    res.send(result.pdfBuffer);
+    res.setHeader('Content-Length', result.buffer.length);
+    res.send(result.buffer);
   } catch (error) {
     console.error("Error generating PDF:", error);
     res.status(500).json({ error: "Failed to generate PDF" });
@@ -977,12 +969,10 @@ router.post("/cookbooks/:id/print-order", isAuthenticated, async (req: any, res)
     const userId = getUserId(req);
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
-    const { luluApi, LULU_POD_PACKAGES } = await import("../lulu-api");
-
-    if (!luluApi.isConfigured) {
+    if (!process.env.LULU_CLIENT_ID || !process.env.LULU_CLIENT_SECRET) {
       return res.status(503).json({
         error: "Lulu Print API not configured",
-        message: "Please set LULU_API_KEY and LULU_API_SECRET environment variables."
+        message: "Please set LULU_CLIENT_ID and LULU_CLIENT_SECRET environment variables."
       });
     }
 
@@ -994,12 +984,9 @@ router.post("/cookbooks/:id/print-order", isAuthenticated, async (req: any, res)
 
     const {
       layoutData,
-      templateStyle,
-      pageSize,
-      colorOption,
       quantity,
       shippingAddress,
-      shippingLevel
+      shippingLevel,
     } = req.body;
 
     if (!layoutData) {
@@ -1010,8 +997,6 @@ router.post("/cookbooks/:id/print-order", isAuthenticated, async (req: any, res)
       return res.status(400).json({ error: "Invalid layout data", details: validatedLayout.error.issues });
     }
 
-    const validTemplate = (templateStyle as 'classic' | 'modern' | 'rustic' | 'minimalist') || 'classic';
-
     const allRecipeIds = validatedLayout.data.sections
       .flatMap(s => Array.isArray(s.recipeIds) ? s.recipeIds : [])
       .filter((rid): rid is string => typeof rid === 'string' && rid.length > 0);
@@ -1020,21 +1005,8 @@ router.post("/cookbooks/:id/print-order", isAuthenticated, async (req: any, res)
       return res.status(400).json({ error: "No recipes in layout" });
     }
 
-    const recipesResult = await db.select({
-      id: recipes.id,
-      title: recipes.title,
-      description: recipes.description,
-      dishImageThumbnail: recipes.dishImageThumbnail,
-      normalizedIngredients: recipes.normalizedIngredients,
-      normalizedInstructions: recipes.normalizedInstructions,
-      prepTimeMinutes: recipes.prepTimeMinutes,
-      cookTimeMinutes: recipes.cookTimeMinutes,
-      totalTimeMinutes: recipes.totalTimeMinutes,
-      servings: recipes.servings,
-      cuisines: recipes.cuisines,
-      skillLevel: recipes.skillLevel,
-      healthScore: recipes.healthScore,
-    })
+    // Fetch full recipe data
+    const recipesResult = await db.select()
       .from(recipes)
       .where(inArray(recipes.id, allRecipeIds));
 
@@ -1042,79 +1014,71 @@ router.post("/cookbooks/:id/print-order", isAuthenticated, async (req: any, res)
       return res.status(400).json({ error: "No recipes found in database for this layout" });
     }
 
-    const formattedRecipes = recipesResult.map(r => ({
-      id: r.id,
-      title: r.title,
-      description: r.description,
-      dishImageThumbnail: r.dishImageThumbnail,
-      ingredients: Array.isArray(r.normalizedIngredients)
-        ? r.normalizedIngredients.map((ing: any) => ({
-            name: ing.item || ing.name || '',
-            quantity: ing.quantity?.toString() || '',
-            unit: ing.unit || '',
-          }))
-        : [],
-      instructions: Array.isArray(r.normalizedInstructions)
-        ? r.normalizedInstructions.map((step: any, idx: number) => ({
-            step: step.stepNumber || idx + 1,
-            instruction: step.text || '',
-          }))
-        : [],
-      prepTimeMinutes: r.prepTimeMinutes,
-      cookTimeMinutes: r.cookTimeMinutes,
-      totalTimeMinutes: r.totalTimeMinutes,
-      servings: r.servings,
-      cuisines: r.cuisines,
-      skillLevel: r.skillLevel,
-      healthScore: r.healthScore,
-    }));
+    // Get print project for specs
+    const printProjects = await storage.getPrintProjectsByCookbook(cookbookId, userId);
+    const printProject = printProjects[0];
 
-    console.log(`[Print Order] Generating PDF for cookbook ${cookbookId} with ${formattedRecipes.length} recipes`);
+    const trimSize = printProject?.trimSize || '0600X0900';
+    const bindingType = printProject?.bindingType || 'PB';
+    const paperType = printProject?.paperType || '080CW444';
+    const colorType = printProject?.colorType || 'FC';
+    const coverFinishVal = printProject?.coverFinish || 'M';
+    const templateId = printProject?.templateStyle || 'classic';
+    const recipePrintSettings = validatedLayout.data.recipePrintSettings || {};
 
-    const pdfResult = await generateCookbookPdf(
-      validatedLayout.data,
-      validTemplate,
-      formattedRecipes
-    );
+    // Build cookbook print data
+    const cookbookPrintData: CookbookPrintData = {
+      title: validatedLayout.data.title || cookbook.name,
+      subtitle: validatedLayout.data.subtitle,
+      authorName: validatedLayout.data.authorName || 'Unknown',
+      templateId,
+      trimSize,
+      bindingType,
+      paperType,
+      sections: validatedLayout.data.sections.map((s, i) => ({
+        id: s.id,
+        title: s.title,
+        sortOrder: i,
+      })),
+      recipes: validatedLayout.data.sections.flatMap((section, sIdx) =>
+        (section.recipeIds || []).map((recipeId, rIdx) => {
+          const recipeData = recipesResult.find(r => r.id === recipeId);
+          if (!recipeData) return null;
+          const settings = recipePrintSettings[recipeId];
+          return {
+            sectionId: section.id,
+            sortOrder: rIdx,
+            layoutOverride: settings?.layoutOverride,
+            data: transformRecipe(recipeData),
+          };
+        }).filter(Boolean)
+      ) as CookbookPrintData['recipes'],
+      coverData: validatedLayout.data.coverData,
+    };
 
-    if (!pdfResult.success || !pdfResult.pdfBuffer) {
-      console.error(`[Print Order] PDF generation failed: ${pdfResult.error}`);
-      return res.status(500).json({ error: pdfResult.error || "PDF generation failed" });
-    }
+    console.log(`[Print Order] Generating PDF for cookbook ${cookbookId} with ${cookbookPrintData.recipes.length} recipes`);
 
-    const LULU_MIN_PAGES = 24;
-    const LULU_MAX_PAGES = 800;
-    const rawPageCount = pdfResult.pageCount || 24;
+    // Generate interior PDF
+    const pdfResult = await generateInteriorPdf(cookbookPrintData);
 
-    if (rawPageCount > LULU_MAX_PAGES) {
-      console.error(`[Print Order] Cookbook exceeds Lulu's 800-page limit: ${rawPageCount} pages`);
+    // Validate page count
+    const limits = BINDING_PAGE_LIMITS[bindingType] || { min: 32, max: 800 };
+    if (pdfResult.pageCount > limits.max) {
       return res.status(400).json({
-        error: `Cookbook too large for printing. Your cookbook has ${rawPageCount} pages but Lulu's maximum is ${LULU_MAX_PAGES} pages. Please reduce the number of recipes.`
+        error: `Cookbook has ${pdfResult.pageCount} pages but maximum is ${limits.max} for this binding type. Please reduce the number of recipes.`
       });
     }
 
-    const pageCount = Math.max(LULU_MIN_PAGES, rawPageCount);
+    const pageCount = Math.max(limits.min, pdfResult.pageCount);
     console.log(`[Print Order] Interior PDF generated with ${pageCount} pages`);
 
     const safeTitle = (validatedLayout.data.title || 'cookbook').replace(/[^a-zA-Z0-9]/g, '_');
-    const interiorPdfId = storePdf(pdfResult.pdfBuffer, `${safeTitle}_interior.pdf`);
+    const interiorPdfId = storePdf(pdfResult.buffer, `${safeTitle}_interior.pdf`);
 
+    // Generate cover PDF
     console.log(`[Print Order] Generating cover PDF for ${pageCount} pages`);
-    const coverResult = await generateCoverPdf({
-      title: validatedLayout.data.title || cookbook.name,
-      subtitle: validatedLayout.data.subtitle,
-      authorName: validatedLayout.data.authorName,
-      pageCount,
-      pageSize: pageSize || '6x9',
-      templateStyle: validTemplate,
-    });
-
-    if (!coverResult.success || !coverResult.pdfBuffer) {
-      console.error(`[Print Order] Cover PDF generation failed: ${coverResult.error}`);
-      return res.status(500).json({ error: coverResult.error || "Cover PDF generation failed" });
-    }
-
-    const coverPdfId = storePdf(coverResult.pdfBuffer, `${safeTitle}_cover.pdf`);
+    const coverBuffer = await generateCoverPdf(cookbookPrintData, pageCount);
+    const coverPdfId = storePdf(coverBuffer, `${safeTitle}_cover.pdf`);
     console.log(`[Print Order] Cover PDF generated successfully`);
 
     const protocol = req.protocol === 'http' && req.get('host')?.includes('repl') ? 'https' : req.protocol;
@@ -1124,33 +1088,47 @@ router.post("/cookbooks/:id/print-order", isAuthenticated, async (req: any, res)
 
     console.log(`[Print Order] PDFs staged at: interior=${interiorUrl}, cover=${coverUrl}`);
 
+    // Build POD package ID from print project specs
+    const bookConfig: BookConfig = {
+      trimSize: trimSize as BookConfig['trimSize'],
+      colorType: colorType as BookConfig['colorType'],
+      printQuality: 'STD',
+      bindingType: bindingType as BookConfig['bindingType'],
+      paperType: paperType as BookConfig['paperType'],
+      coverFinish: coverFinishVal as BookConfig['coverFinish'],
+      linenColor: 'X',
+      foilType: 'X',
+    };
+    const podPackageId = buildPodPackageId(bookConfig);
+
     const externalId = `cookbook-${cookbookId}-${Date.now()}`;
 
-    const orderRequest: LuluOrderRequest = {
-      externalId,
-      title: cookbook.name,
-      coverUrl,
-      interiorUrl,
-      pageCount,
-      pageSize: (pageSize as PageSizeKey) || '6x9',
-      colorOption: (colorOption as ColorOption) || 'color',
-      quantity: quantity || 1,
-      shippingAddress,
-      shippingLevel: shippingLevel || "GROUND",
+    const orderRequest: LuluPrintJobRequest = {
+      contact_email: shippingAddress.email || '',
+      line_items: [{
+        title: cookbook.name,
+        cover: coverUrl,
+        interior: interiorUrl,
+        pod_package_id: podPackageId,
+        quantity: quantity || 1,
+      }],
+      shipping_address: shippingAddress,
+      shipping_level: (shippingLevel || 'GROUND') as ShippingLevel,
+      external_id: externalId,
     };
 
-    const order = await luluApi.createOrder(orderRequest);
+    const order = await createPrintJob(orderRequest);
 
-    const printProjects = await storage.getPrintProjectsByCookbook(cookbookId, userId);
     if (printProjects.length > 0) {
-      await storage.updatePrintProjectLuluOrder(printProjects[0].id, order.orderId, order.status);
+      await storage.updatePrintProjectLuluOrder(printProjects[0].id, String(order.id), order.status.name);
     }
 
     res.json({
       success: true,
-      orderId: order.orderId,
-      status: order.status,
+      orderId: order.id,
+      status: order.status.name,
       message: "Print order submitted successfully",
+      podPackageId,
       pdfUrls: { interior: interiorUrl, cover: coverUrl },
     });
   } catch (error: any) {

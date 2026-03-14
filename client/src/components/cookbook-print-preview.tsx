@@ -36,7 +36,7 @@ interface CookbookPrintPreviewProps {
   open: boolean;
   onClose: () => void;
   layoutData: PrintLayoutData;
-  templateStyle: 'classic' | 'modern' | 'rustic' | 'minimalist';
+  templateStyle: 'classic' | 'modern' | 'rustic' | 'elegant';
   cookbookId: number;
 }
 
@@ -1080,34 +1080,34 @@ function generatePrintCSS(templateStyle: string, pageSize: string): string {
         color: #3d2914;
       }
     `,
-    minimalist: `
-      .cookbook-minimalist {
+    elegant: `
+      .cookbook-elegant {
         font-family: 'Source Sans Pro', 'Segoe UI', Roboto, sans-serif;
         color: #333;
       }
-      .cookbook-minimalist .title-page {
+      .cookbook-elegant .title-page {
         padding: 2in 0;
       }
-      .cookbook-minimalist .book-title {
+      .cookbook-elegant .book-title {
         font-weight: 300;
         font-size: 28pt;
         color: #222;
         letter-spacing: 0.02em;
       }
-      .cookbook-minimalist .book-subtitle {
+      .cookbook-elegant .book-subtitle {
         font-weight: 300;
         font-size: 12pt;
         font-style: normal;
         color: #888;
         margin-top: 0.75em;
       }
-      .cookbook-minimalist .book-author {
+      .cookbook-elegant .book-author {
         font-weight: 400;
         font-size: 11pt;
         color: #666;
         margin-top: 3em;
       }
-      .cookbook-minimalist .dedication-text {
+      .cookbook-elegant .dedication-text {
         font-weight: 300;
         font-size: 13pt;
         font-style: normal;
@@ -1115,14 +1115,14 @@ function generatePrintCSS(templateStyle: string, pageSize: string): string {
         line-height: 2;
         max-width: 3.5in;
       }
-      .cookbook-minimalist .toc-title {
+      .cookbook-elegant .toc-title {
         font-weight: 300;
         font-size: 18pt;
         text-align: left;
         color: #333;
         margin-bottom: 1.5em;
       }
-      .cookbook-minimalist .toc-section {
+      .cookbook-elegant .toc-section {
         font-weight: 500;
         font-size: 11pt;
         color: #222;
@@ -1130,34 +1130,34 @@ function generatePrintCSS(templateStyle: string, pageSize: string): string {
         padding-bottom: 0.2em;
         margin-top: 1.5em;
       }
-      .cookbook-minimalist .toc-entry {
+      .cookbook-elegant .toc-entry {
         font-weight: 300;
         font-size: 10pt;
         color: #666;
         padding: 0.2em 0 0.2em 0;
       }
-      .cookbook-minimalist .section-title {
+      .cookbook-elegant .section-title {
         font-weight: 300;
         font-size: 24pt;
         color: #222;
       }
-      .cookbook-minimalist .recipe-page {
+      .cookbook-elegant .recipe-page {
         padding-top: 0.5in;
       }
-      .cookbook-minimalist .recipe-title {
+      .cookbook-elegant .recipe-title {
         font-weight: 500;
         font-size: 16pt;
         color: #222;
         margin-bottom: 0.3em;
       }
-      .cookbook-minimalist .recipe-description {
+      .cookbook-elegant .recipe-description {
         font-weight: 300;
         font-style: normal;
         color: #666;
         font-size: 10pt;
         margin-bottom: 1em;
       }
-      .cookbook-minimalist .recipe-meta {
+      .cookbook-elegant .recipe-meta {
         font-size: 9pt;
         color: #888;
         border-bottom: none;
@@ -1165,12 +1165,12 @@ function generatePrintCSS(templateStyle: string, pageSize: string): string {
         margin-bottom: 1.5em;
         gap: 1.5em;
       }
-      .cookbook-minimalist .recipe-meta .meta-item {
+      .cookbook-elegant .recipe-meta .meta-item {
         font-weight: 400;
       }
-      .cookbook-minimalist .recipe-ingredients h4,
-      .cookbook-minimalist .recipe-instructions h4,
-      .cookbook-minimalist .recipe-nutrition h4 {
+      .cookbook-elegant .recipe-ingredients h4,
+      .cookbook-elegant .recipe-instructions h4,
+      .cookbook-elegant .recipe-nutrition h4 {
         font-weight: 500;
         text-transform: none;
         font-size: 11pt;
@@ -1178,28 +1178,28 @@ function generatePrintCSS(templateStyle: string, pageSize: string): string {
         color: #333;
         margin-bottom: 0.75em;
       }
-      .cookbook-minimalist .recipe-ingredients ul {
+      .cookbook-elegant .recipe-ingredients ul {
         columns: 2;
         column-gap: 1.5em;
       }
-      .cookbook-minimalist .recipe-ingredients li {
+      .cookbook-elegant .recipe-ingredients li {
         font-weight: 300;
         font-size: 10pt;
         border-bottom: none;
         padding: 0.15em 0;
         break-inside: avoid;
       }
-      .cookbook-minimalist .recipe-instructions li {
+      .cookbook-elegant .recipe-instructions li {
         font-weight: 300;
         font-size: 10pt;
         line-height: 1.7;
         margin-bottom: 0.75em;
       }
-      .cookbook-minimalist .recipe-image {
+      .cookbook-elegant .recipe-image {
         max-height: 2in;
         margin-bottom: 1em;
       }
-      .cookbook-minimalist .nutrition-grid {
+      .cookbook-elegant .nutrition-grid {
         font-size: 9pt;
         color: #888;
         font-weight: 300;

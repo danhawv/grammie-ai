@@ -101,14 +101,23 @@ const TEMPLATE_STYLES = [
   { id: "classic", name: "Classic", description: "Traditional cookbook layout with elegant typography" },
   { id: "modern", name: "Modern", description: "Clean, minimalist design with bold imagery" },
   { id: "rustic", name: "Rustic", description: "Warm, homey feel with textured backgrounds" },
-  { id: "minimalist", name: "Minimalist", description: "Simple, uncluttered design focused on content" },
+  { id: "elegant", name: "Elegant", description: "Sophisticated design with refined typography" },
 ] as const;
 
-const PAGE_SIZES = [
-  { id: "6x9", name: '6" x 9"', description: "Standard paperback" },
-  { id: "8.5x11", name: '8.5" x 11"', description: "Letter size" },
-  { id: "a4", name: "A4", description: "International standard" },
-] as const;
+import {
+  BOOK_SIZES,
+  BINDING_TYPES,
+  PAPER_TYPES,
+  COLOR_TYPES,
+  COVER_FINISHES,
+  BINDING_PAPER_COMPATIBILITY,
+  BINDING_PAGE_LIMITS,
+  type TrimSizeId,
+  type BindingTypeId,
+  type PaperTypeId,
+  type ColorTypeId,
+  type CoverFinishId,
+} from "@/lib/print-constants";
 
 class PrintEditorErrorBoundary extends Component<
   { children: ReactNode },
@@ -455,7 +464,7 @@ function CookbookPrintEditorInner() {
   const [layoutData, setLayoutData] = useState<PrintLayoutData>({
     sections: [],
   });
-  const [templateStyle, setTemplateStyle] = useState<'classic' | 'modern' | 'rustic' | 'minimalist'>('classic');
+  const [templateStyle, setTemplateStyle] = useState<'classic' | 'modern' | 'rustic' | 'elegant'>('classic');
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
   const [activeRecipe, setActiveRecipe] = useState<RecipeCard | null>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
@@ -463,7 +472,16 @@ function CookbookPrintEditorInner() {
   const [newSectionTitle, setNewSectionTitle] = useState("");
   const [showPreview, setShowPreview] = useState(false);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+  const [trimSize, setTrimSize] = useState<TrimSizeId>('0600X0900');
+  const [bindingType, setBindingType] = useState<BindingTypeId>('PB');
+  const [paperType, setPaperType] = useState<PaperTypeId>('080CW444');
+  const [colorType, setColorType] = useState<ColorTypeId>('FC');
+  const [coverFinish, setCoverFinish] = useState<CoverFinishId>('M');
   const isInitialized = useRef(false);
+
+  // Get compatible paper types for current binding
+  const compatiblePapers = BINDING_PAPER_COMPATIBILITY[bindingType] || [];
+  const pageLimits = BINDING_PAGE_LIMITS[bindingType] || { min: 32, max: 800 };
 
   const handleDownloadPdf = async () => {
     if (!cookbookId) return;
@@ -1086,29 +1104,135 @@ function CookbookPrintEditorInner() {
             </CardContent>
           </Card>
 
-          {/* Page Settings */}
+          {/* Print Specifications */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">Page Settings</CardTitle>
+              <CardTitle className="text-lg">Print Specifications</CardTitle>
+              <CardDescription>Configure book size, binding, and paper</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2">
-                <Label>Page Size</Label>
+                <Label>Trim Size</Label>
                 <Select
-                  value={layoutData.customizations?.pageSize || "6x9"}
-                  onValueChange={(value) => updateCustomization("pageSize", value)}
+                  value={trimSize}
+                  onValueChange={(value) => {
+                    setTrimSize(value as TrimSizeId);
+                    setHasUnsavedChanges(true);
+                  }}
                 >
-                  <SelectTrigger data-testid="select-page-size">
+                  <SelectTrigger data-testid="select-trim-size">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {PAGE_SIZES.map((size) => (
-                      <SelectItem key={size.id} value={size.id}>
-                        {size.name} - {size.description}
+                    {Object.entries(BOOK_SIZES).map(([id, size]) => (
+                      <SelectItem key={id} value={id}>
+                        {size.name} ({size.description})
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Binding Type</Label>
+                <Select
+                  value={bindingType}
+                  onValueChange={(value) => {
+                    const bt = value as BindingTypeId;
+                    setBindingType(bt);
+                    // Reset paper if not compatible
+                    const compat = BINDING_PAPER_COMPATIBILITY[bt] || [];
+                    if (!compat.includes(paperType)) {
+                      setPaperType(compat[0] as PaperTypeId);
+                    }
+                    setHasUnsavedChanges(true);
+                  }}
+                >
+                  <SelectTrigger data-testid="select-binding-type">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Object.entries(BINDING_TYPES).map(([id, info]) => (
+                      <SelectItem key={id} value={id}>
+                        {info.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  {BINDING_TYPES[bindingType].description}
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Paper Type</Label>
+                <Select
+                  value={paperType}
+                  onValueChange={(value) => {
+                    setPaperType(value as PaperTypeId);
+                    setHasUnsavedChanges(true);
+                  }}
+                >
+                  <SelectTrigger data-testid="select-paper-type">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {compatiblePapers.map((id) => (
+                      <SelectItem key={id} value={id}>
+                        {PAPER_TYPES[id]?.name || id}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  {PAPER_TYPES[paperType]?.description}
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <Label>Color</Label>
+                  <Select
+                    value={colorType}
+                    onValueChange={(value) => {
+                      setColorType(value as ColorTypeId);
+                      setHasUnsavedChanges(true);
+                    }}
+                  >
+                    <SelectTrigger data-testid="select-color-type">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Object.entries(COLOR_TYPES).map(([id, info]) => (
+                        <SelectItem key={id} value={id}>
+                          {info.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Cover Finish</Label>
+                  <Select
+                    value={coverFinish}
+                    onValueChange={(value) => {
+                      setCoverFinish(value as CoverFinishId);
+                      setHasUnsavedChanges(true);
+                    }}
+                  >
+                    <SelectTrigger data-testid="select-cover-finish">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Object.entries(COVER_FINISHES).map(([id, info]) => (
+                        <SelectItem key={id} value={id}>
+                          {info.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
 
               <Separator />
@@ -1136,6 +1260,10 @@ function CookbookPrintEditorInner() {
                     data-testid="checkbox-page-numbers"
                   />
                 </div>
+              </div>
+
+              <div className="text-xs text-muted-foreground p-2 bg-muted rounded">
+                Page limits: {pageLimits.min}–{pageLimits.max} pages for {BINDING_TYPES[bindingType].name}
               </div>
             </CardContent>
           </Card>
