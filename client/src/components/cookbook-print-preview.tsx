@@ -1,21 +1,24 @@
-import { useState, useMemo, useEffect, useRef, useCallback } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
-  X, ChevronLeft, ChevronRight, BookOpen, ZoomIn, ZoomOut,
-  Ruler, Eye, EyeOff,
+  X, ChevronLeft, ChevronRight, ZoomIn, ZoomOut,
+  Ruler, Loader2,
 } from "lucide-react";
 import type { PrintLayoutData } from "@shared/schema";
 import { BOOK_SIZES, type TrimSizeId } from "@/lib/print-constants";
+import { Previewer } from "pagedjs";
 
 // --- Constants ---
-const DPI = 96; // Screen DPI for virtual stage
-const BLEED = 0.125; // Lulu bleed in inches
-const MARGIN_OUTER = 0.5; // Outer margin in inches
-const MARGIN_INNER = 0.75; // Inner/gutter margin in inches (binding side)
-const SAFE_ZONE = 0.25; // Keep critical content this far from trim edge
+const DPI = 96;
+const BLEED = 0.125;
+const MARGIN_OUTER = 0.5;
+const MARGIN_INNER = 0.75;
+const MARGIN_TOP = 0.5;
+const MARGIN_BOTTOM = 0.5;
+const SAFE_ZONE = 0.25;
 
 interface Recipe {
   id: string;
@@ -49,41 +52,34 @@ interface CookbookPrintPreviewProps {
   trimSize?: string;
 }
 
-type PageContent =
-  | { type: "cover" }
-  | { type: "dedication" }
-  | { type: "toc" }
-  | { type: "section"; title: string }
-  | { type: "recipe"; recipe: Recipe; index: number }
-  | { type: "back" };
-
 // Theme configurations
 const THEMES = {
   classic: {
-    coverBg: "#fef3c7", // amber-100
-    coverAccent: "#f59e0b", // amber-500
-    pageBg: "#fffbeb", // amber-50
+    coverBg: "#fef3c7",
+    coverAccent: "#f59e0b",
+    pageBg: "#fffbeb",
     sectionBg: "#fef3c7",
     titleFont: "'Georgia', serif",
     bodyFont: "'Georgia', serif",
-    titleColor: "#292524", // stone-800
-    subtitleColor: "#57534e", // stone-600
-    bodyColor: "#44403c", // stone-700
-    accentColor: "#ea580c", // orange-600
-    mutedColor: "#78716c", // stone-500
-    lightColor: "#a8a29e", // stone-400
-    badgeBg: "#fff7ed", // orange-50
-    badgeColor: "#c2410c", // orange-700
-    tipBg: "#fffbeb", // amber-50
-    tipBorder: "#fde68a", // amber-200
-    tipColor: "#92400e", // amber-800
+    titleColor: "#292524",
+    subtitleColor: "#57534e",
+    bodyColor: "#44403c",
+    accentColor: "#ea580c",
+    mutedColor: "#78716c",
+    lightColor: "#a8a29e",
+    badgeBg: "#fff7ed",
+    badgeColor: "#c2410c",
+    tipBg: "#fffbeb",
+    tipBorder: "#fde68a",
+    tipColor: "#92400e",
     dividerColor: "#f59e0b",
-    sectionDecor: "✦",
+    sectionDecor: "&#10022;", // ✦
     borderStyle: "2px solid rgba(245, 158, 11, 0.3)",
+    headingDecor: "~",
   },
   modern: {
-    coverBg: "#f9fafb", // gray-50
-    coverAccent: "#111827", // gray-900
+    coverBg: "#f9fafb",
+    coverAccent: "#111827",
     pageBg: "#ffffff",
     sectionBg: "#f3f4f6",
     titleFont: "'Helvetica Neue', Arial, sans-serif",
@@ -100,17 +96,18 @@ const THEMES = {
     tipBorder: "#e5e7eb",
     tipColor: "#374151",
     dividerColor: "#111827",
-    sectionDecor: "—",
+    sectionDecor: "&mdash;",
     borderStyle: "1px solid #e5e7eb",
+    headingDecor: "|",
   },
   rustic: {
     coverBg: "#fef3c7",
     coverAccent: "#92400e",
-    pageBg: "#fefce8", // yellow-50
+    pageBg: "#fefce8",
     sectionBg: "#fef9c3",
     titleFont: "'Georgia', 'Cambria', serif",
     bodyFont: "'Georgia', serif",
-    titleColor: "#78350f", // amber-900
+    titleColor: "#78350f",
     subtitleColor: "#92400e",
     bodyColor: "#78350f",
     accentColor: "#b45309",
@@ -122,12 +119,13 @@ const THEMES = {
     tipBorder: "#fde68a",
     tipColor: "#78350f",
     dividerColor: "#b45309",
-    sectionDecor: "❧",
+    sectionDecor: "&#10087;", // ❧
     borderStyle: "2px solid rgba(180, 83, 9, 0.3)",
+    headingDecor: "~",
   },
   elegant: {
-    coverBg: "#f8fafc", // slate-50
-    coverAccent: "#475569", // slate-600
+    coverBg: "#f8fafc",
+    coverAccent: "#475569",
     pageBg: "#ffffff",
     sectionBg: "#f1f5f9",
     titleFont: "'Georgia', 'Palatino', serif",
@@ -144,10 +142,13 @@ const THEMES = {
     tipBorder: "#e2e8f0",
     tipColor: "#475569",
     dividerColor: "#94a3b8",
-    sectionDecor: "◆",
+    sectionDecor: "&#9670;", // ◆
     borderStyle: "1px solid #e2e8f0",
+    headingDecor: ".",
   },
 };
+
+type ThemeConfig = typeof THEMES.classic;
 
 function formatTime(minutes: number | null | undefined): string {
   if (!minutes) return "";
@@ -160,8 +161,8 @@ function formatTime(minutes: number | null | undefined): string {
 function formatQuantity(quantity: number | undefined, unit: string | undefined): string {
   if (!quantity) return "";
   const fractionMap: { [key: number]: string } = {
-    0.25: "¼", 0.33: "⅓", 0.5: "½", 0.66: "⅔", 0.75: "¾",
-    0.125: "⅛", 0.375: "⅜", 0.625: "⅝", 0.875: "⅞",
+    0.25: "&#188;", 0.33: "&#8531;", 0.5: "&#189;", 0.66: "&#8532;", 0.75: "&#190;",
+    0.125: "&#8539;", 0.375: "&#8540;", 0.625: "&#8541;", 0.875: "&#8542;",
   };
   const whole = Math.floor(quantity);
   const decimal = quantity - whole;
@@ -179,6 +180,789 @@ function formatQuantity(quantity: number | undefined, unit: string | undefined):
   return quantityStr.trim();
 }
 
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+// --- HTML Content Generators ---
+
+function generateCoverHtml(layoutData: PrintLayoutData, theme: ThemeConfig, recipeCount: number): string {
+  return `
+    <section class="page-cover">
+      <div class="cover-accent-top"></div>
+      <div class="cover-accent-bottom"></div>
+      <div class="cover-border"></div>
+      <div class="cover-content">
+        <div class="cover-icon">
+          <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path>
+            <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path>
+          </svg>
+        </div>
+        <h1 class="cover-title">${escapeHtml(layoutData.title || "My Cookbook")}</h1>
+        ${layoutData.subtitle ? `<p class="cover-subtitle">${escapeHtml(layoutData.subtitle)}</p>` : ''}
+        <div class="cover-footer">
+          ${layoutData.authorName ? `<p class="cover-author">by ${escapeHtml(layoutData.authorName)}</p>` : ''}
+          <p class="cover-recipe-count">${recipeCount} recipe${recipeCount !== 1 ? "s" : ""}</p>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function generateDedicationHtml(layoutData: PrintLayoutData, theme: ThemeConfig): string {
+  if (!layoutData.dedication) return '';
+  return `
+    <section class="page-dedication">
+      <div class="dedication-content">
+        <p class="dedication-text">${escapeHtml(layoutData.dedication)}</p>
+      </div>
+    </section>
+  `;
+}
+
+function generateTocHtml(
+  sections: PrintLayoutData["sections"],
+  recipesById: Map<string, Recipe>,
+  theme: ThemeConfig
+): string {
+  let globalIdx = 0;
+  let tocItems = '';
+
+  sections.forEach((section, sIdx) => {
+    if (sections.length > 1) {
+      tocItems += `<div class="toc-section-title">${escapeHtml(section.title)}</div>`;
+    }
+    section.recipeIds.forEach((id) => {
+      const recipe = recipesById.get(String(id));
+      if (!recipe) return;
+      const idx = globalIdx++;
+      const time = formatTime(recipe.totalTimeMinutes || recipe.cookTimeMinutes);
+      tocItems += `
+        <div class="toc-entry">
+          <span class="toc-number">${idx + 1}</span>
+          <span class="toc-title">${escapeHtml(recipe.title)}</span>
+          <span class="toc-dots"></span>
+          ${time ? `<span class="toc-time">${time}</span>` : ''}
+        </div>
+      `;
+    });
+  });
+
+  return `
+    <section class="page-toc">
+      <h2 class="toc-heading">Table of Contents</h2>
+      <div class="toc-divider"></div>
+      <div class="toc-list">
+        ${tocItems}
+      </div>
+    </section>
+  `;
+}
+
+function generateSectionDividerHtml(title: string, theme: ThemeConfig): string {
+  return `
+    <section class="page-section-divider">
+      <div class="section-decor">${theme.sectionDecor}</div>
+      <h2 class="section-title">${escapeHtml(title)}</h2>
+      <div class="section-rule"></div>
+    </section>
+  `;
+}
+
+function generateRecipeHtml(recipe: Recipe, index: number, theme: ThemeConfig, pageWidthIn: number): string {
+  const ingredients = recipe.normalizedIngredients ||
+    (recipe.ingredients || []).map((raw: any) =>
+      typeof raw === "string" ? { raw, item: raw } : raw
+    );
+  const instructions = recipe.normalizedInstructions ||
+    (recipe.instructions || []).map((text: any, i: number) =>
+      typeof text === "string" ? { stepNumber: i + 1, text } : text
+    );
+
+  const imgSrc = recipe.dishImageThumbnail || recipe.dishImage;
+  const useColumns = pageWidthIn >= 5.5;
+
+  let imageSection = '';
+  if (imgSrc) {
+    imageSection = `
+      <div class="recipe-hero">
+        <img src="${imgSrc}" alt="${escapeHtml(recipe.title)}" class="recipe-hero-img" />
+        <div class="recipe-hero-gradient"></div>
+        <div class="recipe-hero-title-overlay">
+          <h2 class="recipe-title recipe-title-on-image">${escapeHtml(recipe.title)}</h2>
+        </div>
+      </div>
+    `;
+  }
+
+  let titleSection = '';
+  if (!imgSrc) {
+    titleSection = `
+      <div class="recipe-title-block">
+        <h2 class="recipe-title">${escapeHtml(recipe.title)}</h2>
+        <div class="recipe-title-rule"></div>
+      </div>
+    `;
+  }
+
+  // Time badges
+  let badges = '';
+  if (recipe.prepTimeMinutes || recipe.cookTimeMinutes || recipe.servings) {
+    let badgeItems = '';
+    if (recipe.prepTimeMinutes) {
+      badgeItems += `<span class="recipe-badge">Prep: ${formatTime(recipe.prepTimeMinutes)}</span>`;
+    }
+    if (recipe.cookTimeMinutes) {
+      badgeItems += `<span class="recipe-badge">Cook: ${formatTime(recipe.cookTimeMinutes)}</span>`;
+    }
+    if (recipe.servings) {
+      badgeItems += `<span class="recipe-badge recipe-badge-muted">Serves ${recipe.servings}</span>`;
+    }
+    badges = `<div class="recipe-badges">${badgeItems}</div>`;
+  }
+
+  // Description
+  let descSection = '';
+  if (recipe.description) {
+    descSection = `<p class="recipe-description">${escapeHtml(recipe.description)}</p>`;
+  }
+
+  // Ingredients
+  let ingredientItems = ingredients.map((ing: any) => {
+    const qStr = formatQuantity(ing.quantity, ing.unit);
+    const itemName = escapeHtml(ing.item || ing.name || ing.raw || "");
+    const prep = ing.preparation ? `<span class="ingredient-prep">, ${escapeHtml(ing.preparation)}</span>` : '';
+    return `<li class="ingredient-item">${qStr ? `<span class="ingredient-qty">${qStr}</span> ` : ''}${itemName}${prep}</li>`;
+  }).join('\n');
+
+  // Instructions
+  let instructionItems = instructions.map((step: any, idx: number) => {
+    const text = typeof step === "string" ? step : (step.text || step.instruction || "");
+    return `<li class="instruction-item"><span class="step-number">${idx + 1}.</span> <span class="step-text">${escapeHtml(text)}</span></li>`;
+  }).join('\n');
+
+  // Tips
+  let tipsSection = '';
+  if (recipe.tips && (recipe.tips as any[]).length > 0) {
+    const tipItems = (recipe.tips as any[]).map((tip: any) => {
+      const text = typeof tip === "string" ? tip : (tip.text || "");
+      return `<p class="tip-text">${escapeHtml(text)}</p>`;
+    }).join('\n');
+    tipsSection = `
+      <div class="recipe-tips">
+        <h4 class="tips-heading">Tips</h4>
+        ${tipItems}
+      </div>
+    `;
+  }
+
+  return `
+    <section class="recipe-page">
+      ${imageSection}
+      ${titleSection}
+      ${badges}
+      ${descSection}
+      <div class="recipe-body ${useColumns ? 'recipe-body-columns' : ''}">
+        <div class="ingredients-column">
+          <h3 class="recipe-section-heading">Ingredients</h3>
+          <ul class="ingredient-list">${ingredientItems}</ul>
+        </div>
+        <div class="instructions-column">
+          <h3 class="recipe-section-heading">Instructions</h3>
+          <ol class="instruction-list">${instructionItems}</ol>
+        </div>
+      </div>
+      ${tipsSection}
+    </section>
+  `;
+}
+
+function generateBackCoverHtml(layoutData: PrintLayoutData, theme: ThemeConfig): string {
+  return `
+    <section class="page-back-cover">
+      <div class="cover-accent-top"></div>
+      <div class="cover-accent-bottom"></div>
+      <div class="back-cover-content">
+        <svg xmlns="http://www.w3.org/2000/svg" width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="${theme.lightColor}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="back-cover-icon">
+          <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path>
+          <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path>
+        </svg>
+        <h2 class="back-cover-title">${escapeHtml(layoutData.title || "My Cookbook")}</h2>
+        ${layoutData.subtitle ? `<p class="back-cover-subtitle">${escapeHtml(layoutData.subtitle)}</p>` : ''}
+        ${layoutData.coverData?.backText ? `<p class="back-cover-text">${escapeHtml(layoutData.coverData.backText)}</p>` : ''}
+        <p class="back-cover-branding">Made with Grammie</p>
+      </div>
+    </section>
+  `;
+}
+
+// --- CSS Generation ---
+
+function generatePagedCSS(
+  theme: ThemeConfig,
+  pageWidthIn: number,
+  pageHeightIn: number,
+  templateStyle: string
+): string {
+  const contentW = pageWidthIn - MARGIN_OUTER - MARGIN_INNER;
+  const isSmallPage = pageWidthIn < 6;
+  const isLargePage = pageWidthIn >= 8;
+  const titleSize = isSmallPage ? 16 : isLargePage ? 24 : 20;
+  const bodySize = isSmallPage ? 9 : isLargePage ? 11 : 10;
+  const headingSize = isSmallPage ? 10 : isLargePage ? 13 : 11;
+  const imageHeight = isSmallPage ? '1.5in' : isLargePage ? '2.5in' : '2in';
+
+  return `
+    @page {
+      size: ${pageWidthIn}in ${pageHeightIn}in;
+      margin-top: ${MARGIN_TOP}in;
+      margin-bottom: ${MARGIN_BOTTOM}in;
+      margin-inside: ${MARGIN_INNER}in;
+      margin-outside: ${MARGIN_OUTER}in;
+
+      @bottom-center {
+        content: counter(page);
+        font-family: ${theme.bodyFont};
+        font-size: 8pt;
+        color: ${theme.lightColor};
+      }
+    }
+
+    @page :first {
+      @bottom-center { content: none; }
+    }
+
+    @page cover {
+      margin: 0;
+      @bottom-center { content: none; }
+    }
+
+    @page back-cover {
+      margin: 0;
+      @bottom-center { content: none; }
+    }
+
+    @page section-divider {
+      margin: 0;
+      @bottom-center { content: none; }
+    }
+
+    @page dedication {
+      @bottom-center { content: none; }
+    }
+
+    /* ---- Base Reset ---- */
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: ${theme.bodyFont};
+      font-size: ${bodySize}pt;
+      color: ${theme.bodyColor};
+      background: ${theme.pageBg};
+      line-height: 1.5;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+
+    /* ---- Cover ---- */
+    .page-cover {
+      page: cover;
+      break-before: page;
+      break-after: page;
+      width: ${pageWidthIn}in;
+      height: ${pageHeightIn}in;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: ${theme.coverBg};
+      overflow: hidden;
+    }
+
+    .cover-accent-top, .cover-accent-bottom {
+      position: absolute;
+      left: 0; right: 0;
+      height: 6px;
+      background: ${theme.coverAccent};
+    }
+    .cover-accent-top { top: 0; }
+    .cover-accent-bottom { bottom: 0; }
+
+    .cover-border {
+      position: absolute;
+      top: 18px; left: 18px; right: 18px; bottom: 18px;
+      border: ${theme.borderStyle};
+      border-radius: 4px;
+      pointer-events: none;
+    }
+
+    .cover-content {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      padding: 0.75in;
+      width: 100%;
+      height: 100%;
+      justify-content: center;
+    }
+
+    .cover-icon {
+      width: 64px; height: 64px;
+      border-radius: 50%;
+      background: ${theme.coverAccent};
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 16px;
+    }
+
+    .cover-title {
+      font-family: ${theme.titleFont};
+      font-size: ${titleSize + 8}pt;
+      font-weight: 700;
+      color: ${theme.titleColor};
+      line-height: 1.2;
+      margin-bottom: 8px;
+      max-width: 90%;
+    }
+
+    .cover-subtitle {
+      font-size: ${bodySize + 2}pt;
+      font-style: italic;
+      color: ${theme.subtitleColor};
+      margin-bottom: 16px;
+      max-width: 80%;
+    }
+
+    .cover-footer {
+      margin-top: auto;
+      padding-top: 24px;
+    }
+
+    .cover-author {
+      font-size: ${bodySize}pt;
+      color: ${theme.mutedColor};
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+
+    .cover-recipe-count {
+      font-size: ${bodySize - 1}pt;
+      color: ${theme.lightColor};
+      margin-top: 4px;
+    }
+
+    /* ---- Dedication ---- */
+    .page-dedication {
+      page: dedication;
+      break-before: page;
+      break-after: page;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100%;
+    }
+
+    .dedication-content {
+      max-width: 80%;
+      text-align: center;
+    }
+
+    .dedication-text {
+      font-family: ${theme.titleFont};
+      font-size: ${bodySize + 2}pt;
+      font-style: italic;
+      color: ${theme.subtitleColor};
+      line-height: 1.8;
+    }
+
+    /* ---- TOC ---- */
+    .page-toc {
+      break-before: page;
+    }
+
+    .toc-heading {
+      font-family: ${theme.titleFont};
+      font-size: ${titleSize}pt;
+      font-weight: 700;
+      color: ${theme.titleColor};
+      text-align: center;
+      margin-bottom: 4px;
+    }
+
+    .toc-divider {
+      width: 48px;
+      height: 2px;
+      background: ${theme.dividerColor};
+      margin: 0 auto 16px;
+    }
+
+    .toc-section-title {
+      font-size: ${bodySize - 1}pt;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: ${theme.accentColor};
+      margin-top: 12px;
+      margin-bottom: 4px;
+      padding-bottom: 3px;
+      border-bottom: 1px solid ${theme.dividerColor}40;
+    }
+
+    .toc-entry {
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+      padding: 3px 2px;
+      font-family: ${theme.bodyFont};
+    }
+
+    .toc-number {
+      font-size: ${bodySize - 1}pt;
+      color: ${theme.lightColor};
+      font-family: monospace;
+      width: 18px;
+      flex-shrink: 0;
+      text-align: right;
+    }
+
+    .toc-title {
+      font-size: ${bodySize}pt;
+      color: ${theme.bodyColor};
+      flex: 1;
+    }
+
+    .toc-dots {
+      flex: 1;
+      border-bottom: 1px dotted ${theme.lightColor};
+      min-width: 20px;
+      margin-bottom: 3px;
+    }
+
+    .toc-time {
+      font-size: ${bodySize - 1}pt;
+      color: ${theme.lightColor};
+      flex-shrink: 0;
+    }
+
+    /* ---- Section Dividers ---- */
+    .page-section-divider {
+      page: section-divider;
+      break-before: page;
+      break-after: page;
+      width: ${pageWidthIn}in;
+      height: ${pageHeightIn}in;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      background: ${theme.sectionBg};
+    }
+
+    .section-decor {
+      font-size: 28pt;
+      color: ${theme.lightColor};
+      margin-bottom: 12px;
+    }
+
+    .section-title {
+      font-family: ${theme.titleFont};
+      font-size: ${titleSize + 2}pt;
+      font-weight: 700;
+      color: ${theme.titleColor};
+      margin-bottom: 8px;
+    }
+
+    .section-rule {
+      width: 40px;
+      height: 2px;
+      background: ${theme.dividerColor};
+    }
+
+    /* ---- Recipe Pages ---- */
+    .recipe-page {
+      break-before: page;
+      break-inside: auto;
+    }
+
+    .recipe-hero {
+      position: relative;
+      width: calc(100% + ${MARGIN_OUTER}in + ${MARGIN_INNER}in);
+      height: ${imageHeight};
+      margin-top: -${MARGIN_TOP}in;
+      margin-left: -${MARGIN_INNER}in;
+      margin-right: -${MARGIN_OUTER}in;
+      margin-bottom: 10px;
+      overflow: hidden;
+    }
+
+    /* Override for right-hand pages */
+    .pagedjs_right_page .recipe-hero {
+      margin-left: -${MARGIN_OUTER}in;
+      margin-right: -${MARGIN_INNER}in;
+    }
+
+    .recipe-hero-img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .recipe-hero-gradient {
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(to top, rgba(0,0,0,0.65), transparent 60%);
+    }
+
+    .recipe-hero-title-overlay {
+      position: absolute;
+      bottom: 0; left: 0; right: 0;
+      padding: 10px 14px;
+    }
+
+    .recipe-title {
+      font-family: ${theme.titleFont};
+      font-size: ${titleSize}pt;
+      font-weight: 700;
+      color: ${theme.titleColor};
+      line-height: 1.2;
+      margin-bottom: 4px;
+    }
+
+    .recipe-title-on-image {
+      color: white;
+      text-shadow: 0 1px 4px rgba(0,0,0,0.3);
+    }
+
+    .recipe-title-block {
+      margin-bottom: 8px;
+    }
+
+    .recipe-title-rule {
+      width: 32px;
+      height: 2px;
+      background: ${theme.dividerColor};
+      margin-top: 4px;
+    }
+
+    /* Badges */
+    .recipe-badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      margin-bottom: 8px;
+    }
+
+    .recipe-badge {
+      font-size: ${bodySize - 1}pt;
+      background: ${theme.badgeBg};
+      color: ${theme.badgeColor};
+      padding: 1px 8px;
+      border-radius: 10px;
+      white-space: nowrap;
+    }
+
+    .recipe-badge-muted {
+      background: ${theme.tipBg};
+      color: ${theme.mutedColor};
+    }
+
+    .recipe-description {
+      font-size: ${bodySize}pt;
+      font-style: italic;
+      color: ${theme.subtitleColor};
+      line-height: 1.5;
+      margin-bottom: 10px;
+    }
+
+    /* Two-column layout */
+    .recipe-body-columns {
+      display: grid;
+      grid-template-columns: 1fr 1.5fr;
+      gap: 14px;
+    }
+
+    .recipe-section-heading {
+      font-family: ${theme.titleFont};
+      font-size: ${headingSize}pt;
+      font-weight: 700;
+      color: ${theme.titleColor};
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 6px;
+      padding-bottom: 3px;
+      border-bottom: 1px solid ${theme.dividerColor}30;
+    }
+
+    .ingredient-list {
+      list-style: none;
+      padding: 0;
+      margin: 0 0 10px 0;
+    }
+
+    .ingredient-item {
+      font-size: ${bodySize}pt;
+      color: ${theme.bodyColor};
+      padding: 1.5px 0;
+      line-height: 1.35;
+    }
+
+    .ingredient-qty {
+      font-weight: 600;
+      color: ${theme.titleColor};
+    }
+
+    .ingredient-prep {
+      color: ${theme.mutedColor};
+    }
+
+    .instruction-list {
+      list-style: none;
+      padding: 0;
+      margin: 0 0 10px 0;
+    }
+
+    .instruction-item {
+      font-size: ${bodySize}pt;
+      color: ${theme.bodyColor};
+      padding: 2.5px 0;
+      line-height: 1.45;
+    }
+
+    .step-number {
+      font-weight: 700;
+      color: ${theme.accentColor};
+    }
+
+    /* Tips */
+    .recipe-tips {
+      margin-top: 10px;
+      padding: 8px 10px;
+      background: ${theme.tipBg};
+      border-radius: 4px;
+      border: 1px solid ${theme.tipBorder};
+      break-inside: avoid;
+    }
+
+    .tips-heading {
+      font-size: ${bodySize - 1}pt;
+      font-weight: 700;
+      color: ${theme.tipColor};
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 3px;
+    }
+
+    .tip-text {
+      font-size: ${bodySize - 1}pt;
+      color: ${theme.tipColor};
+      line-height: 1.4;
+    }
+
+    /* ---- Back Cover ---- */
+    .page-back-cover {
+      page: back-cover;
+      break-before: page;
+      width: ${pageWidthIn}in;
+      height: ${pageHeightIn}in;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: ${theme.coverBg};
+      overflow: hidden;
+    }
+
+    .back-cover-content {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      padding: 0.75in;
+      width: 100%;
+      height: 100%;
+      justify-content: center;
+    }
+
+    .back-cover-icon {
+      margin-bottom: 16px;
+    }
+
+    .back-cover-title {
+      font-family: ${theme.titleFont};
+      font-size: ${titleSize}pt;
+      font-weight: 700;
+      color: ${theme.titleColor};
+      margin-bottom: 8px;
+    }
+
+    .back-cover-subtitle {
+      font-size: ${bodySize + 1}pt;
+      font-style: italic;
+      color: ${theme.mutedColor};
+      max-width: 70%;
+      margin-bottom: 24px;
+    }
+
+    .back-cover-text {
+      font-size: ${bodySize}pt;
+      color: ${theme.bodyColor};
+      max-width: 80%;
+      line-height: 1.6;
+      margin-bottom: 24px;
+    }
+
+    .back-cover-branding {
+      font-size: ${bodySize - 1}pt;
+      color: ${theme.lightColor};
+      margin-top: auto;
+    }
+
+    /* ---- Paged.js container overrides ---- */
+    .pagedjs_page {
+      background: ${theme.pageBg};
+      margin-bottom: 0 !important;
+    }
+
+    /* Keep ingredients together when possible */
+    .ingredient-item {
+      break-inside: avoid;
+    }
+
+    .instruction-item {
+      break-inside: avoid;
+    }
+
+    .recipe-tips {
+      break-inside: avoid;
+    }
+
+    .recipe-badges {
+      break-inside: avoid;
+    }
+
+    .recipe-title-block {
+      break-after: avoid;
+    }
+
+    .recipe-section-heading {
+      break-after: avoid;
+    }
+  `;
+}
+
+// --- Main Component ---
+
 export function CookbookPrintPreview({
   open,
   onClose,
@@ -190,7 +974,11 @@ export function CookbookPrintPreview({
   const [currentPage, setCurrentPage] = useState(0);
   const [zoom, setZoom] = useState(1);
   const [showGuides, setShowGuides] = useState(true);
+  const [totalPages, setTotalPages] = useState(0);
+  const [rendering, setRendering] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const pagedContainerRef = useRef<HTMLDivElement>(null);
+  const pagesRef = useRef<HTMLElement[]>([]);
   const theme = THEMES[templateStyle] || THEMES.classic;
 
   // Get trim size dimensions
@@ -199,7 +987,6 @@ export function CookbookPrintPreview({
   const pageWidthIn = sizeConfig.width;
   const pageHeightIn = sizeConfig.height;
 
-  // Virtual stage dimensions in CSS pixels (at 96 DPI)
   const stageW = pageWidthIn * DPI;
   const stageH = pageHeightIn * DPI;
 
@@ -210,7 +997,7 @@ export function CookbookPrintPreview({
     const updateScale = () => {
       const container = containerRef.current;
       if (!container) return;
-      const availW = container.clientWidth - 120; // padding for arrows
+      const availW = container.clientWidth - 120;
       const availH = container.clientHeight - 20;
       const scaleX = availW / stageW;
       const scaleY = availH / stageH;
@@ -246,34 +1033,6 @@ export function CookbookPrintPreview({
     return map;
   }, [recipesData?.recipes]);
 
-  // Build pages
-  const pages: PageContent[] = useMemo(() => {
-    const p: PageContent[] = [];
-    p.push({ type: "cover" });
-    if (layoutData.dedication) p.push({ type: "dedication" });
-
-    const hasRecipes = layoutData.sections.some(s =>
-      s.recipeIds.some(id => recipesById.has(String(id)))
-    );
-    if (hasRecipes) p.push({ type: "toc" });
-
-    let recipeIndex = 0;
-    layoutData.sections.forEach(section => {
-      const sectionRecipes = section.recipeIds
-        .map(id => recipesById.get(String(id)))
-        .filter(Boolean) as Recipe[];
-      if (sectionRecipes.length > 0 && layoutData.sections.length > 1) {
-        p.push({ type: "section", title: section.title });
-      }
-      sectionRecipes.forEach(recipe => {
-        p.push({ type: "recipe", recipe, index: recipeIndex++ });
-      });
-    });
-    p.push({ type: "back" });
-    return p;
-  }, [layoutData, recipesById]);
-
-  const totalPages = pages.length;
   const allOrderedRecipes = useMemo(() => {
     const recipes: Recipe[] = [];
     layoutData.sections.forEach(section => {
@@ -285,8 +1044,106 @@ export function CookbookPrintPreview({
     return recipes;
   }, [layoutData.sections, recipesById]);
 
-  useEffect(() => { if (open) setCurrentPage(0); }, [open]);
+  // Generate HTML content for Paged.js
+  const htmlContent = useMemo(() => {
+    if (recipesById.size === 0 && allRecipeIds.length > 0) return null;
 
+    let html = '';
+    html += generateCoverHtml(layoutData, theme, allOrderedRecipes.length);
+    html += generateDedicationHtml(layoutData, theme);
+
+    const hasRecipes = layoutData.sections.some(s =>
+      s.recipeIds.some(id => recipesById.has(String(id)))
+    );
+    if (hasRecipes) {
+      html += generateTocHtml(layoutData.sections, recipesById, theme);
+    }
+
+    let recipeIndex = 0;
+    layoutData.sections.forEach(section => {
+      const sectionRecipes = section.recipeIds
+        .map(id => recipesById.get(String(id)))
+        .filter(Boolean) as Recipe[];
+
+      if (sectionRecipes.length > 0 && layoutData.sections.length > 1) {
+        html += generateSectionDividerHtml(section.title, theme);
+      }
+
+      sectionRecipes.forEach(recipe => {
+        html += generateRecipeHtml(recipe, recipeIndex++, theme, pageWidthIn);
+      });
+    });
+
+    html += generateBackCoverHtml(layoutData, theme);
+    return html;
+  }, [layoutData, recipesById, theme, allOrderedRecipes.length, pageWidthIn, allRecipeIds.length]);
+
+  const cssContent = useMemo(
+    () => generatePagedCSS(theme, pageWidthIn, pageHeightIn, templateStyle),
+    [theme, pageWidthIn, pageHeightIn, templateStyle]
+  );
+
+  // Run Paged.js whenever content changes
+  useEffect(() => {
+    if (!open || !htmlContent || !pagedContainerRef.current) return;
+
+    let cancelled = false;
+    const container = pagedContainerRef.current;
+
+    const runPaged = async () => {
+      setRendering(true);
+
+      // Clear previous render
+      container.innerHTML = '';
+      pagesRef.current = [];
+
+      try {
+        const previewer = new Previewer();
+        const cssBlob = new Blob([cssContent], { type: 'text/css' });
+        const cssUrl = URL.createObjectURL(cssBlob);
+
+        const result = await previewer.preview(
+          htmlContent,
+          [cssUrl],
+          container
+        );
+
+        URL.revokeObjectURL(cssUrl);
+
+        if (cancelled) return;
+
+        // Collect rendered pages
+        const renderedPages = container.querySelectorAll('.pagedjs_page');
+        pagesRef.current = Array.from(renderedPages) as HTMLElement[];
+        setTotalPages(pagesRef.current.length);
+        setCurrentPage(0);
+      } catch (err) {
+        console.error('Paged.js rendering error:', err);
+      } finally {
+        if (!cancelled) setRendering(false);
+      }
+    };
+
+    runPaged();
+    return () => { cancelled = true; };
+  }, [open, htmlContent, cssContent]);
+
+  // Show/hide pages based on currentPage
+  useEffect(() => {
+    pagesRef.current.forEach((page, idx) => {
+      page.style.display = idx === currentPage ? '' : 'none';
+    });
+  }, [currentPage, totalPages]);
+
+  // Reset on open
+  useEffect(() => {
+    if (open) {
+      setCurrentPage(0);
+      setZoom(1);
+    }
+  }, [open]);
+
+  // Keyboard navigation
   useEffect(() => {
     if (!open) return;
     const handleKey = (e: KeyboardEvent) => {
@@ -304,14 +1161,13 @@ export function CookbookPrintPreview({
     return () => window.removeEventListener("keydown", handleKey);
   }, [open, totalPages, onClose]);
 
-  const page = pages[currentPage];
-  const isLeftPage = currentPage % 2 === 0; // Even pages are left (verso)
-
-  // Margin calculations in pixels
+  const isLeftPage = currentPage % 2 === 0;
   const bleedPx = BLEED * DPI;
   const marginOuterPx = MARGIN_OUTER * DPI;
   const marginInnerPx = MARGIN_INNER * DPI;
   const safeZonePx = SAFE_ZONE * DPI;
+  const marginTopPx = MARGIN_TOP * DPI;
+  const marginBottomPx = MARGIN_BOTTOM * DPI;
 
   return (
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
@@ -324,20 +1180,25 @@ export function CookbookPrintPreview({
                 {layoutData.title || "Cookbook Preview"}
               </h2>
               <p className="text-xs text-neutral-400">
-                Page {currentPage + 1} of {totalPages}
-                {" · "}
-                <span className="text-amber-400 font-mono">
-                  {pageWidthIn}" × {pageHeightIn}"
-                </span>
-                {" · "}
-                {sizeConfig.name}
-                {" · "}
-                {templateStyle.charAt(0).toUpperCase() + templateStyle.slice(1)}
+                {rendering ? (
+                  <span className="text-amber-400">Rendering pages...</span>
+                ) : (
+                  <>
+                    Page {currentPage + 1} of {totalPages}
+                    {" \u00B7 "}
+                    <span className="text-amber-400 font-mono">
+                      {pageWidthIn}" x {pageHeightIn}"
+                    </span>
+                    {" \u00B7 "}
+                    {sizeConfig.name}
+                    {" \u00B7 "}
+                    {templateStyle.charAt(0).toUpperCase() + templateStyle.slice(1)}
+                  </>
+                )}
               </p>
             </div>
           </div>
           <div className="flex items-center gap-1.5">
-            {/* Zoom controls */}
             <Button
               variant="ghost" size="icon"
               onClick={() => setZoom(z => Math.max(0.5, z - 0.15))}
@@ -358,7 +1219,6 @@ export function CookbookPrintPreview({
 
             <div className="w-px h-5 bg-neutral-700 mx-1" />
 
-            {/* Guide toggle */}
             <Button
               variant="ghost" size="sm"
               onClick={() => setShowGuides(g => !g)}
@@ -397,7 +1257,7 @@ export function CookbookPrintPreview({
 
           {/* The virtual stage */}
           <div className="relative" style={{ width: stageW * viewScale, height: stageH * viewScale }}>
-            {/* Bleed area (extends beyond trim) */}
+            {/* Bleed area guide */}
             {showGuides && (
               <div
                 className="absolute pointer-events-none"
@@ -416,7 +1276,7 @@ export function CookbookPrintPreview({
               </div>
             )}
 
-            {/* Trim edge — the actual page */}
+            {/* Trim edge - page content rendered by Paged.js */}
             <div
               className="relative overflow-hidden"
               style={{
@@ -426,8 +1286,10 @@ export function CookbookPrintPreview({
                 borderRadius: 2,
               }}
             >
-              {/* The page content, scaled */}
+              {/* Paged.js rendered content */}
               <div
+                ref={pagedContainerRef}
+                className="paged-preview-container"
                 style={{
                   width: stageW,
                   height: stageH,
@@ -437,67 +1299,52 @@ export function CookbookPrintPreview({
                   background: theme.pageBg,
                   overflow: "hidden",
                 }}
-              >
-                {/* Page content with margins applied */}
-                <div
-                  style={{
-                    position: "absolute",
-                    top: marginOuterPx,
-                    bottom: marginOuterPx,
-                    left: isLeftPage ? marginInnerPx : marginOuterPx,
-                    right: isLeftPage ? marginOuterPx : marginInnerPx,
-                    overflow: "hidden",
-                  }}
-                >
-                  {page?.type === "cover" && (
-                    <CoverContent layoutData={layoutData} theme={theme} recipeCount={allOrderedRecipes.length} stageW={stageW} stageH={stageH} />
-                  )}
-                  {page?.type === "dedication" && (
-                    <DedicationContent layoutData={layoutData} theme={theme} />
-                  )}
-                  {page?.type === "toc" && (
-                    <TocContent
-                      sections={layoutData.sections}
-                      recipesById={recipesById}
-                      theme={theme}
-                      onGoToRecipe={(idx) => {
-                        const target = pages.findIndex(p => p.type === "recipe" && (p as any).index === idx);
-                        if (target >= 0) setCurrentPage(target);
-                      }}
-                    />
-                  )}
-                  {page?.type === "section" && (
-                    <SectionContent title={page.title} theme={theme} />
-                  )}
-                  {page?.type === "recipe" && (
-                    <RecipeContent recipe={page.recipe} index={page.index} theme={theme} pageWidthIn={pageWidthIn} />
-                  )}
-                  {page?.type === "back" && (
-                    <BackContent layoutData={layoutData} theme={theme} />
-                  )}
-                </div>
+              />
 
-                {/* Margin guides overlay */}
-                {showGuides && (
-                  <>
+              {/* Loading overlay */}
+              {rendering && (
+                <div
+                  className="absolute inset-0 flex items-center justify-center"
+                  style={{ background: 'rgba(0,0,0,0.5)', zIndex: 40 }}
+                >
+                  <div className="flex flex-col items-center gap-2">
+                    <Loader2 className="h-8 w-8 text-white animate-spin" />
+                    <span className="text-sm text-white">Rendering pages...</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Margin guides overlay (on top of Paged.js output) */}
+              {showGuides && !rendering && (
+                <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 20 }}>
+                  {/* Scale wrapper for guides */}
+                  <div style={{
+                    width: stageW,
+                    height: stageH,
+                    transform: `scale(${viewScale})`,
+                    transformOrigin: "top left",
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                  }}>
                     {/* Top margin */}
-                    <div className="absolute left-0 right-0 pointer-events-none" style={{ top: 0, height: marginOuterPx }}>
+                    <div className="absolute left-0 right-0" style={{ top: 0, height: marginTopPx }}>
                       <div className="w-full h-full" style={{ background: 'rgba(59, 130, 246, 0.06)' }} />
                       <div className="absolute bottom-0 left-0 right-0 border-b border-dashed" style={{ borderColor: 'rgba(59, 130, 246, 0.35)' }} />
                       <span className="absolute right-2 top-1 text-[8px] font-mono" style={{ color: 'rgba(59, 130, 246, 0.6)' }}>
-                        {MARGIN_OUTER}"
+                        {MARGIN_TOP}"
                       </span>
                     </div>
                     {/* Bottom margin */}
-                    <div className="absolute left-0 right-0 pointer-events-none" style={{ bottom: 0, height: marginOuterPx }}>
+                    <div className="absolute left-0 right-0" style={{ bottom: 0, height: marginBottomPx }}>
                       <div className="w-full h-full" style={{ background: 'rgba(59, 130, 246, 0.06)' }} />
                       <div className="absolute top-0 left-0 right-0 border-t border-dashed" style={{ borderColor: 'rgba(59, 130, 246, 0.35)' }} />
                       <span className="absolute right-2 bottom-1 text-[8px] font-mono" style={{ color: 'rgba(59, 130, 246, 0.6)' }}>
-                        {MARGIN_OUTER}"
+                        {MARGIN_BOTTOM}"
                       </span>
                     </div>
                     {/* Inner margin (gutter/binding side) */}
-                    <div className="absolute top-0 bottom-0 pointer-events-none" style={{
+                    <div className="absolute top-0 bottom-0" style={{
                       [isLeftPage ? 'left' : 'right']: 0,
                       width: marginInnerPx,
                     }}>
@@ -515,7 +1362,7 @@ export function CookbookPrintPreview({
                       </span>
                     </div>
                     {/* Outer margin */}
-                    <div className="absolute top-0 bottom-0 pointer-events-none" style={{
+                    <div className="absolute top-0 bottom-0" style={{
                       [isLeftPage ? 'right' : 'left']: 0,
                       width: marginOuterPx,
                     }}>
@@ -533,10 +1380,10 @@ export function CookbookPrintPreview({
                       </span>
                     </div>
 
-                    {/* Safe zone (inner dotted rectangle) */}
-                    <div className="absolute pointer-events-none" style={{
-                      top: (marginOuterPx + safeZonePx),
-                      bottom: (marginOuterPx + safeZonePx),
+                    {/* Safe zone */}
+                    <div className="absolute" style={{
+                      top: marginTopPx + safeZonePx,
+                      bottom: marginBottomPx + safeZonePx,
                       left: (isLeftPage ? marginInnerPx : marginOuterPx) + safeZonePx,
                       right: (isLeftPage ? marginOuterPx : marginInnerPx) + safeZonePx,
                       border: '1px dotted rgba(34, 197, 94, 0.3)',
@@ -545,15 +1392,14 @@ export function CookbookPrintPreview({
                         Safe zone
                       </span>
                     </div>
-                  </>
-                )}
-              </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Dimension labels outside page */}
             {showGuides && (
               <>
-                {/* Width label */}
                 <div
                   className="absolute flex items-center justify-center pointer-events-none"
                   style={{
@@ -570,7 +1416,6 @@ export function CookbookPrintPreview({
                     <div className="h-px flex-1 bg-neutral-600" style={{ minWidth: 20 }} />
                   </div>
                 </div>
-                {/* Height label */}
                 <div
                   className="absolute flex flex-col items-center justify-center pointer-events-none"
                   style={{
@@ -603,7 +1448,7 @@ export function CookbookPrintPreview({
           </button>
         </div>
 
-        {/* Bottom bar with page dots and info */}
+        {/* Bottom bar */}
         <div className="flex items-center justify-between px-4 py-2.5 bg-neutral-950/90 backdrop-blur border-t border-neutral-800 shrink-0">
           <div className="flex items-center gap-2">
             <Button
@@ -620,17 +1465,15 @@ export function CookbookPrintPreview({
           </div>
 
           <div className="flex gap-1 items-center overflow-x-auto max-w-[60vw] px-2">
-            {pages.map((p, i) => (
+            {Array.from({ length: totalPages }, (_, i) => (
               <button
                 key={i}
                 onClick={() => setCurrentPage(i)}
-                title={`Page ${i + 1}: ${p.type}`}
+                title={`Page ${i + 1}`}
                 className={`shrink-0 rounded transition-all ${
                   i === currentPage
                     ? "bg-white w-5 h-2"
-                    : p.type === "recipe"
-                    ? "bg-neutral-600 hover:bg-neutral-500 w-2 h-2"
-                    : "bg-neutral-700 hover:bg-neutral-600 w-2 h-2"
+                    : "bg-neutral-600 hover:bg-neutral-500 w-2 h-2"
                 }`}
               />
             ))}
@@ -638,7 +1481,7 @@ export function CookbookPrintPreview({
 
           <div className="flex items-center gap-2">
             <span className="text-[10px] font-mono text-neutral-500">
-              Content area: {(pageWidthIn - MARGIN_OUTER - MARGIN_INNER).toFixed(2)}" × {(pageHeightIn - MARGIN_OUTER * 2).toFixed(2)}"
+              Content area: {(pageWidthIn - MARGIN_OUTER - MARGIN_INNER).toFixed(2)}" x {(pageHeightIn - MARGIN_TOP - MARGIN_BOTTOM).toFixed(2)}"
             </span>
             <Button
               variant="ghost" size="sm"
@@ -652,511 +1495,5 @@ export function CookbookPrintPreview({
         </div>
       </DialogContent>
     </Dialog>
-  );
-}
-
-// --- Page Content Components (rendered at virtual stage coordinates) ---
-
-function CoverContent({
-  layoutData, theme, recipeCount, stageW, stageH,
-}: {
-  layoutData: PrintLayoutData;
-  theme: typeof THEMES.classic;
-  recipeCount: number;
-  stageW: number;
-  stageH: number;
-}) {
-  return (
-    <div
-      className="w-full h-full flex flex-col items-center justify-center text-center relative"
-      style={{
-        background: theme.coverBg,
-        fontFamily: theme.titleFont,
-        // Cover bleeds to edges — use negative margins to fill
-        margin: `-${MARGIN_OUTER * DPI}px`,
-        padding: `${MARGIN_OUTER * DPI + 40}px`,
-        width: `calc(100% + ${MARGIN_OUTER * DPI * 2}px)`,
-        height: `calc(100% + ${MARGIN_OUTER * DPI * 2}px)`,
-      }}
-    >
-      {/* Top accent bar */}
-      <div className="absolute top-0 left-0 right-0 h-2" style={{ background: theme.coverAccent }} />
-      <div className="absolute bottom-0 left-0 right-0 h-2" style={{ background: theme.coverAccent }} />
-
-      {/* Decorative border */}
-      <div className="absolute pointer-events-none" style={{
-        top: 24, left: 24, right: 24, bottom: 24,
-        border: theme.borderStyle,
-        borderRadius: 4,
-      }} />
-
-      <div
-        className="rounded-full flex items-center justify-center mb-4"
-        style={{ width: 64, height: 64, background: theme.coverAccent }}
-      >
-        <BookOpen className="text-white" style={{ width: 32, height: 32 }} />
-      </div>
-
-      <h1 style={{
-        fontSize: Math.min(28, stageW / 14),
-        fontWeight: 700,
-        color: theme.titleColor,
-        lineHeight: 1.2,
-        marginBottom: 8,
-        maxWidth: '90%',
-      }}>
-        {layoutData.title || "My Cookbook"}
-      </h1>
-
-      {layoutData.subtitle && (
-        <p style={{
-          fontSize: Math.min(14, stageW / 28),
-          color: theme.subtitleColor,
-          fontStyle: 'italic',
-          marginBottom: 16,
-          maxWidth: '80%',
-        }}>
-          {layoutData.subtitle}
-        </p>
-      )}
-
-      <div style={{ marginTop: 'auto' }}>
-        {layoutData.authorName && (
-          <p style={{
-            fontSize: 11,
-            color: theme.mutedColor,
-            fontWeight: 500,
-            textTransform: 'uppercase' as const,
-            letterSpacing: '0.1em',
-          }}>
-            by {layoutData.authorName}
-          </p>
-        )}
-        <p style={{ fontSize: 10, color: theme.lightColor, marginTop: 4 }}>
-          {recipeCount} recipe{recipeCount !== 1 ? "s" : ""}
-        </p>
-      </div>
-    </div>
-  );
-}
-
-function DedicationContent({ layoutData, theme }: { layoutData: PrintLayoutData; theme: typeof THEMES.classic }) {
-  return (
-    <div className="w-full h-full flex items-center justify-center" style={{ fontFamily: theme.titleFont }}>
-      <p style={{
-        fontSize: 14,
-        fontStyle: 'italic',
-        color: theme.subtitleColor,
-        maxWidth: '80%',
-        textAlign: 'center',
-        lineHeight: 1.8,
-      }}>
-        {layoutData.dedication}
-      </p>
-    </div>
-  );
-}
-
-function TocContent({
-  sections, recipesById, theme, onGoToRecipe,
-}: {
-  sections: PrintLayoutData["sections"];
-  recipesById: Map<string, Recipe>;
-  theme: typeof THEMES.classic;
-  onGoToRecipe: (index: number) => void;
-}) {
-  let globalIdx = 0;
-  return (
-    <div className="w-full h-full flex flex-col overflow-y-auto" style={{ fontFamily: theme.bodyFont }}>
-      <h2 style={{
-        fontFamily: theme.titleFont,
-        fontSize: 20,
-        fontWeight: 700,
-        color: theme.titleColor,
-        textAlign: 'center',
-        marginBottom: 4,
-      }}>
-        Table of Contents
-      </h2>
-      <div style={{
-        width: 48, height: 2,
-        background: theme.dividerColor,
-        margin: '0 auto 16px',
-      }} />
-
-      {sections.map((section, sIdx) => (
-        <div key={section.id || sIdx}>
-          {sections.length > 1 && (
-            <div style={{
-              fontSize: 9,
-              fontWeight: 700,
-              textTransform: 'uppercase' as const,
-              letterSpacing: '0.08em',
-              color: theme.accentColor,
-              marginTop: sIdx > 0 ? 12 : 0,
-              marginBottom: 4,
-              paddingBottom: 3,
-              borderBottom: `1px solid ${theme.dividerColor}40`,
-            }}>
-              {section.title}
-            </div>
-          )}
-          {section.recipeIds.map((id) => {
-            const recipe = recipesById.get(String(id));
-            if (!recipe) return null;
-            const idx = globalIdx++;
-            return (
-              <button
-                key={id}
-                onClick={() => onGoToRecipe(idx)}
-                className="w-full flex items-baseline gap-2 py-1 px-1 rounded transition text-left"
-                style={{ fontFamily: theme.bodyFont }}
-              >
-                <span style={{ fontSize: 9, color: theme.lightColor, fontFamily: 'monospace', width: 16, flexShrink: 0 }}>
-                  {idx + 1}
-                </span>
-                <span style={{ fontSize: 10, color: theme.bodyColor, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {recipe.title}
-                </span>
-                <span style={{ fontSize: 9, color: theme.lightColor, flexShrink: 0 }}>
-                  {formatTime(recipe.totalTimeMinutes || recipe.cookTimeMinutes)}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function SectionContent({ title, theme }: { title: string; theme: typeof THEMES.classic }) {
-  return (
-    <div
-      className="w-full h-full flex flex-col items-center justify-center text-center"
-      style={{ background: theme.sectionBg, fontFamily: theme.titleFont,
-        margin: `-${MARGIN_OUTER * DPI}px`,
-        padding: `${MARGIN_OUTER * DPI}px`,
-        width: `calc(100% + ${MARGIN_OUTER * DPI * 2}px)`,
-        height: `calc(100% + ${MARGIN_OUTER * DPI * 2}px)`,
-      }}
-    >
-      <span style={{ fontSize: 24, color: theme.lightColor, marginBottom: 12 }}>
-        {theme.sectionDecor}
-      </span>
-      <h2 style={{
-        fontSize: 22,
-        fontWeight: 700,
-        color: theme.titleColor,
-        marginBottom: 8,
-      }}>
-        {title}
-      </h2>
-      <div style={{
-        width: 40, height: 2,
-        background: theme.dividerColor,
-        margin: '0 auto',
-      }} />
-    </div>
-  );
-}
-
-function RecipeContent({
-  recipe, index, theme, pageWidthIn,
-}: {
-  recipe: Recipe;
-  index: number;
-  theme: typeof THEMES.classic;
-  pageWidthIn: number;
-}) {
-  const ingredients = recipe.normalizedIngredients ||
-    (recipe.ingredients || []).map((raw: any) =>
-      typeof raw === "string" ? { raw, item: raw } : raw
-    );
-  const instructions = recipe.normalizedInstructions ||
-    (recipe.instructions || []).map((text: any, i: number) =>
-      typeof text === "string" ? { stepNumber: i + 1, text } : text
-    );
-
-  // Responsive sizing based on page width
-  const isSmallPage = pageWidthIn < 6;
-  const isLargePage = pageWidthIn >= 8;
-  const titleSize = isSmallPage ? 14 : isLargePage ? 20 : 16;
-  const bodySize = isSmallPage ? 8 : isLargePage ? 10 : 9;
-  const headingSize = isSmallPage ? 9 : isLargePage ? 12 : 10;
-  const imageHeight = isSmallPage ? 100 : isLargePage ? 180 : 140;
-  const useColumns = pageWidthIn >= 5.5;
-
-  return (
-    <div className="w-full h-full flex flex-col overflow-hidden" style={{ fontFamily: theme.bodyFont }}>
-      {/* Recipe image */}
-      {(recipe.dishImageThumbnail || recipe.dishImage) && (
-        <div className="relative shrink-0" style={{
-          height: imageHeight,
-          marginTop: -MARGIN_OUTER * DPI,
-          marginLeft: -(MARGIN_INNER * DPI),
-          marginRight: -(MARGIN_OUTER * DPI),
-          width: `calc(100% + ${(MARGIN_INNER + MARGIN_OUTER) * DPI}px)`,
-        }}>
-          <img
-            src={recipe.dishImageThumbnail || recipe.dishImage || ""}
-            alt={recipe.title}
-            style={{
-              width: '100%',
-              height: '100%',
-              objectFit: 'cover',
-            }}
-          />
-          <div style={{
-            position: 'absolute',
-            inset: 0,
-            background: 'linear-gradient(to top, rgba(0,0,0,0.6), transparent)',
-          }} />
-          <div style={{
-            position: 'absolute',
-            bottom: 0, left: 0, right: 0,
-            padding: '8px 12px',
-          }}>
-            <h2 style={{
-              fontFamily: theme.titleFont,
-              fontSize: titleSize,
-              fontWeight: 700,
-              color: 'white',
-              lineHeight: 1.2,
-            }}>
-              {recipe.title}
-            </h2>
-          </div>
-        </div>
-      )}
-
-      <div className="flex-1 overflow-y-auto" style={{ paddingTop: 8 }}>
-        {/* Title if no image */}
-        {!recipe.dishImageThumbnail && !recipe.dishImage && (
-          <div style={{ marginBottom: 8 }}>
-            <h2 style={{
-              fontFamily: theme.titleFont,
-              fontSize: titleSize,
-              fontWeight: 700,
-              color: theme.titleColor,
-              lineHeight: 1.2,
-            }}>
-              {recipe.title}
-            </h2>
-            <div style={{
-              width: 32, height: 2,
-              background: theme.dividerColor,
-              marginTop: 4,
-            }} />
-          </div>
-        )}
-
-        {/* Time badges */}
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
-          {recipe.prepTimeMinutes && (
-            <span style={{
-              fontSize: bodySize - 1,
-              background: theme.badgeBg,
-              color: theme.badgeColor,
-              padding: '1px 6px',
-              borderRadius: 10,
-            }}>
-              Prep: {formatTime(recipe.prepTimeMinutes)}
-            </span>
-          )}
-          {recipe.cookTimeMinutes && (
-            <span style={{
-              fontSize: bodySize - 1,
-              background: theme.badgeBg,
-              color: theme.badgeColor,
-              padding: '1px 6px',
-              borderRadius: 10,
-            }}>
-              Cook: {formatTime(recipe.cookTimeMinutes)}
-            </span>
-          )}
-          {recipe.servings && (
-            <span style={{
-              fontSize: bodySize - 1,
-              background: theme.tipBg,
-              color: theme.mutedColor,
-              padding: '1px 6px',
-              borderRadius: 10,
-            }}>
-              Serves {recipe.servings}
-            </span>
-          )}
-        </div>
-
-        {recipe.description && (
-          <p style={{
-            fontSize: bodySize,
-            fontStyle: 'italic',
-            color: theme.subtitleColor,
-            lineHeight: 1.5,
-            marginBottom: 8,
-          }}>
-            {recipe.description}
-          </p>
-        )}
-
-        {/* Ingredients & Instructions */}
-        <div style={{
-          display: useColumns ? 'grid' : 'flex',
-          gridTemplateColumns: useColumns ? '1fr 1.5fr' : undefined,
-          flexDirection: useColumns ? undefined : 'column',
-          gap: useColumns ? 12 : 8,
-        }}>
-          {/* Ingredients */}
-          <div>
-            <h3 style={{
-              fontSize: headingSize,
-              fontWeight: 700,
-              color: theme.headingColor || theme.titleColor,
-              textTransform: 'uppercase' as const,
-              letterSpacing: '0.06em',
-              marginBottom: 4,
-              fontFamily: theme.titleFont,
-            }}>
-              Ingredients
-            </h3>
-            <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-              {ingredients.map((ing: any, idx: number) => {
-                const quantityStr = formatQuantity(ing.quantity, ing.unit);
-                return (
-                  <li key={idx} style={{
-                    fontSize: bodySize,
-                    color: theme.bodyColor,
-                    padding: '1px 0',
-                    lineHeight: 1.3,
-                    display: 'flex',
-                    gap: 3,
-                  }}>
-                    {quantityStr && (
-                      <span style={{ fontWeight: 600, color: theme.titleColor, flexShrink: 0 }}>{quantityStr}</span>
-                    )}
-                    <span>
-                      {ing.item || ing.name || ing.raw || ""}
-                      {ing.preparation && <span style={{ color: theme.mutedColor }}>, {ing.preparation}</span>}
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-
-          {/* Instructions */}
-          <div>
-            <h3 style={{
-              fontSize: headingSize,
-              fontWeight: 700,
-              color: theme.headingColor || theme.titleColor,
-              textTransform: 'uppercase' as const,
-              letterSpacing: '0.06em',
-              marginBottom: 4,
-              fontFamily: theme.titleFont,
-            }}>
-              Instructions
-            </h3>
-            <ol style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-              {instructions.map((step: any, idx: number) => (
-                <li key={idx} style={{
-                  fontSize: bodySize,
-                  color: theme.bodyColor,
-                  padding: '2px 0',
-                  lineHeight: 1.4,
-                  display: 'flex',
-                  gap: 4,
-                }}>
-                  <span style={{ fontWeight: 700, color: theme.accentColor, flexShrink: 0 }}>{idx + 1}.</span>
-                  <span>{typeof step === "string" ? step : step.text || step.instruction}</span>
-                </li>
-              ))}
-            </ol>
-          </div>
-        </div>
-
-        {/* Tips */}
-        {recipe.tips && (recipe.tips as any[]).length > 0 && (
-          <div style={{
-            marginTop: 8,
-            padding: '6px 8px',
-            background: theme.tipBg,
-            borderRadius: 4,
-            border: `1px solid ${theme.tipBorder}`,
-          }}>
-            <h4 style={{
-              fontSize: bodySize - 1,
-              fontWeight: 700,
-              color: theme.tipColor,
-              textTransform: 'uppercase' as const,
-              letterSpacing: '0.06em',
-              marginBottom: 2,
-            }}>
-              Tips
-            </h4>
-            {(recipe.tips as any[]).map((tip: any, idx: number) => (
-              <p key={idx} style={{ fontSize: bodySize - 1, color: theme.tipColor, lineHeight: 1.4 }}>
-                {typeof tip === "string" ? tip : tip.text}
-              </p>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Page number */}
-      <div style={{
-        textAlign: 'center',
-        fontSize: 8,
-        color: theme.lightColor,
-        paddingTop: 4,
-        flexShrink: 0,
-      }}>
-        {index + 1}
-      </div>
-    </div>
-  );
-}
-
-function BackContent({ layoutData, theme }: { layoutData: PrintLayoutData; theme: typeof THEMES.classic }) {
-  return (
-    <div
-      className="w-full h-full flex flex-col items-center justify-center text-center"
-      style={{
-        background: theme.coverBg,
-        fontFamily: theme.titleFont,
-        margin: `-${MARGIN_OUTER * DPI}px`,
-        padding: `${MARGIN_OUTER * DPI}px`,
-        width: `calc(100% + ${MARGIN_OUTER * DPI * 2}px)`,
-        height: `calc(100% + ${MARGIN_OUTER * DPI * 2}px)`,
-      }}
-    >
-      <div className="absolute top-0 left-0 right-0 h-2" style={{ background: theme.coverAccent }} />
-      <div className="absolute bottom-0 left-0 right-0 h-2" style={{ background: theme.coverAccent }} />
-
-      <BookOpen style={{ width: 48, height: 48, color: theme.lightColor, marginBottom: 16 }} />
-      <h2 style={{
-        fontSize: 18,
-        fontWeight: 700,
-        color: theme.titleColor,
-        marginBottom: 8,
-      }}>
-        {layoutData.title || "My Cookbook"}
-      </h2>
-      {layoutData.subtitle && (
-        <p style={{
-          fontSize: 12,
-          fontStyle: 'italic',
-          color: theme.mutedColor,
-          maxWidth: '70%',
-          marginBottom: 24,
-        }}>
-          {layoutData.subtitle}
-        </p>
-      )}
-      <p style={{ fontSize: 9, color: theme.lightColor, marginTop: 'auto' }}>
-        Made with Grammie
-      </p>
-    </div>
   );
 }
