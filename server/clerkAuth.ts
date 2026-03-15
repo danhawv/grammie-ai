@@ -204,8 +204,8 @@ export async function setupAuth(app: Express) {
         }
       }
 
-      // 4. Dev bypass
-      if (process.env.NODE_ENV === "development" && !process.env.CLERK_SECRET_KEY) {
+      // 4. Dev/testing bypass
+      if ((process.env.NODE_ENV === "development" && !process.env.CLERK_SECRET_KEY) || process.env.BYPASS_AUTH === "true") {
         const dbUser = await storage.getUser("37290791");
         return res.json(dbUser ?? null);
       }
@@ -297,8 +297,8 @@ export const isAuthenticated: RequestHandler = async (req: any, res, next) => {
     }
   }
 
-  // ── 4. Dev bypass ──────────────────────────────────────────────────────────
-  if (isDevelopment && !hasClerk) {
+  // ── 4. Dev/testing bypass ──────────────────────────────────────────────────
+  if ((isDevelopment && !hasClerk) || process.env.BYPASS_AUTH === "true") {
     req.user = {
       claims: { sub: "37290791", email: "danhawv@gmail.com", first_name: "Admin", last_name: "User" },
       expires_at: Math.floor(Date.now() / 1000) + 86400,
@@ -367,7 +367,7 @@ export const optionalAuth: RequestHandler = async (req: any, _res, next) => {
     }
   }
 
-  if (!req.user && isDevelopment && !hasClerk) {
+  if (!req.user && ((isDevelopment && !hasClerk) || process.env.BYPASS_AUTH === "true")) {
     req.user = {
       claims: { sub: "37290791", email: "danhawv@gmail.com", first_name: "Admin", last_name: "User" },
       expires_at: Math.floor(Date.now() / 1000) + 86400,
