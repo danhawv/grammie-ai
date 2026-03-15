@@ -473,6 +473,16 @@ export default function CookbookViewPage() {
                   </Link>
                 </>
               )}
+              <Link href={`/cookbook/${cookbookId}/print`}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  data-testid="button-preview-cookbook"
+                >
+                  <BookOpen className="h-4 w-4 mr-2" />
+                  Preview
+                </Button>
+              </Link>
               <Button
                 variant="outline"
                 size="sm"
