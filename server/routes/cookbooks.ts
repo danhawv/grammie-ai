@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { isAuthenticated } from "../clerkAuth";
+import { isAuthenticated, optionalAuth } from "../clerkAuth";
 import { storage } from "../storage";
 import { db } from "../db";
 import { eq, inArray } from "drizzle-orm";
@@ -19,7 +19,7 @@ import { getUserId, upload, storePdf } from "./route-utils";
 
 const router = Router();
 
-router.get("/cookbooks", async (req: any, res) => {
+router.get("/cookbooks", optionalAuth, async (req: any, res) => {
   try {
     const userId = getUserId(req);
     const scope = req.query.scope as string;
@@ -62,7 +62,7 @@ router.get("/cookbooks/following/ids", isAuthenticated, async (req: any, res) =>
   }
 });
 
-router.get("/cookbooks/:id", async (req: any, res) => {
+router.get("/cookbooks/:id", optionalAuth, async (req: any, res) => {
   try {
     const { id } = req.params;
     const userId = getUserId(req);
@@ -223,7 +223,7 @@ router.delete("/cookbooks/:id/cover-image", isAuthenticated, async (req: any, re
   }
 });
 
-router.get("/cookbooks/:id/recipes", async (req: any, res) => {
+router.get("/cookbooks/:id/recipes", optionalAuth, async (req: any, res) => {
   try {
     const { id } = req.params;
     const { page = "1", limit = "24" } = req.query;
@@ -286,7 +286,7 @@ router.delete("/cookbooks/:id/recipes/:recipeId", isAuthenticated, async (req: a
   }
 });
 
-router.get("/cookbooks/:id/recipes/print", async (req: any, res) => {
+router.get("/cookbooks/:id/recipes/print", optionalAuth, async (req: any, res) => {
   try {
     const { id } = req.params;
     const userId = getUserId(req);
@@ -344,7 +344,7 @@ router.delete("/cookbooks/:id/follow", isAuthenticated, async (req: any, res) =>
   }
 });
 
-router.get("/cookbooks/:id/followers", async (req: any, res) => {
+router.get("/cookbooks/:id/followers", optionalAuth, async (req: any, res) => {
   try {
     const { id } = req.params;
     const userId = getUserId(req);
