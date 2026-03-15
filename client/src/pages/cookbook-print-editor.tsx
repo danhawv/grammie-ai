@@ -1324,6 +1324,7 @@ function CookbookPrintEditorInner() {
         layoutData={layoutData}
         templateStyle={templateStyle}
         cookbookId={cookbookId}
+        trimSize={trimSize}
       />
     </div>
   );

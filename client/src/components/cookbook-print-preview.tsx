@@ -1,13 +1,11 @@
-import { useEffect, useRef, useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
-import DOMPurify from "dompurify";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { X, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Loader2 } from "lucide-react";
+import { X, ChevronLeft, ChevronRight, BookOpen } from "lucide-react";
 import type { PrintLayoutData } from "@shared/schema";
+import { BOOK_SIZES, type TrimSizeId } from "@/lib/print-constants";
 
 interface Recipe {
   id: string;
@@ -16,20 +14,20 @@ interface Recipe {
   dishImage?: string | null;
   dishImageThumbnail?: string | null;
   handwrittenImage?: string | null;
-  ingredients?: Array<{ name: string; quantity?: string; unit?: string }> | null;
-  instructions?: Array<{ step: number; instruction: string }> | null;
+  ingredients?: any[] | null;
+  normalizedIngredients?: any[] | null;
+  instructions?: any[] | null;
+  normalizedInstructions?: any[] | null;
   prepTimeMinutes?: number | null;
   cookTimeMinutes?: number | null;
   totalTimeMinutes?: number | null;
   servings?: number | null;
-  cuisineType?: string | null;
-  difficulty?: string | null;
-  nutritionInfo?: {
-    calories?: number;
-    protein?: number;
-    carbs?: number;
-    fat?: number;
-  } | null;
+  tips?: any[] | null;
+  cuisine?: string | null;
+  calories?: number | null;
+  protein?: number | null;
+  carbohydrates?: number | null;
+  fat?: number | null;
 }
 
 interface CookbookPrintPreviewProps {
@@ -38,13 +36,162 @@ interface CookbookPrintPreviewProps {
   layoutData: PrintLayoutData;
   templateStyle: 'classic' | 'modern' | 'rustic' | 'elegant';
   cookbookId: number;
+  trimSize?: string;
 }
 
-const PAGE_SIZE_DIMENSIONS = {
-  '6x9': { width: '6in', height: '9in' },
-  '8.5x11': { width: '8.5in', height: '11in' },
-  'a4': { width: '210mm', height: '297mm' },
+type PageContent =
+  | { type: "cover" }
+  | { type: "dedication" }
+  | { type: "toc" }
+  | { type: "section"; title: string }
+  | { type: "recipe"; recipe: Recipe; index: number }
+  | { type: "back" };
+
+// Theme configurations
+const THEMES = {
+  classic: {
+    bg: "bg-gradient-to-br from-amber-50 via-orange-50 to-amber-100",
+    coverBg: "bg-gradient-to-br from-amber-50 via-orange-50 to-amber-100",
+    backBg: "bg-gradient-to-br from-stone-50 via-stone-100 to-stone-50",
+    accent: "bg-gradient-to-r from-orange-400 via-amber-500 to-orange-400",
+    accentText: "text-orange-700",
+    accentBg: "bg-orange-50",
+    badgeAccent: "bg-orange-50 text-orange-700",
+    badgeNeutral: "bg-stone-100 text-stone-600",
+    titleFont: "font-serif",
+    bodyFont: "font-serif",
+    titleColor: "text-stone-800",
+    subtitleColor: "text-stone-600",
+    bodyColor: "text-stone-700",
+    mutedColor: "text-stone-500",
+    lightColor: "text-stone-400",
+    headingColor: "text-stone-800",
+    borderAccent: "border-orange-200/50",
+    tipBg: "bg-amber-50",
+    tipBorder: "border-amber-100",
+    tipTitle: "text-amber-800",
+    tipText: "text-amber-700",
+    iconBg: "bg-gradient-to-br from-orange-400 to-amber-500",
+    stepColor: "text-orange-500",
+    dividerColor: "bg-orange-400",
+    sectionBg: "bg-gradient-to-br from-amber-50 to-orange-50",
+    sectionDecor: "✦",
+  },
+  modern: {
+    bg: "bg-gradient-to-br from-gray-50 via-white to-gray-100",
+    coverBg: "bg-gradient-to-br from-gray-50 via-white to-gray-100",
+    backBg: "bg-gradient-to-br from-gray-50 via-gray-100 to-gray-50",
+    accent: "bg-gray-900",
+    accentText: "text-gray-700",
+    accentBg: "bg-gray-100",
+    badgeAccent: "bg-gray-900 text-white",
+    badgeNeutral: "bg-gray-100 text-gray-600",
+    titleFont: "font-sans",
+    bodyFont: "font-sans",
+    titleColor: "text-gray-900",
+    subtitleColor: "text-gray-500",
+    bodyColor: "text-gray-700",
+    mutedColor: "text-gray-500",
+    lightColor: "text-gray-400",
+    headingColor: "text-gray-900",
+    borderAccent: "border-gray-200",
+    tipBg: "bg-gray-50",
+    tipBorder: "border-gray-200",
+    tipTitle: "text-gray-800",
+    tipText: "text-gray-600",
+    iconBg: "bg-gray-900",
+    stepColor: "text-gray-900",
+    dividerColor: "bg-gray-900",
+    sectionBg: "bg-gradient-to-br from-gray-50 to-gray-100",
+    sectionDecor: "—",
+  },
+  rustic: {
+    bg: "bg-gradient-to-br from-amber-50 via-yellow-50 to-orange-50",
+    coverBg: "bg-gradient-to-br from-amber-100 via-yellow-50 to-orange-100",
+    backBg: "bg-gradient-to-br from-amber-50 via-yellow-50 to-amber-50",
+    accent: "bg-gradient-to-r from-amber-700 via-amber-600 to-amber-700",
+    accentText: "text-amber-800",
+    accentBg: "bg-amber-50",
+    badgeAccent: "bg-amber-100 text-amber-800",
+    badgeNeutral: "bg-yellow-50 text-amber-700",
+    titleFont: "font-serif",
+    bodyFont: "font-serif",
+    titleColor: "text-amber-900",
+    subtitleColor: "text-amber-700",
+    bodyColor: "text-amber-900",
+    mutedColor: "text-amber-700",
+    lightColor: "text-amber-500",
+    headingColor: "text-amber-900",
+    borderAccent: "border-amber-200",
+    tipBg: "bg-yellow-50",
+    tipBorder: "border-amber-200",
+    tipTitle: "text-amber-900",
+    tipText: "text-amber-800",
+    iconBg: "bg-gradient-to-br from-amber-600 to-yellow-700",
+    stepColor: "text-amber-700",
+    dividerColor: "bg-amber-600",
+    sectionBg: "bg-gradient-to-br from-amber-100 to-yellow-100",
+    sectionDecor: "❧",
+  },
+  elegant: {
+    bg: "bg-gradient-to-br from-slate-50 via-white to-slate-50",
+    coverBg: "bg-gradient-to-br from-slate-50 via-white to-slate-100",
+    backBg: "bg-gradient-to-br from-slate-50 via-slate-100 to-slate-50",
+    accent: "bg-gradient-to-r from-slate-400 via-slate-500 to-slate-400",
+    accentText: "text-slate-600",
+    accentBg: "bg-slate-50",
+    badgeAccent: "bg-slate-100 text-slate-700",
+    badgeNeutral: "bg-slate-50 text-slate-500",
+    titleFont: "font-serif",
+    bodyFont: "font-sans",
+    titleColor: "text-slate-800",
+    subtitleColor: "text-slate-500",
+    bodyColor: "text-slate-700",
+    mutedColor: "text-slate-500",
+    lightColor: "text-slate-400",
+    headingColor: "text-slate-800",
+    borderAccent: "border-slate-200",
+    tipBg: "bg-slate-50",
+    tipBorder: "border-slate-200",
+    tipTitle: "text-slate-700",
+    tipText: "text-slate-600",
+    iconBg: "bg-gradient-to-br from-slate-500 to-slate-700",
+    stepColor: "text-slate-500",
+    dividerColor: "bg-slate-400",
+    sectionBg: "bg-gradient-to-br from-slate-50 to-slate-100",
+    sectionDecor: "◆",
+  },
 };
+
+function formatTime(minutes: number | null | undefined): string {
+  if (!minutes) return "";
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
+}
+
+function formatQuantity(quantity: number | undefined, unit: string | undefined): string {
+  if (!quantity) return "";
+  const fractionMap: { [key: number]: string } = {
+    0.25: "¼", 0.33: "⅓", 0.5: "½", 0.66: "⅔", 0.75: "¾",
+    0.125: "⅛", 0.375: "⅜", 0.625: "⅝", 0.875: "⅞",
+  };
+  const whole = Math.floor(quantity);
+  const decimal = quantity - whole;
+  let quantityStr = "";
+  if (whole > 0) quantityStr = whole.toString();
+  const closestFraction = Object.keys(fractionMap)
+    .map(Number)
+    .find(f => Math.abs(decimal - f) < 0.05);
+  if (closestFraction) {
+    quantityStr += (whole > 0 ? " " : "") + fractionMap[closestFraction];
+  } else if (decimal > 0 && !closestFraction) {
+    quantityStr = quantity.toFixed(1).replace(/\.0$/, "");
+  }
+  if (unit) quantityStr += ` ${unit}`;
+  return quantityStr.trim();
+}
 
 export function CookbookPrintPreview({
   open,
@@ -52,20 +199,29 @@ export function CookbookPrintPreview({
   layoutData,
   templateStyle,
   cookbookId,
+  trimSize,
 }: CookbookPrintPreviewProps) {
-  const previewRef = useRef<HTMLDivElement>(null);
-  const [isRendering, setIsRendering] = useState(false);
-  const [pageCount, setPageCount] = useState(0);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [zoom, setZoom] = useState(0.5);
+  const [currentPage, setCurrentPage] = useState(0);
+  const theme = THEMES[templateStyle] || THEMES.classic;
 
-  const allRecipeIds = layoutData.sections.flatMap(s => s.recipeIds);
+  // Get trim size dimensions for aspect ratio
+  const sizeConfig = BOOK_SIZES[(trimSize || "0600X0900") as TrimSizeId];
+  const aspectRatio = sizeConfig
+    ? `${sizeConfig.widthIn} / ${sizeConfig.heightIn}`
+    : "6 / 9";
 
-  const { data: recipesData, isLoading: recipesLoading } = useQuery<{ recipes: Recipe[] }>({
+  const allRecipeIds = useMemo(
+    () => layoutData.sections.flatMap(s => s.recipeIds),
+    [layoutData.sections]
+  );
+
+  const { data: recipesData } = useQuery<{ recipes: Recipe[] }>({
     queryKey: ['/api/recipes/batch', allRecipeIds],
     queryFn: async () => {
       if (allRecipeIds.length === 0) return { recipes: [] };
-      const response = await fetch(`/api/recipes/batch?ids=${allRecipeIds.join(',')}`);
+      const response = await fetch(`/api/recipes/batch?ids=${allRecipeIds.join(',')}`, {
+        credentials: 'include',
+      });
       if (!response.ok) throw new Error('Failed to load recipes');
       return response.json();
     },
@@ -74,1144 +230,518 @@ export function CookbookPrintPreview({
 
   const recipesById = useMemo(() => {
     const map = new Map<string, Recipe>();
-    recipesData?.recipes.forEach(r => map.set(r.id, r));
+    recipesData?.recipes.forEach(r => map.set(String(r.id), r));
     return map;
   }, [recipesData?.recipes]);
 
+  // Build pages from layout data
+  const pages: PageContent[] = useMemo(() => {
+    const p: PageContent[] = [];
+    p.push({ type: "cover" });
+    if (layoutData.dedication) {
+      p.push({ type: "dedication" });
+    }
+
+    // Build ordered recipe list for TOC and counting
+    const allRecipes: { recipe: Recipe; sectionTitle: string }[] = [];
+    layoutData.sections.forEach(section => {
+      section.recipeIds.forEach(id => {
+        const recipe = recipesById.get(String(id));
+        if (recipe) allRecipes.push({ recipe, sectionTitle: section.title });
+      });
+    });
+
+    if (allRecipes.length > 0) {
+      p.push({ type: "toc" });
+    }
+
+    let recipeIndex = 0;
+    layoutData.sections.forEach(section => {
+      const sectionRecipes = section.recipeIds
+        .map(id => recipesById.get(String(id)))
+        .filter(Boolean) as Recipe[];
+
+      if (sectionRecipes.length > 0 && layoutData.sections.length > 1) {
+        p.push({ type: "section", title: section.title });
+      }
+      sectionRecipes.forEach(recipe => {
+        p.push({ type: "recipe", recipe, index: recipeIndex++ });
+      });
+    });
+
+    p.push({ type: "back" });
+    return p;
+  }, [layoutData, recipesById]);
+
+  const totalPages = pages.length;
+
+  // Reset page on open
   useEffect(() => {
-    if (!open || recipesLoading || !previewRef.current || recipesById.size === 0) return;
+    if (open) setCurrentPage(0);
+  }, [open]);
 
-    const renderPreview = async () => {
-      setIsRendering(true);
-      try {
-        const { Previewer } = await import('pagedjs');
-        const previewer = new Previewer();
-        
-        const container = previewRef.current;
-        if (!container) return;
-
-        container.innerHTML = '';
-
-        const content = document.createElement('div');
-        content.innerHTML = DOMPurify.sanitize(generatePrintHTML(layoutData, templateStyle, recipesById));
-
-        const styleContent = generatePrintCSS(templateStyle, layoutData.customizations?.pageSize || '6x9');
-
-        await previewer.preview(content, [styleContent], container);
-        
-        const pages = container.querySelectorAll('.pagedjs_page');
-        setPageCount(pages.length);
-        setCurrentPage(1);
-      } catch (error) {
-        console.error('Failed to render preview:', error);
-      } finally {
-        setIsRendering(false);
+  // Keyboard navigation
+  useEffect(() => {
+    if (!open) return;
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "ArrowRight" || e.key === " ") {
+        e.preventDefault();
+        setCurrentPage(p => Math.min(p + 1, totalPages - 1));
+      } else if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        setCurrentPage(p => Math.max(p - 1, 0));
+      } else if (e.key === "Escape") {
+        onClose();
       }
     };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [open, totalPages, onClose]);
 
-    const timer = setTimeout(renderPreview, 100);
-    return () => clearTimeout(timer);
-  }, [open, recipesLoading, layoutData, templateStyle, recipesById]);
-
-  const scrollToPage = (pageNum: number) => {
-    if (!previewRef.current) return;
-    const pages = previewRef.current.querySelectorAll('.pagedjs_page');
-    if (pages[pageNum - 1]) {
-      pages[pageNum - 1].scrollIntoView({ behavior: 'smooth', block: 'start' });
-      setCurrentPage(pageNum);
-    }
-  };
+  const page = pages[currentPage];
+  const allOrderedRecipes = useMemo(() => {
+    const recipes: Recipe[] = [];
+    layoutData.sections.forEach(section => {
+      section.recipeIds.forEach(id => {
+        const recipe = recipesById.get(String(id));
+        if (recipe) recipes.push(recipe);
+      });
+    });
+    return recipes;
+  }, [layoutData.sections, recipesById]);
 
   return (
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
-      <DialogContent className="max-w-6xl h-[90vh] flex flex-col p-0">
-        <DialogHeader className="p-4 border-b flex-shrink-0">
-          <div className="flex items-center justify-between gap-4">
-            <DialogTitle>Print Preview</DialogTitle>
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={() => setZoom(z => Math.max(0.25, z - 0.1))}
-                data-testid="button-zoom-out"
-              >
-                <ZoomOut className="h-4 w-4" />
-              </Button>
-              <Badge variant="secondary">{Math.round(zoom * 100)}%</Badge>
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={() => setZoom(z => Math.min(1.5, z + 0.1))}
-                data-testid="button-zoom-in"
-              >
-                <ZoomIn className="h-4 w-4" />
-              </Button>
-              <div className="h-6 w-px bg-border mx-2" />
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={() => scrollToPage(Math.max(1, currentPage - 1))}
-                disabled={currentPage <= 1}
-                data-testid="button-prev-page"
-              >
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-              <span className="text-sm min-w-[80px] text-center" data-testid="text-page-number">
-                Page {currentPage} of {pageCount || '?'}
-              </span>
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={() => scrollToPage(Math.min(pageCount, currentPage + 1))}
-                disabled={currentPage >= pageCount}
-                data-testid="button-next-page"
-              >
-                <ChevronRight className="h-4 w-4" />
-              </Button>
-              <div className="h-6 w-px bg-border mx-2" />
-              <Button variant="ghost" size="icon" onClick={onClose} data-testid="button-close-preview">
-                <X className="h-4 w-4" />
-              </Button>
+      <DialogContent className="max-w-[95vw] w-full max-h-[95vh] h-full flex flex-col p-0 gap-0 border-0 bg-stone-800 [&>button]:hidden">
+        {/* Top bar */}
+        <div className="flex items-center justify-between px-4 py-3 bg-stone-900/90 backdrop-blur border-b border-stone-700 shrink-0">
+          <div className="flex items-center gap-3">
+            <div>
+              <h2 className="text-sm font-medium text-white">
+                {layoutData.title || "Cookbook Preview"}
+              </h2>
+              <p className="text-xs text-stone-400">
+                Page {currentPage + 1} of {totalPages} • {sizeConfig?.name || "6\" × 9\""} • {templateStyle.charAt(0).toUpperCase() + templateStyle.slice(1)}
+              </p>
             </div>
           </div>
-        </DialogHeader>
+          <div className="flex items-center gap-2">
+            <Badge variant="secondary" className="bg-stone-700 text-stone-200 text-xs">
+              {allOrderedRecipes.length} recipe{allOrderedRecipes.length !== 1 ? "s" : ""}
+            </Badge>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={onClose}
+              className="text-stone-400 hover:text-white hover:bg-stone-700"
+            >
+              <X className="h-5 w-5" />
+            </Button>
+          </div>
+        </div>
 
-        <ScrollArea className="flex-1 bg-muted/50">
-          {(isRendering || recipesLoading) && (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-              <span className="ml-3 text-muted-foreground">Rendering preview...</span>
-            </div>
-          )}
+        {/* Book display */}
+        <div className="flex-1 flex items-center justify-center px-4 py-6 min-h-0">
+          {/* Left arrow */}
+          <button
+            onClick={() => setCurrentPage(p => Math.max(p - 1, 0))}
+            disabled={currentPage === 0}
+            className="hidden sm:flex items-center justify-center w-12 h-12 rounded-full hover:bg-stone-700/80 transition disabled:opacity-20 disabled:cursor-default mr-4 shrink-0"
+          >
+            <ChevronLeft className="h-8 w-8 text-stone-400" />
+          </button>
+
+          {/* Page */}
           <div
-            ref={previewRef}
-            className="pagedjs-preview mx-auto py-8"
+            className="bg-white rounded-lg shadow-2xl w-full overflow-hidden transition-all duration-300"
             style={{
-              transform: `scale(${zoom})`,
-              transformOrigin: 'top center',
-              minHeight: zoom < 1 ? `${100 / zoom}%` : undefined,
+              aspectRatio,
+              maxWidth: "min(600px, 60vh)",
+              maxHeight: "calc(95vh - 120px)",
+              boxShadow: "0 25px 50px -12px rgba(0,0,0,0.5), 0 0 0 1px rgba(0,0,0,0.1)",
             }}
-            data-testid="preview-container"
-          />
-        </ScrollArea>
+          >
+            {page?.type === "cover" && (
+              <CoverPage
+                layoutData={layoutData}
+                theme={theme}
+                recipeCount={allOrderedRecipes.length}
+              />
+            )}
+            {page?.type === "dedication" && (
+              <DedicationPage layoutData={layoutData} theme={theme} />
+            )}
+            {page?.type === "toc" && (
+              <TocPage
+                sections={layoutData.sections}
+                recipesById={recipesById}
+                theme={theme}
+                onGoToRecipe={(recipePageIndex) => {
+                  // Find the page index for this recipe
+                  const targetPage = pages.findIndex(
+                    p => p.type === "recipe" && (p as any).index === recipePageIndex
+                  );
+                  if (targetPage >= 0) setCurrentPage(targetPage);
+                }}
+              />
+            )}
+            {page?.type === "section" && (
+              <SectionPage title={page.title} theme={theme} />
+            )}
+            {page?.type === "recipe" && (
+              <RecipePage recipe={page.recipe} index={page.index} theme={theme} />
+            )}
+            {page?.type === "back" && (
+              <BackPage layoutData={layoutData} theme={theme} />
+            )}
+          </div>
+
+          {/* Right arrow */}
+          <button
+            onClick={() => setCurrentPage(p => Math.min(p + 1, totalPages - 1))}
+            disabled={currentPage === totalPages - 1}
+            className="hidden sm:flex items-center justify-center w-12 h-12 rounded-full hover:bg-stone-700/80 transition disabled:opacity-20 disabled:cursor-default ml-4 shrink-0"
+          >
+            <ChevronRight className="h-8 w-8 text-stone-400" />
+          </button>
+        </div>
+
+        {/* Bottom nav (mobile + desktop page dots) */}
+        <div className="flex items-center justify-center gap-2 px-4 py-3 bg-stone-900/90 backdrop-blur border-t border-stone-700 shrink-0">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setCurrentPage(p => Math.max(p - 1, 0))}
+            disabled={currentPage === 0}
+            className="sm:hidden text-stone-400"
+          >
+            <ChevronLeft className="h-5 w-5" />
+          </Button>
+          <div className="flex gap-1.5 items-center max-w-sm overflow-hidden">
+            {pages.map((_, i) => (
+              <button
+                key={i}
+                onClick={() => setCurrentPage(i)}
+                className={`w-2 h-2 rounded-full transition-all ${
+                  i === currentPage
+                    ? "bg-white w-6"
+                    : "bg-stone-600 hover:bg-stone-500"
+                }`}
+              />
+            ))}
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setCurrentPage(p => Math.min(p + 1, totalPages - 1))}
+            disabled={currentPage === totalPages - 1}
+            className="sm:hidden text-stone-400"
+          >
+            <ChevronRight className="h-5 w-5" />
+          </Button>
+        </div>
       </DialogContent>
     </Dialog>
   );
 }
 
-function generatePrintHTML(
-  layoutData: PrintLayoutData,
-  templateStyle: string,
-  recipesById: Map<string, Recipe>
-): string {
-  const { title, subtitle, authorName, dedication, sections, customizations } = layoutData;
-  
-  let html = `<div class="cookbook cookbook-${templateStyle}">`;
+// --- Page Components ---
 
-  html += `
-    <section class="title-page">
-      <div class="title-content">
-        <h1 class="book-title">${escapeHtml(title || 'My Cookbook')}</h1>
-        ${subtitle ? `<p class="book-subtitle">${escapeHtml(subtitle)}</p>` : ''}
-        ${authorName ? `<p class="book-author">by ${escapeHtml(authorName)}</p>` : ''}
+function CoverPage({
+  layoutData,
+  theme,
+  recipeCount,
+}: {
+  layoutData: PrintLayoutData;
+  theme: typeof THEMES.classic;
+  recipeCount: number;
+}) {
+  return (
+    <div className={`h-full flex flex-col items-center justify-center p-8 sm:p-12 ${theme.coverBg} text-center relative overflow-hidden`}>
+      <div className={`absolute top-0 left-0 w-full h-2 ${theme.accent}`} />
+      <div className={`absolute bottom-0 left-0 w-full h-2 ${theme.accent}`} />
+      <div className={`absolute top-6 left-6 right-6 bottom-6 border-2 ${theme.borderAccent} rounded-lg pointer-events-none`} />
+
+      <div className={`w-20 h-20 rounded-full ${theme.iconBg} flex items-center justify-center mb-6 shadow-lg`}>
+        <BookOpen className="h-10 w-10 text-white" />
       </div>
-    </section>
-  `;
 
-  if (dedication) {
-    html += `
-      <section class="dedication-page">
-        <div class="dedication-content">
-          <p class="dedication-text">${escapeHtml(dedication)}</p>
+      <h1 className={`text-2xl sm:text-3xl ${theme.titleFont} font-bold ${theme.titleColor} mb-2 leading-tight px-4`}>
+        {layoutData.title || "My Cookbook"}
+      </h1>
+
+      {layoutData.subtitle && (
+        <p className={`text-sm sm:text-base ${theme.subtitleColor} mb-4 max-w-md italic`}>
+          {layoutData.subtitle}
+        </p>
+      )}
+
+      <div className="mt-auto">
+        {layoutData.authorName && (
+          <p className={`text-sm ${theme.mutedColor} font-medium tracking-wide uppercase`}>
+            by {layoutData.authorName}
+          </p>
+        )}
+        <p className={`text-xs ${theme.lightColor} mt-2`}>
+          {recipeCount} recipe{recipeCount !== 1 ? "s" : ""}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function DedicationPage({
+  layoutData,
+  theme,
+}: {
+  layoutData: PrintLayoutData;
+  theme: typeof THEMES.classic;
+}) {
+  return (
+    <div className={`h-full flex flex-col items-center justify-center p-8 sm:p-12 bg-white text-center`}>
+      <p className={`${theme.titleFont} text-base sm:text-lg italic ${theme.subtitleColor} max-w-sm leading-relaxed`}>
+        {layoutData.dedication}
+      </p>
+    </div>
+  );
+}
+
+function TocPage({
+  sections,
+  recipesById,
+  theme,
+  onGoToRecipe,
+}: {
+  sections: PrintLayoutData["sections"];
+  recipesById: Map<string, Recipe>;
+  theme: typeof THEMES.classic;
+  onGoToRecipe: (index: number) => void;
+}) {
+  let globalIdx = 0;
+
+  return (
+    <div className="h-full flex flex-col p-6 sm:p-8 bg-white overflow-y-auto">
+      <h2 className={`text-lg sm:text-xl ${theme.titleFont} font-bold ${theme.titleColor} mb-1 text-center`}>
+        Table of Contents
+      </h2>
+      <div className={`w-16 h-0.5 ${theme.dividerColor} mx-auto mb-5`} />
+
+      <div className="flex-1 space-y-0">
+        {sections.map((section, sIdx) => (
+          <div key={section.id || sIdx}>
+            {sections.length > 1 && (
+              <div className={`text-xs font-bold uppercase tracking-wider ${theme.accentText} mt-3 mb-1 pb-1 border-b ${theme.borderAccent}`}>
+                {section.title}
+              </div>
+            )}
+            {section.recipeIds.map((id) => {
+              const recipe = recipesById.get(String(id));
+              if (!recipe) return null;
+              const idx = globalIdx++;
+              return (
+                <button
+                  key={id}
+                  onClick={() => onGoToRecipe(idx)}
+                  className={`w-full flex items-baseline gap-2 py-1 px-2 rounded hover:${theme.accentBg} transition text-left group`}
+                >
+                  <span className={`text-xs ${theme.lightColor} font-mono w-5 shrink-0`}>
+                    {idx + 1}
+                  </span>
+                  <span className={`text-xs ${theme.bodyColor} group-hover:${theme.accentText} truncate flex-1`}>
+                    {recipe.title}
+                  </span>
+                  <span className={`text-xs ${theme.lightColor} shrink-0`}>
+                    {formatTime(recipe.totalTimeMinutes || recipe.cookTimeMinutes)}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SectionPage({
+  title,
+  theme,
+}: {
+  title: string;
+  theme: typeof THEMES.classic;
+}) {
+  return (
+    <div className={`h-full flex flex-col items-center justify-center p-8 sm:p-12 ${theme.sectionBg} text-center relative overflow-hidden`}>
+      <div className={`absolute top-6 left-6 right-6 bottom-6 border ${theme.borderAccent} rounded-lg pointer-events-none`} />
+      <span className={`text-2xl ${theme.lightColor} mb-4`}>{theme.sectionDecor}</span>
+      <h2 className={`text-xl sm:text-2xl ${theme.titleFont} font-bold ${theme.titleColor} mb-2`}>
+        {title}
+      </h2>
+      <div className={`w-12 h-0.5 ${theme.dividerColor} mx-auto`} />
+    </div>
+  );
+}
+
+function RecipePage({
+  recipe,
+  index,
+  theme,
+}: {
+  recipe: Recipe;
+  index: number;
+  theme: typeof THEMES.classic;
+}) {
+  const ingredients = recipe.normalizedIngredients ||
+    (recipe.ingredients || []).map((raw: any) =>
+      typeof raw === "string" ? { raw, item: raw } : raw
+    );
+  const instructions = recipe.normalizedInstructions ||
+    (recipe.instructions || []).map((text: any, i: number) =>
+      typeof text === "string" ? { stepNumber: i + 1, text } : text
+    );
+
+  return (
+    <div className="h-full flex flex-col overflow-y-auto">
+      {/* Recipe image header */}
+      {(recipe.dishImageThumbnail || recipe.dishImage) && (
+        <div className="relative h-36 sm:h-44 shrink-0">
+          <img
+            src={recipe.dishImageThumbnail || recipe.dishImage || ""}
+            alt={recipe.title}
+            className="w-full h-full object-cover"
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
+          <div className="absolute bottom-0 left-0 right-0 p-4 sm:p-5">
+            <h2 className={`text-lg sm:text-xl ${theme.titleFont} font-bold text-white leading-tight`}>
+              {recipe.title}
+            </h2>
+          </div>
         </div>
-      </section>
-    `;
-  }
+      )}
 
-  html += `
-    <section class="toc-page">
-      <h2 class="toc-title">Table of Contents</h2>
-      <div class="toc-entries">
-  `;
+      <div className="flex-1 p-4 sm:p-5">
+        {/* Title if no image */}
+        {!recipe.dishImageThumbnail && !recipe.dishImage && (
+          <div className="mb-3">
+            <h2 className={`text-lg sm:text-xl ${theme.titleFont} font-bold ${theme.titleColor}`}>
+              {recipe.title}
+            </h2>
+            <div className={`w-10 h-0.5 ${theme.dividerColor} mt-1.5`} />
+          </div>
+        )}
 
-  sections.forEach((section, sectionIdx) => {
-    html += `<div class="toc-section">
-      <span class="toc-section-title">${escapeHtml(section.title)}</span>
-    </div>`;
-    
-    section.recipeIds.forEach((recipeId) => {
-      const recipe = recipesById.get(recipeId);
-      if (recipe) {
-        html += `<div class="toc-entry">
-          <span class="toc-recipe-title">${escapeHtml(recipe.title)}</span>
-          <span class="toc-page-ref"></span>
-        </div>`;
-      }
-    });
-  });
+        {/* Time/servings badges */}
+        <div className="flex flex-wrap gap-1.5 mb-3">
+          {recipe.prepTimeMinutes && (
+            <span className={`text-[10px] ${theme.badgeAccent} px-2 py-0.5 rounded-full`}>
+              Prep: {formatTime(recipe.prepTimeMinutes)}
+            </span>
+          )}
+          {recipe.cookTimeMinutes && (
+            <span className={`text-[10px] ${theme.badgeAccent} px-2 py-0.5 rounded-full`}>
+              Cook: {formatTime(recipe.cookTimeMinutes)}
+            </span>
+          )}
+          {recipe.servings && (
+            <span className={`text-[10px] ${theme.badgeNeutral} px-2 py-0.5 rounded-full`}>
+              Serves {recipe.servings}
+            </span>
+          )}
+        </div>
 
-  html += `</div></section>`;
+        {recipe.description && (
+          <p className={`text-xs ${theme.subtitleColor} italic mb-3 leading-relaxed`}>
+            {recipe.description}
+          </p>
+        )}
 
-  sections.forEach((section) => {
-    html += `
-      <section class="section-divider">
-        <h2 class="section-title">${escapeHtml(section.title)}</h2>
-      </section>
-    `;
+        <div className="grid grid-cols-1 sm:grid-cols-[1fr_1.5fr] gap-3 sm:gap-4">
+          {/* Ingredients */}
+          <div>
+            <h3 className={`text-xs font-bold ${theme.headingColor} uppercase tracking-wider mb-1.5`}>
+              Ingredients
+            </h3>
+            <ul className="space-y-0.5">
+              {ingredients.map((ing: any, idx: number) => {
+                const quantityStr = formatQuantity(ing.quantity, ing.unit);
+                return (
+                  <li key={idx} className={`text-xs ${theme.bodyColor} flex gap-1`}>
+                    {quantityStr && (
+                      <span className={`font-medium ${theme.titleColor} shrink-0`}>{quantityStr}</span>
+                    )}
+                    <span>
+                      {ing.item || ing.name || ing.raw || ""}
+                      {ing.preparation && <span className={theme.mutedColor}>, {ing.preparation}</span>}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
 
-    section.recipeIds.forEach((recipeId) => {
-      const recipe = recipesById.get(recipeId);
-      if (recipe) {
-        html += generateRecipeHTML(recipe, customizations?.showNutrition !== false);
-      }
-    });
-  });
+          {/* Instructions */}
+          <div>
+            <h3 className={`text-xs font-bold ${theme.headingColor} uppercase tracking-wider mb-1.5`}>
+              Instructions
+            </h3>
+            <ol className="space-y-1.5">
+              {instructions.map((step: any, idx: number) => (
+                <li key={idx} className={`text-xs ${theme.bodyColor} flex gap-1.5`}>
+                  <span className={`font-bold ${theme.stepColor} shrink-0`}>{idx + 1}.</span>
+                  <span className="leading-relaxed">
+                    {typeof step === "string" ? step : step.text || step.instruction}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          </div>
+        </div>
 
-  html += '</div>';
-  return html;
+        {/* Tips */}
+        {recipe.tips && (recipe.tips as any[]).length > 0 && (
+          <div className={`mt-3 p-2.5 ${theme.tipBg} rounded-lg border ${theme.tipBorder}`}>
+            <h4 className={`text-[10px] font-bold ${theme.tipTitle} uppercase tracking-wider mb-1`}>Tips</h4>
+            {(recipe.tips as any[]).map((tip: any, idx: number) => (
+              <p key={idx} className={`text-[10px] ${theme.tipText} leading-relaxed`}>
+                {typeof tip === "string" ? tip : tip.text}
+              </p>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Page number */}
+      <div className={`text-center py-1.5 text-[10px] ${theme.lightColor} shrink-0`}>
+        {index + 1}
+      </div>
+    </div>
+  );
 }
 
-function generateRecipeHTML(recipe: Recipe, showNutrition: boolean): string {
-  // Use unified print-recipe classes that match single recipe print layout
-  let html = `<article class="recipe-page print-recipe" data-recipe-id="${recipe.id}">`;
-  
-  // Header with title and description
-  html += `<div class="print-recipe-header">`;
-  html += `<h1 class="print-recipe-title">${escapeHtml(recipe.title)}</h1>`;
-  if (recipe.description) {
-    html += `<p class="print-recipe-description">${escapeHtml(recipe.description)}</p>`;
-  }
-  html += `</div>`;
+function BackPage({
+  layoutData,
+  theme,
+}: {
+  layoutData: PrintLayoutData;
+  theme: typeof THEMES.classic;
+}) {
+  return (
+    <div className={`h-full flex flex-col items-center justify-center p-8 sm:p-12 ${theme.backBg} text-center relative`}>
+      <div className={`absolute top-0 left-0 w-full h-2 ${theme.accent}`} />
+      <div className={`absolute bottom-0 left-0 w-full h-2 ${theme.accent}`} />
 
-  // Images side by side: dish image left, handwritten right
-  const hasDishImage = recipe.dishImageThumbnail || recipe.dishImage;
-  const hasHandwrittenImage = recipe.handwrittenImage;
-  if (hasDishImage || hasHandwrittenImage) {
-    html += `<div class="print-recipe-images">`;
-    if (hasDishImage) {
-      const imgSrc = recipe.dishImageThumbnail || recipe.dishImage;
-      html += `<img src="${imgSrc}" alt="${escapeHtml(recipe.title)}" class="print-recipe-dish-image" />`;
-    }
-    if (hasHandwrittenImage) {
-      html += `<img src="${recipe.handwrittenImage}" alt="Original recipe" class="print-recipe-handwritten-image" />`;
-    }
-    html += `</div>`;
-  }
-
-  // Prep time info on single line
-  html += '<div class="print-recipe-info">';
-  if (recipe.prepTimeMinutes) {
-    html += `<span>Prep: ${recipe.prepTimeMinutes} min</span>`;
-  }
-  if (recipe.cookTimeMinutes) {
-    html += `<span>Cook: ${recipe.cookTimeMinutes} min</span>`;
-  }
-  const totalTime = (recipe.prepTimeMinutes || 0) + (recipe.cookTimeMinutes || 0);
-  if (totalTime > 0) {
-    html += `<span>Total: ${totalTime} min</span>`;
-  }
-  if (recipe.servings) {
-    html += `<span>Serves: ${recipe.servings}</span>`;
-  }
-  html += '</div>';
-
-  // Two-column layout for ingredients and instructions
-  html += '<div class="print-recipe-content">';
-  
-  if (recipe.ingredients && recipe.ingredients.length > 0) {
-    html += '<div class="print-recipe-ingredients"><h2>Ingredients</h2><ul>';
-    recipe.ingredients.forEach(ing => {
-      const qty = ing.quantity ? `${ing.quantity} ` : '';
-      const unit = ing.unit ? `${ing.unit} ` : '';
-      html += `<li>${qty}${unit}${escapeHtml(ing.name)}</li>`;
-    });
-    html += '</ul></div>';
-  }
-
-  if (recipe.instructions && recipe.instructions.length > 0) {
-    html += '<div class="print-recipe-instructions"><h2>Instructions</h2><ol>';
-    recipe.instructions.forEach(inst => {
-      html += `<li>${escapeHtml(inst.instruction)}</li>`;
-    });
-    html += '</ol></div>';
-  }
-
-  html += '</div>'; // close print-recipe-content
-
-  if (showNutrition && recipe.nutritionInfo) {
-    const { calories, protein, carbs, fat } = recipe.nutritionInfo;
-    html += '<div class="print-recipe-nutrition"><h2>Nutrition (per serving)</h2><div class="nutrition-grid">';
-    if (calories) html += `<span>Calories: ${calories}</span>`;
-    if (protein) html += `<span>Protein: ${protein}g</span>`;
-    if (carbs) html += `<span>Carbs: ${carbs}g</span>`;
-    if (fat) html += `<span>Fat: ${fat}g</span>`;
-    html += '</div></div>';
-  }
-
-  html += '</article>';
-  return html;
-}
-
-function generatePrintCSS(templateStyle: string, pageSize: string): string {
-  const dimensions = PAGE_SIZE_DIMENSIONS[pageSize as keyof typeof PAGE_SIZE_DIMENSIONS] || PAGE_SIZE_DIMENSIONS['6x9'];
-  
-  const baseCSS = `
-    @page {
-      size: ${dimensions.width} ${dimensions.height};
-      margin: 0.75in 0.625in;
-      @bottom-center {
-        content: counter(page);
-        font-size: 10pt;
-      }
-    }
-
-    @page :first {
-      @bottom-center { content: none; }
-    }
-
-    .cookbook {
-      font-family: Georgia, serif;
-      font-size: 11pt;
-      line-height: 1.5;
-      color: #1a1a1a;
-    }
-
-    .title-page {
-      page: title;
-      break-after: page;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 100vh;
-      text-align: center;
-    }
-
-    @page title {
-      @bottom-center { content: none; }
-    }
-
-    .book-title {
-      font-size: 32pt;
-      font-weight: bold;
-      margin-bottom: 0.5em;
-    }
-
-    .book-subtitle {
-      font-size: 16pt;
-      font-style: italic;
-      color: #666;
-      margin-bottom: 1em;
-    }
-
-    .book-author {
-      font-size: 14pt;
-      color: #444;
-    }
-
-    .dedication-page {
-      page: dedication;
-      break-after: page;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 100vh;
-      text-align: center;
-    }
-
-    @page dedication {
-      @bottom-center { content: none; }
-    }
-
-    .dedication-text {
-      font-style: italic;
-      font-size: 14pt;
-      max-width: 4in;
-      margin: 0 auto;
-    }
-
-    .toc-page {
-      break-after: page;
-    }
-
-    .toc-title {
-      font-size: 24pt;
-      text-align: center;
-      margin-bottom: 1em;
-    }
-
-    .toc-section {
-      font-weight: bold;
-      margin-top: 1em;
-      padding-bottom: 0.25em;
-      border-bottom: 1px solid #ccc;
-    }
-
-    .toc-entry {
-      display: flex;
-      justify-content: space-between;
-      padding: 0.25em 0 0.25em 1em;
-    }
-
-    .section-divider {
-      page: section;
-      break-before: page;
-      break-after: page;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 100vh;
-      text-align: center;
-    }
-
-    @page section {
-      @bottom-center { content: none; }
-    }
-
-    .section-title {
-      font-size: 28pt;
-      font-weight: bold;
-    }
-
-    .recipe-page {
-      break-before: page;
-      break-inside: avoid-page;
-    }
-
-    .recipe-title {
-      font-size: 18pt;
-      font-weight: bold;
-      margin-bottom: 0.5em;
-      color: #333;
-    }
-
-    .recipe-image {
-      width: 100%;
-      max-height: 3in;
-      overflow: hidden;
-      margin-bottom: 0.5em;
-    }
-
-    .recipe-image img {
-      width: 100%;
-      height: auto;
-      object-fit: cover;
-    }
-
-    .recipe-description {
-      font-style: italic;
-      color: #555;
-      margin-bottom: 0.75em;
-    }
-
-    .recipe-meta {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 1em;
-      font-size: 10pt;
-      color: #666;
-      margin-bottom: 1em;
-      padding-bottom: 0.5em;
-      border-bottom: 1px solid #ddd;
-    }
-
-    .recipe-ingredients,
-    .recipe-instructions,
-    .recipe-nutrition {
-      margin-bottom: 1em;
-    }
-
-    .recipe-ingredients h4,
-    .recipe-instructions h4,
-    .recipe-nutrition h4 {
-      font-size: 12pt;
-      font-weight: bold;
-      margin-bottom: 0.5em;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-    }
-
-    .recipe-ingredients ul {
-      list-style: none;
-      padding: 0;
-    }
-
-    .recipe-ingredients li {
-      padding: 0.2em 0;
-      border-bottom: 1px dotted #ddd;
-    }
-
-    .recipe-instructions ol {
-      padding-left: 1.5em;
-    }
-
-    .recipe-instructions li {
-      margin-bottom: 0.5em;
-    }
-
-    .nutrition-grid {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 1em;
-      font-size: 10pt;
-    }
-
-    /* Unified print-recipe styles (shared with single recipe print) */
-    .print-recipe {
-      background: white;
-      color: black;
-      font-family: Georgia, 'Times New Roman', serif;
-    }
-
-    .print-recipe-header {
-      text-align: center;
-      margin-bottom: 0.25rem;
-      padding-bottom: 0.25rem;
-    }
-
-    .print-recipe-title {
-      font-size: 16pt;
-      font-weight: bold;
-      margin: 0 0 0.15rem;
-      color: #1a1a1a;
-    }
-
-    .print-recipe-description {
-      font-size: 8pt;
-      font-style: italic;
-      color: #444;
-      margin: 0 0 0.25rem;
-    }
-
-    .print-recipe-images {
-      display: flex;
-      justify-content: center;
-      align-items: flex-start;
-      gap: 1rem;
-      margin-bottom: 0.25rem;
-    }
-
-    .print-recipe-dish-image,
-    .print-recipe-handwritten-image {
-      max-width: 2.5in;
-      max-height: 2in;
-      width: auto;
-      height: auto;
-      border-radius: 4px;
-      object-fit: cover;
-      border: 1px solid #ddd;
-    }
-
-    .print-recipe-info {
-      display: flex;
-      justify-content: center;
-      gap: 1rem;
-      padding: 0.15rem 0;
-      margin-bottom: 0.3rem;
-      font-size: 8pt;
-      color: #555;
-      border-bottom: 1px solid #ddd;
-    }
-
-    .print-recipe-content {
-      display: flex;
-      flex-direction: row;
-      gap: 0.5rem;
-      margin-bottom: 0.25rem;
-    }
-
-    .print-recipe-content > .print-recipe-ingredients {
-      flex: 1;
-      min-width: 0;
-    }
-
-    .print-recipe-content > .print-recipe-instructions {
-      flex: 2;
-      min-width: 0;
-    }
-
-    .print-recipe-ingredients {
-      background: #f9f9f9;
-      padding: 0.3rem 0.5rem;
-      border-radius: 4px;
-      border: 1px solid #e0e0e0;
-      color: #000;
-    }
-
-    .print-recipe-instructions {
-      color: #000;
-    }
-
-    .print-recipe-ingredients h2,
-    .print-recipe-instructions h2,
-    .print-recipe-nutrition h2 {
-      font-size: 9pt;
-      font-weight: bold;
-      margin: 0 0 0.2rem;
-      color: #1a1a1a;
-      border-bottom: 1px solid #ccc;
-      padding-bottom: 0.15rem;
-    }
-
-    .print-recipe-ingredients ul {
-      list-style: disc;
-      padding-left: 1rem;
-      margin: 0;
-      color: #000;
-      columns: 2;
-      column-gap: 0.5rem;
-    }
-
-    .print-recipe-ingredients li {
-      font-size: 8pt;
-      margin-bottom: 0.1rem;
-      line-height: 1.2;
-      color: #000;
-      break-inside: avoid;
-    }
-
-    .print-recipe-instructions ol {
-      list-style: decimal;
-      padding-left: 1rem;
-      margin: 0;
-      color: #000;
-    }
-
-    .print-recipe-instructions li {
-      font-size: 8pt;
-      margin-bottom: 0.2rem;
-      line-height: 1.25;
-      color: #000;
-    }
-
-    .print-recipe-nutrition {
-      margin-top: 0.3rem;
-      padding: 0.3rem 0.5rem;
-      background: #f5f5f5;
-      border-radius: 4px;
-    }
-  `;
-
-  const styleVariants: Record<string, string> = {
-    classic: `
-      .cookbook-classic {
-        font-family: 'Playfair Display', Georgia, 'Times New Roman', serif;
-        color: #2c2c2c;
-      }
-      .cookbook-classic .title-content {
-        border: 3px double #8b7355;
-        padding: 1.5em 2em;
-      }
-      .cookbook-classic .book-title {
-        font-family: 'Playfair Display', Georgia, serif;
-        font-size: 36pt;
-        font-weight: 700;
-        color: #3d2914;
-        text-transform: none;
-        letter-spacing: 0.02em;
-        border-bottom: 2px solid #c4a77d;
-        padding-bottom: 0.3em;
-      }
-      .cookbook-classic .book-subtitle {
-        font-size: 18pt;
-        font-style: italic;
-        color: #5c4033;
-        margin-top: 0.5em;
-      }
-      .cookbook-classic .book-author {
-        font-size: 14pt;
-        font-variant: small-caps;
-        letter-spacing: 0.1em;
-        color: #6b5344;
-        margin-top: 1.5em;
-      }
-      .cookbook-classic .dedication-text {
-        font-family: 'Playfair Display', Georgia, serif;
-        font-size: 16pt;
-        font-style: italic;
-        color: #4a3728;
-        line-height: 1.8;
-      }
-      .cookbook-classic .toc-title {
-        font-family: 'Playfair Display', Georgia, serif;
-        font-size: 26pt;
-        color: #3d2914;
-        border-bottom: 1px solid #c4a77d;
-        padding-bottom: 0.3em;
-      }
-      .cookbook-classic .toc-section {
-        font-family: 'Playfair Display', Georgia, serif;
-        font-size: 13pt;
-        color: #5c4033;
-        border-bottom: 1px solid #d4c4a7;
-      }
-      .cookbook-classic .toc-entry {
-        font-size: 11pt;
-        color: #4a4a4a;
-      }
-      .cookbook-classic .section-title {
-        font-family: 'Playfair Display', Georgia, serif;
-        font-size: 32pt;
-        color: #3d2914;
-        font-weight: 700;
-      }
-      .cookbook-classic .section-divider::before {
-        content: "✦";
-        display: block;
-        font-size: 24pt;
-        color: #c4a77d;
-        margin-bottom: 0.5em;
-      }
-      .cookbook-classic .recipe-title {
-        font-family: 'Playfair Display', Georgia, serif;
-        font-size: 20pt;
-        color: #3d2914;
-        border-bottom: 1px solid #c4a77d;
-        padding-bottom: 0.25em;
-      }
-      .cookbook-classic .recipe-description {
-        font-style: italic;
-        color: #5c4033;
-        font-size: 11pt;
-        line-height: 1.6;
-      }
-      .cookbook-classic .recipe-meta {
-        background: linear-gradient(to right, #f8f4ef, transparent);
-        padding: 0.5em 0.75em;
-        border-left: 3px solid #c4a77d;
-        border-bottom: none;
-        color: #5c4033;
-      }
-      .cookbook-classic .recipe-ingredients h4,
-      .cookbook-classic .recipe-instructions h4,
-      .cookbook-classic .recipe-nutrition h4 {
-        font-family: 'Playfair Display', Georgia, serif;
-        color: #5c4033;
-        font-size: 13pt;
-        letter-spacing: 0.08em;
-        border-bottom: 1px dotted #d4c4a7;
-        padding-bottom: 0.25em;
-      }
-      .cookbook-classic .recipe-ingredients li {
-        border-bottom-color: #e8dfd4;
-      }
-      .cookbook-classic .recipe-image {
-        border: 1px solid #d4c4a7;
-        padding: 4px;
-        background: #f8f4ef;
-      }
-    `,
-    modern: `
-      .cookbook-modern {
-        font-family: 'Inter', 'Helvetica Neue', Arial, sans-serif;
-        color: #1a1a1a;
-      }
-      .cookbook-modern .title-page {
-        background: linear-gradient(135deg, #f5f5f5 0%, #ffffff 100%);
-      }
-      .cookbook-modern .book-title {
-        font-weight: 200;
-        font-size: 42pt;
-        letter-spacing: 0.15em;
-        text-transform: uppercase;
-        color: #1a1a1a;
-      }
-      .cookbook-modern .book-subtitle {
-        font-weight: 300;
-        font-size: 14pt;
-        font-style: normal;
-        letter-spacing: 0.3em;
-        text-transform: uppercase;
-        color: #666;
-        margin-top: 1em;
-      }
-      .cookbook-modern .book-author {
-        font-weight: 400;
-        font-size: 12pt;
-        letter-spacing: 0.2em;
-        text-transform: uppercase;
-        color: #888;
-        margin-top: 2em;
-      }
-      .cookbook-modern .dedication-text {
-        font-weight: 300;
-        font-size: 14pt;
-        font-style: normal;
-        color: #555;
-        line-height: 2;
-        letter-spacing: 0.02em;
-      }
-      .cookbook-modern .toc-title {
-        font-weight: 200;
-        font-size: 20pt;
-        letter-spacing: 0.2em;
-        text-transform: uppercase;
-        text-align: left;
-        border-left: 4px solid #1a1a1a;
-        padding-left: 0.5em;
-      }
-      .cookbook-modern .toc-section {
-        font-weight: 600;
-        font-size: 11pt;
-        letter-spacing: 0.15em;
-        text-transform: uppercase;
-        color: #333;
-        border-bottom: 2px solid #1a1a1a;
-        padding-bottom: 0.3em;
-      }
-      .cookbook-modern .toc-entry {
-        font-weight: 300;
-        font-size: 10pt;
-        letter-spacing: 0.05em;
-      }
-      .cookbook-modern .section-title {
-        font-weight: 100;
-        font-size: 36pt;
-        letter-spacing: 0.2em;
-        text-transform: uppercase;
-        color: #1a1a1a;
-      }
-      .cookbook-modern .section-divider::after {
-        content: "";
-        display: block;
-        width: 60px;
-        height: 2px;
-        background: #1a1a1a;
-        margin: 1em auto 0;
-      }
-      .cookbook-modern .recipe-title {
-        font-weight: 600;
-        font-size: 18pt;
-        letter-spacing: 0.05em;
-        color: #1a1a1a;
-        text-transform: uppercase;
-      }
-      .cookbook-modern .recipe-description {
-        font-weight: 300;
-        font-style: normal;
-        color: #666;
-        font-size: 10pt;
-        letter-spacing: 0.02em;
-      }
-      .cookbook-modern .recipe-meta {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0;
-        border: 1px solid #e0e0e0;
-        padding: 0;
-        background: #fafafa;
-      }
-      .cookbook-modern .recipe-meta .meta-item {
-        flex: 1 1 auto;
-        min-width: 80px;
-        padding: 0.5em 0.75em;
-        text-align: center;
-        border-right: 1px solid #e0e0e0;
-        font-size: 9pt;
-        text-transform: uppercase;
-        letter-spacing: 0.1em;
-      }
-      .cookbook-modern .recipe-meta .meta-item:last-child {
-        border-right: none;
-      }
-      .cookbook-modern .recipe-ingredients h4,
-      .cookbook-modern .recipe-instructions h4,
-      .cookbook-modern .recipe-nutrition h4 {
-        font-weight: 600;
-        font-size: 10pt;
-        letter-spacing: 0.15em;
-        color: #333;
-        border-bottom: 1px solid #1a1a1a;
-        padding-bottom: 0.3em;
-        margin-bottom: 0.75em;
-      }
-      .cookbook-modern .recipe-ingredients li {
-        border-bottom: none;
-        padding: 0.15em 0;
-        font-weight: 300;
-      }
-      .cookbook-modern .recipe-ingredients li::before {
-        content: "—";
-        margin-right: 0.5em;
-        color: #999;
-      }
-      .cookbook-modern .recipe-instructions li {
-        font-weight: 300;
-      }
-      .cookbook-modern .recipe-image {
-        max-height: 2.5in;
-      }
-      .cookbook-modern .recipe-image img {
-        filter: grayscale(10%);
-      }
-    `,
-    rustic: `
-      .cookbook-rustic {
-        font-family: 'Merriweather', 'Cambria', Georgia, serif;
-        color: #2e1a0a;
-        background-color: #faf6f1;
-      }
-      .cookbook-rustic .title-content {
-        background: 
-          radial-gradient(ellipse at center, rgba(196, 167, 125, 0.1) 0%, transparent 70%);
-      }
-      .cookbook-rustic .book-title {
-        font-family: 'Merriweather', Georgia, serif;
-        font-size: 34pt;
-        font-weight: 700;
-        color: #3d2914;
-      }
-      .cookbook-rustic .book-title::before,
-      .cookbook-rustic .book-title::after {
-        content: "❧";
-        display: block;
-        font-size: 18pt;
-        color: #8b7355;
-        margin: 0.3em 0;
-      }
-      .cookbook-rustic .book-subtitle {
-        font-size: 16pt;
-        font-style: italic;
-        color: #4a3020;
-      }
-      .cookbook-rustic .book-author {
-        font-size: 14pt;
-        color: #5c4033;
-        font-style: italic;
-      }
-      .cookbook-rustic .dedication-text {
-        font-family: 'Merriweather', Georgia, serif;
-        font-size: 15pt;
-        font-style: italic;
-        color: #3d2914;
-        line-height: 1.9;
-        border-left: 3px solid #8b7355;
-        padding-left: 1em;
-        text-align: left;
-      }
-      .cookbook-rustic .toc-title {
-        font-family: 'Merriweather', Georgia, serif;
-        font-size: 24pt;
-        color: #3d2914;
-        text-align: center;
-      }
-      .cookbook-rustic .toc-title::after {
-        content: "";
-        display: block;
-        width: 100px;
-        height: 3px;
-        background: linear-gradient(to right, transparent, #8b7355, transparent);
-        margin: 0.5em auto 0;
-      }
-      .cookbook-rustic .toc-section {
-        font-size: 12pt;
-        color: #3d2914;
-        border-bottom: 2px solid #8b7355;
-        background: linear-gradient(to right, rgba(139, 115, 85, 0.1), transparent);
-        padding: 0.3em 0.5em;
-      }
-      .cookbook-rustic .toc-entry {
-        color: #4a3020;
-        font-size: 11pt;
-      }
-      .cookbook-rustic .section-title {
-        font-family: 'Merriweather', Georgia, serif;
-        font-size: 30pt;
-        color: #3d2914;
-      }
-      .cookbook-rustic .section-divider {
-        background: 
-          radial-gradient(ellipse at center, rgba(139, 115, 85, 0.1) 0%, transparent 60%);
-      }
-      .cookbook-rustic .section-divider::before,
-      .cookbook-rustic .section-divider::after {
-        content: "✿";
-        display: block;
-        font-size: 20pt;
-        color: #8b7355;
-      }
-      .cookbook-rustic .section-divider::before { margin-bottom: 0.5em; }
-      .cookbook-rustic .section-divider::after { margin-top: 0.5em; }
-      .cookbook-rustic .recipe-title {
-        font-family: 'Merriweather', Georgia, serif;
-        font-size: 19pt;
-        color: #3d2914;
-        padding-bottom: 0.3em;
-        border-bottom: 2px solid #8b7355;
-      }
-      .cookbook-rustic .recipe-description {
-        font-style: italic;
-        color: #4a3020;
-        font-size: 11pt;
-        background: rgba(139, 115, 85, 0.06);
-        padding: 0.5em 0.75em;
-        border-radius: 3px;
-      }
-      .cookbook-rustic .recipe-meta {
-        background: rgba(139, 115, 85, 0.08);
-        padding: 0.6em 0.75em;
-        border: 1px solid #b8a690;
-        border-radius: 4px;
-        color: #3d2914;
-      }
-      .cookbook-rustic .recipe-ingredients h4,
-      .cookbook-rustic .recipe-instructions h4,
-      .cookbook-rustic .recipe-nutrition h4 {
-        font-family: 'Merriweather', Georgia, serif;
-        color: #3d2914;
-        font-size: 12pt;
-        letter-spacing: 0.05em;
-      }
-      .cookbook-rustic .recipe-ingredients li {
-        border-bottom: 1px dashed #b8a690;
-        color: #2e1a0a;
-      }
-      .cookbook-rustic .recipe-instructions li {
-        color: #2e1a0a;
-      }
-      .cookbook-rustic .recipe-image {
-        border: 3px solid #8b7355;
-        padding: 5px;
-        background: #faf6f1;
-      }
-      .cookbook-rustic .nutrition-grid {
-        background: rgba(139, 115, 85, 0.06);
-        padding: 0.5em;
-        border-radius: 3px;
-        color: #3d2914;
-      }
-    `,
-    elegant: `
-      .cookbook-elegant {
-        font-family: 'Source Sans Pro', 'Segoe UI', Roboto, sans-serif;
-        color: #333;
-      }
-      .cookbook-elegant .title-page {
-        padding: 2in 0;
-      }
-      .cookbook-elegant .book-title {
-        font-weight: 300;
-        font-size: 28pt;
-        color: #222;
-        letter-spacing: 0.02em;
-      }
-      .cookbook-elegant .book-subtitle {
-        font-weight: 300;
-        font-size: 12pt;
-        font-style: normal;
-        color: #888;
-        margin-top: 0.75em;
-      }
-      .cookbook-elegant .book-author {
-        font-weight: 400;
-        font-size: 11pt;
-        color: #666;
-        margin-top: 3em;
-      }
-      .cookbook-elegant .dedication-text {
-        font-weight: 300;
-        font-size: 13pt;
-        font-style: normal;
-        color: #555;
-        line-height: 2;
-        max-width: 3.5in;
-      }
-      .cookbook-elegant .toc-title {
-        font-weight: 300;
-        font-size: 18pt;
-        text-align: left;
-        color: #333;
-        margin-bottom: 1.5em;
-      }
-      .cookbook-elegant .toc-section {
-        font-weight: 500;
-        font-size: 11pt;
-        color: #222;
-        border-bottom: 1px solid #eee;
-        padding-bottom: 0.2em;
-        margin-top: 1.5em;
-      }
-      .cookbook-elegant .toc-entry {
-        font-weight: 300;
-        font-size: 10pt;
-        color: #666;
-        padding: 0.2em 0 0.2em 0;
-      }
-      .cookbook-elegant .section-title {
-        font-weight: 300;
-        font-size: 24pt;
-        color: #222;
-      }
-      .cookbook-elegant .recipe-page {
-        padding-top: 0.5in;
-      }
-      .cookbook-elegant .recipe-title {
-        font-weight: 500;
-        font-size: 16pt;
-        color: #222;
-        margin-bottom: 0.3em;
-      }
-      .cookbook-elegant .recipe-description {
-        font-weight: 300;
-        font-style: normal;
-        color: #666;
-        font-size: 10pt;
-        margin-bottom: 1em;
-      }
-      .cookbook-elegant .recipe-meta {
-        font-size: 9pt;
-        color: #888;
-        border-bottom: none;
-        padding-bottom: 0;
-        margin-bottom: 1.5em;
-        gap: 1.5em;
-      }
-      .cookbook-elegant .recipe-meta .meta-item {
-        font-weight: 400;
-      }
-      .cookbook-elegant .recipe-ingredients h4,
-      .cookbook-elegant .recipe-instructions h4,
-      .cookbook-elegant .recipe-nutrition h4 {
-        font-weight: 500;
-        text-transform: none;
-        font-size: 11pt;
-        letter-spacing: 0;
-        color: #333;
-        margin-bottom: 0.75em;
-      }
-      .cookbook-elegant .recipe-ingredients ul {
-        columns: 2;
-        column-gap: 1.5em;
-      }
-      .cookbook-elegant .recipe-ingredients li {
-        font-weight: 300;
-        font-size: 10pt;
-        border-bottom: none;
-        padding: 0.15em 0;
-        break-inside: avoid;
-      }
-      .cookbook-elegant .recipe-instructions li {
-        font-weight: 300;
-        font-size: 10pt;
-        line-height: 1.7;
-        margin-bottom: 0.75em;
-      }
-      .cookbook-elegant .recipe-image {
-        max-height: 2in;
-        margin-bottom: 1em;
-      }
-      .cookbook-elegant .nutrition-grid {
-        font-size: 9pt;
-        color: #888;
-        font-weight: 300;
-      }
-    `,
-  };
-
-  return baseCSS + (styleVariants[templateStyle] || '');
-}
-
-function escapeHtml(text: string): string {
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
+      <BookOpen className={`h-14 w-14 ${theme.lightColor} mb-6`} />
+      <h2 className={`text-lg sm:text-xl ${theme.titleFont} font-bold ${theme.titleColor} mb-2`}>
+        {layoutData.title || "My Cookbook"}
+      </h2>
+      {layoutData.subtitle && (
+        <p className={`text-sm ${theme.mutedColor} italic max-w-sm mb-8`}>
+          {layoutData.subtitle}
+        </p>
+      )}
+      <p className={`text-xs ${theme.lightColor} mt-auto`}>
+        Made with Grammie
+      </p>
+    </div>
+  );
 }
