@@ -27,6 +27,15 @@ export function transformRecipe(recipe: Recipe): NormalizedRecipe {
     ],
     imageUrl: recipe.dishImageThumbnail ?? undefined,
     source: recipe.socialSourceUrl ?? undefined,
+    nutritionInfo: (recipe.calories || recipe.protein || recipe.carbohydrates || recipe.fat || recipe.fiber) ? {
+      calories: recipe.calories ?? undefined,
+      protein: recipe.protein != null ? String(recipe.protein) : undefined,
+      carbohydrates: recipe.carbohydrates != null ? String(recipe.carbohydrates) : undefined,
+      fat: recipe.fat != null ? String(recipe.fat) : undefined,
+      fiber: recipe.fiber != null ? String(recipe.fiber) : undefined,
+    } : undefined,
+    tips: recipe.tips && Array.isArray(recipe.tips) && recipe.tips.length > 0 ? recipe.tips : undefined,
+    variations: recipe.variations && Array.isArray(recipe.variations) && recipe.variations.length > 0 ? recipe.variations : undefined,
   };
 }
 

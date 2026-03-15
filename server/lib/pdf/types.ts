@@ -40,4 +40,6 @@ export interface NormalizedRecipe {
   imageUrl?: string;
   source?: string;
   nutritionInfo?: NutritionData;
+  tips?: any[];
+  variations?: any[];
 }

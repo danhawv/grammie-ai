@@ -943,6 +943,11 @@ router.post("/cookbooks/:id/generate-pdf", isAuthenticated, async (req: any, res
         }).filter(Boolean)
       ) as CookbookPrintData['recipes'],
       coverData: validatedLayout.data.coverData,
+      customizations: validatedLayout.data.customizations ? {
+        showNutrition: validatedLayout.data.customizations.showNutrition,
+        showTips: validatedLayout.data.customizations.showTips,
+        showVariations: validatedLayout.data.customizations.showVariations,
+      } : undefined,
     };
 
     console.log(`[PDF Generation] Starting PDF generation for cookbook ${cookbookId} with ${cookbookPrintData.recipes.length} recipes`);
@@ -1054,6 +1059,11 @@ router.post("/cookbooks/:id/print-order", isAuthenticated, async (req: any, res)
         }).filter(Boolean)
       ) as CookbookPrintData['recipes'],
       coverData: validatedLayout.data.coverData,
+      customizations: validatedLayout.data.customizations ? {
+        showNutrition: validatedLayout.data.customizations.showNutrition,
+        showTips: validatedLayout.data.customizations.showTips,
+        showVariations: validatedLayout.data.customizations.showVariations,
+      } : undefined,
     };
 
     console.log(`[Print Order] Generating PDF for cookbook ${cookbookId} with ${cookbookPrintData.recipes.length} recipes`);

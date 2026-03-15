@@ -1294,6 +1294,9 @@ function CookbookPrintEditorInner() {
                       data-testid="checkbox-variations"
                     />
                   </div>
+                  <p className="text-xs text-muted-foreground mt-2 pl-1">
+                    Enabled extras will appear on a second page after each recipe that has the corresponding data.
+                  </p>
                 </div>
               </div>
 
