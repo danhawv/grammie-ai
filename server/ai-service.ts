@@ -61,10 +61,10 @@ export function getCurrentProvider(): AIProvider {
   
   // Fall back to environment variable
   const provider = process.env.AI_PROVIDER?.toLowerCase();
-  if (provider === "gemini") {
-    return "gemini";
+  if (provider === "openai") {
+    return "openai";
   }
-  return "openai"; // Default to OpenAI
+  return "gemini"; // Default to Gemini
 }
 
 // Check if there's a runtime override active
@@ -577,7 +577,7 @@ export async function enrichRecipeUnified(
 
 // ============ PARALLEL Enrichment (Phase 2 Optimized) ============
 
-interface ParallelEnrichmentResult {
+export interface ParallelEnrichmentResult {
   enrichedData: EnrichedRecipeData;
   timings: {
     group1Ms: number;  // Core recipe structure
@@ -691,6 +691,139 @@ export async function enrichRecipeParallel(
         totalMs: fallbackMs,
       },
     };
+  }
+}
+
+// ============ Essential-Only Enrichment (Groups 1+2, skip Group 3) ============
+
+export interface EssentialEnrichmentResult {
+  enrichedData: EnrichedRecipeData;
+  timings: {
+    group1Ms: number;
+    group2Ms: number;
+    group3Ms: number; // Always 0 — Group 3 is skipped
+    totalMs: number;
+  };
+}
+
+/**
+ * Runs ONLY Group 1 (Core) + Group 2 (Nutrition) enrichment.
+ * Group 3 (Content: tips, variations, beveragePairings, etc.) is skipped.
+ * Returns a valid EnrichedRecipeData with defaults for Group 3 fields.
+ */
+export async function enrichRecipeEssential(
+  rawRecipe: ExtractedRecipeRaw
+): Promise<ParallelEnrichmentResult> {
+  const provider = getCurrentProvider();
+  console.log(`[AI Service] ESSENTIAL enrichment using: ${provider.toUpperCase()} (Groups 1+2 only)`);
+
+  const overallStart = Date.now();
+
+  try {
+    // Run only Groups 1 and 2 in parallel (skip Group 3)
+    const [group1Result, group2Result] = await Promise.all([
+      withRetry(() => enrichGroup1Core(rawRecipe, provider), 2, "Group1-Core"),
+      withRetry(() => enrichGroup2Nutrition(rawRecipe, provider), 2, "Group2-Nutrition"),
+    ]);
+
+    const totalMs = Date.now() - overallStart;
+
+    console.log(`[AI Service] Essential enrichment completed:`);
+    console.log(`  - Group 1 (Core): ${group1Result.durationMs}ms`);
+    console.log(`  - Group 2 (Nutrition): ${group2Result.durationMs}ms`);
+    console.log(`  - Group 3 (Content): SKIPPED`);
+    console.log(`  - Total wall-clock: ${totalMs}ms`);
+
+    // Merge Groups 1+2 with defaults (Group 3 fields get defaults)
+    const group3Defaults: Partial<EnrichedRecipeData> = {
+      tips: [],
+      variations: [],
+      servingSuggestions: [],
+      beveragePairings: { wines: [], beers: [], cocktails: [], nonAlcoholic: [] },
+      recipeVariations: { lowerCalorie: [], higherProtein: [], michelinUpgrade: [], budgetFriendly: [] },
+      culturalSignificance: null as any,
+      celebrityChefReviews: null as any,
+    };
+
+    const merged = mergeEnrichmentResults(group1Result.data, group2Result.data, group3Defaults);
+
+    // Apply lenient schema validation with defaults for missing required fields
+    const parseResult = enrichedRecipeDataSchema.safeParse(merged);
+
+    let validated: EnrichedRecipeData;
+    if (parseResult.success) {
+      validated = parseResult.data;
+      console.log(`[AI Service] Essential schema validation passed`);
+    } else {
+      console.warn(`[AI Service] Essential schema validation had issues, applying defaults:`,
+        parseResult.error.issues.slice(0, 3).map(i => `${i.path.join('.')}: ${i.message}`).join('; '));
+
+      validated = {
+        ...getEnrichmentDefaults(),
+        ...merged,
+        normalizedIngredients: Array.isArray(merged.normalizedIngredients) ? merged.normalizedIngredients : [],
+        normalizedInstructions: Array.isArray(merged.normalizedInstructions) ? merged.normalizedInstructions : [],
+        servings: merged.servings || 4,
+      } as EnrichedRecipeData;
+    }
+
+    // Compute derived fields on validated data
+    computeDerivedFields(validated);
+
+    return {
+      enrichedData: validated,
+      timings: {
+        group1Ms: group1Result.durationMs,
+        group2Ms: group2Result.durationMs,
+        group3Ms: 0,
+        totalMs,
+      },
+    };
+  } catch (error: any) {
+    console.error(`[AI Service] Essential enrichment failed: ${error.message}. Falling back to sequential.`);
+    const fallbackStart = Date.now();
+    const enriched = await enrichRecipeUnified(rawRecipe);
+    const fallbackMs = Date.now() - fallbackStart;
+
+    return {
+      enrichedData: enriched,
+      timings: {
+        group1Ms: 0,
+        group2Ms: 0,
+        group3Ms: 0,
+        totalMs: fallbackMs,
+      },
+    };
+  }
+}
+
+/**
+ * Runs ONLY Group 3 (Content) enrichment.
+ * Returns the Group 3 data: tips, variations, beveragePairings, recipeVariations,
+ * culturalSignificance, celebrityChefReviews, servingSuggestions, and aiEnrichmentFields.
+ */
+export async function enrichRecipeContentOnly(
+  rawRecipe: ExtractedRecipeRaw
+): Promise<Partial<EnrichedRecipeData>> {
+  const provider = getCurrentProvider();
+  console.log(`[AI Service] CONTENT-ONLY enrichment using: ${provider.toUpperCase()} (Group 3 only)`);
+
+  const startTime = Date.now();
+
+  try {
+    const group3Result = await withRetry(
+      () => enrichGroup3Content(rawRecipe, provider),
+      2,
+      "Group3-Content"
+    );
+
+    const totalMs = Date.now() - startTime;
+    console.log(`[AI Service] Content-only enrichment completed in ${totalMs}ms`);
+
+    return group3Result.data;
+  } catch (error: any) {
+    console.error(`[AI Service] Content-only enrichment failed: ${error.message}`);
+    throw error;
   }
 }
 

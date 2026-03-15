@@ -452,6 +452,7 @@ export const recipes = pgTable("recipes", {
   instructionsGenerated: boolean("instructions_generated").default(false),
   originalInstructions: text("original_instructions").array(), // Stores original extracted instructions before AI enhancement
   enrichmentStatus: text("enrichment_status").$type<'extracting' | 'enriching' | 'ready' | 'failed'>().default('extracting'),
+  contentEnrichmentStatus: varchar("content_enrichment_status").default('pending'),
   enrichmentError: text("enrichment_error"),
   enrichmentRetryCount: integer("enrichment_retry_count").default(0),
   enrichmentStartedAt: timestamp("enrichment_started_at"),

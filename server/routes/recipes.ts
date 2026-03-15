@@ -6,6 +6,7 @@ import heicConvert from "heic-convert";
 import { isAuthenticated, optionalAuth } from "../clerkAuth";
 import { storage } from "../storage";
 import type { RecipeFilterParams } from "../pg-storage";
+import { parseFiltersFromQuery } from "./filter-parser";
 import { db } from "../db";
 import { eq, or } from "drizzle-orm";
 import {
@@ -38,52 +39,7 @@ router.get("/recipes", optionalAuth, async (req: any, res) => {
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 24;
 
-    const parseArray = (val: any): string[] | undefined => {
-      if (!val) return undefined;
-      if (typeof val === 'string') {
-        const arr = val.split(',').map((s: string) => s.trim()).filter(Boolean);
-        return arr.length > 0 ? arr : undefined;
-      }
-      return undefined;
-    };
-
-    const filters: RecipeFilterParams = {};
-    const mealTypes = parseArray(req.query.mealTypes);
-    if (mealTypes) filters.mealTypes = mealTypes;
-    const cuisines = parseArray(req.query.cuisines);
-    if (cuisines) filters.cuisines = cuisines;
-    const cookingMethods = parseArray(req.query.cookingMethods);
-    if (cookingMethods) filters.cookingMethods = cookingMethods;
-    const skillLevels = parseArray(req.query.skillLevels);
-    if (skillLevels) filters.skillLevels = skillLevels;
-    const seasons = parseArray(req.query.seasons);
-    if (seasons) filters.seasons = seasons;
-    const excludeAllergens = parseArray(req.query.excludeAllergens);
-    if (excludeAllergens) filters.excludeAllergens = excludeAllergens;
-    const timeConvenience = parseArray(req.query.timeConvenience);
-    if (timeConvenience) filters.timeConvenience = timeConvenience;
-    if (req.query.search) filters.search = req.query.search as string;
-    if (req.query.sortBy) filters.sortBy = req.query.sortBy as string;
-
-    const dietaryKeys = [
-      'vegetarian', 'vegan', 'pescatarian', 'glutenFree', 'dairyFree',
-      'keto', 'paleo', 'lowCarb', 'highProtein', 'lowCalorie', 'highFiber', 'mediterranean'
-    ] as const;
-    const dietary: Record<string, boolean> = {};
-    let hasDietary = false;
-    for (const key of dietaryKeys) {
-      if (req.query[`dietary_${key}`] === 'true') {
-        dietary[key] = true;
-        hasDietary = true;
-      }
-    }
-    if (hasDietary) filters.dietary = dietary as any;
-
-    if (req.query.budgetFriendly === 'true') filters.budgetFriendly = true;
-    if (req.query.fewIngredients === 'true') filters.fewIngredients = true;
-    if (req.query.onePot === 'true') filters.onePot = true;
-    if (req.query.airFryer === 'true') filters.airFryer = true;
-
+    const filters = parseFiltersFromQuery(req.query);
     const hasFilters = Object.keys(filters).length > 0;
 
     let result;
@@ -119,50 +75,7 @@ router.get("/recipes/filter-counts", async (req: any, res) => {
     const userId = getUserId(req);
     const scope = req.query.scope as string;
 
-    const parseArray = (val: any): string[] | undefined => {
-      if (!val) return undefined;
-      if (typeof val === 'string') {
-        const arr = val.split(',').map((s: string) => s.trim()).filter(Boolean);
-        return arr.length > 0 ? arr : undefined;
-      }
-      return undefined;
-    };
-
-    const filters: RecipeFilterParams = {};
-    const mealTypes = parseArray(req.query.mealTypes);
-    if (mealTypes) filters.mealTypes = mealTypes;
-    const cuisines = parseArray(req.query.cuisines);
-    if (cuisines) filters.cuisines = cuisines;
-    const cookingMethods = parseArray(req.query.cookingMethods);
-    if (cookingMethods) filters.cookingMethods = cookingMethods;
-    const skillLevels = parseArray(req.query.skillLevels);
-    if (skillLevels) filters.skillLevels = skillLevels;
-    const seasons = parseArray(req.query.seasons);
-    if (seasons) filters.seasons = seasons;
-    const excludeAllergens = parseArray(req.query.excludeAllergens);
-    if (excludeAllergens) filters.excludeAllergens = excludeAllergens;
-    const timeConvenience = parseArray(req.query.timeConvenience);
-    if (timeConvenience) filters.timeConvenience = timeConvenience;
-    if (req.query.search) filters.search = req.query.search as string;
-
-    const dietaryKeys = [
-      'vegetarian', 'vegan', 'pescatarian', 'glutenFree', 'dairyFree',
-      'keto', 'paleo', 'lowCarb', 'highProtein', 'lowCalorie', 'highFiber', 'mediterranean'
-    ] as const;
-    const dietary: Record<string, boolean> = {};
-    let hasDietary = false;
-    for (const key of dietaryKeys) {
-      if (req.query[`dietary_${key}`] === 'true') {
-        dietary[key] = true;
-        hasDietary = true;
-      }
-    }
-    if (hasDietary) filters.dietary = dietary as any;
-
-    if (req.query.budgetFriendly === 'true') filters.budgetFriendly = true;
-    if (req.query.fewIngredients === 'true') filters.fewIngredients = true;
-    if (req.query.onePot === 'true') filters.onePot = true;
-    if (req.query.airFryer === 'true') filters.airFryer = true;
+    const filters = parseFiltersFromQuery(req.query);
 
     // Determine base condition based on scope and user
     let baseCondition;

@@ -1,10 +1,12 @@
 import { buildImagePrompt } from "./openai";
 import { storage } from "./storage";
-import { 
+import {
   extractRecipeFromImageUnified,
   extractRecipeFromMultipleImagesUnified,
   enrichRecipeUnified,
   enrichRecipeParallel,
+  enrichRecipeEssential,
+  enrichRecipeContentOnly,
   enrichVariationRecipe,
   generateRecipeImageUnified,
   generateMissingInstructions,
@@ -56,7 +58,14 @@ interface MultiImageExtractionJob {
   queuedAt?: number; // Timestamp when job was queued for timing analysis
 }
 
-type Job = ImageGenerationJob | EnrichmentJob | ExtractionJob | MultiImageExtractionJob;
+interface ContentEnrichmentJob {
+  type: 'content-enrichment';
+  id: string;
+  recipeId: string;
+  retries: number;
+}
+
+type Job = ImageGenerationJob | EnrichmentJob | ExtractionJob | MultiImageExtractionJob | ContentEnrichmentJob;
 
 // Helper: Update upload session progress after a recipe reaches terminal state
 async function updateSessionProgress(recipeId: string) {
@@ -125,7 +134,7 @@ function detectRateLimit(error: unknown): RateLimitInfo {
 }
 
 // Fast job types (extraction/enrichment - quick AI operations)
-type FastJob = ExtractionJob | MultiImageExtractionJob | EnrichmentJob;
+type FastJob = ExtractionJob | MultiImageExtractionJob | EnrichmentJob | ContentEnrichmentJob;
 
 class JobQueue {
   // Separate queues for fast jobs (extraction/enrichment) and slow jobs (image generation)
@@ -253,6 +262,27 @@ class JobQueue {
     this.startFastWorkers();
   }
 
+  async addContentEnrichmentJob(recipeId: string) {
+    if (this.isJobQueued(recipeId, 'content-enrichment')) {
+      console.log(`[Queue] Skipping duplicate content-enrichment job for ${recipeId}`);
+      return;
+    }
+
+    const job: ContentEnrichmentJob = {
+      type: 'content-enrichment',
+      id: `content-enrich-${recipeId}`,
+      recipeId,
+      retries: 0,
+    };
+
+    // Add to fast queue (content enrichment is fast)
+    this.fastQueue.push(job);
+    console.log(`[Queue] Added content-enrichment job for ${recipeId} (fast queue: ${this.fastQueue.length}, image queue: ${this.imageQueue.length})`);
+
+    // Start fast worker if we have capacity
+    this.startFastWorkers();
+  }
+
   async addMultiImageExtractionJob(recipeId: string, imagesBase64: string[]) {
     const job: MultiImageExtractionJob = {
       type: 'multi-extraction',
@@ -306,7 +336,7 @@ class JobQueue {
   }
 
   // Process fast jobs (extraction/enrichment) with improved error handling
-  private async processFastJob(job: ExtractionJob | MultiImageExtractionJob | EnrichmentJob) {
+  private async processFastJob(job: ExtractionJob | MultiImageExtractionJob | EnrichmentJob | ContentEnrichmentJob) {
     const startTime = Date.now();
     
     // Log queue wait time for extraction jobs (they have queuedAt)
@@ -322,6 +352,8 @@ class JobQueue {
         await this.processMultiImageExtractionJob(job);
       } else if (job.type === 'enrichment') {
         await this.processEnrichmentJob(job);
+      } else if (job.type === 'content-enrichment') {
+        await this.processContentEnrichmentJob(job);
       }
       
       const durationMs = Date.now() - startTime;
@@ -355,20 +387,27 @@ class JobQueue {
         this.startFastWorkers();
       } else {
         console.error(`[Worker] Max retries reached for ${job.type} job on recipe ${job.recipeId}`);
-        
-        const updateData: any = {
-          enrichmentStatus: 'failed',
-          enrichmentError: errorMsg,
-        };
-        
-        if (job.type === 'extraction' || job.type === 'multi-extraction') {
-          updateData.title = 'Failed to Extract Recipe';
-          updateData.imageGenerationStatus = 'failed';
-          updateData.imageGenerationError = 'Extraction failed - image generation skipped';
+
+        if (job.type === 'content-enrichment') {
+          // Content enrichment failure does NOT affect enrichmentStatus — recipe stays usable
+          await storage.updateRecipe(job.recipeId, {
+            contentEnrichmentStatus: 'failed',
+          });
+        } else {
+          const updateData: any = {
+            enrichmentStatus: 'failed',
+            enrichmentError: errorMsg,
+          };
+
+          if (job.type === 'extraction' || job.type === 'multi-extraction') {
+            updateData.title = 'Failed to Extract Recipe';
+            updateData.imageGenerationStatus = 'failed';
+            updateData.imageGenerationError = 'Extraction failed - image generation skipped';
+          }
+
+          await storage.updateRecipe(job.recipeId, updateData);
+          await updateSessionProgress(job.recipeId);
         }
-        
-        await storage.updateRecipe(job.recipeId, updateData);
-        await updateSessionProgress(job.recipeId);
       }
     } finally {
       this.activeFastWorkers--;
@@ -446,7 +485,7 @@ class JobQueue {
     if (job.type === 'image') {
       await this.processImageJobWrapper(job as ImageGenerationJob);
     } else {
-      await this.processFastJob(job as ExtractionJob | MultiImageExtractionJob | EnrichmentJob);
+      await this.processFastJob(job as ExtractionJob | MultiImageExtractionJob | EnrichmentJob | ContentEnrichmentJob);
     }
   }
 
@@ -843,19 +882,19 @@ class JobQueue {
         cholesterol: recipe.cholesterol || undefined,
       };
 
-      // Run Phase 2 PARALLEL enrichment with timeout - use unified AI service
+      // Run Phase 2 ESSENTIAL enrichment (Groups 1+2 only) with timeout
       const provider = getCurrentProvider();
-      console.log(`[Job Queue] Enriching recipe using ${provider.toUpperCase()} (PARALLEL)`);
-      
+      console.log(`[Job Queue] Enriching recipe using ${provider.toUpperCase()} (ESSENTIAL - Groups 1+2)`);
+
       const enrichmentStart = Date.now();
       const parallelResult = await this.withTimeout(
-        enrichRecipeParallel(raw),
+        enrichRecipeEssential(raw),
         this.JOB_TIMEOUT_MS,
-        'Recipe enrichment (parallel)'
+        'Recipe enrichment (essential)'
       );
       const enriched = parallelResult.enrichedData;
       const enrichmentMs = Date.now() - enrichmentStart;
-      console.log(`[Timing] Phase 2 enrichment: ${enrichmentMs}ms (${provider}) [parallel: G1=${parallelResult.timings.group1Ms}ms, G2=${parallelResult.timings.group2Ms}ms, G3=${parallelResult.timings.group3Ms}ms]`);
+      console.log(`[Timing] Phase 2 enrichment: ${enrichmentMs}ms (${provider}) [essential: G1=${parallelResult.timings.group1Ms}ms, G2=${parallelResult.timings.group2Ms}ms, G3=SKIPPED]`);
       
       
       // Update recipe with all enriched fields
@@ -982,20 +1021,24 @@ class JobQueue {
         aiEnriched: true,
         aiEnrichmentFields: enriched.aiEnrichmentFields,
         
-        // CRITICAL: Mark enrichment as complete
+        // CRITICAL: Mark essential enrichment as complete, queue content enrichment
         enrichmentStatus: 'ready',
+        contentEnrichmentStatus: 'enriching',
         enrichmentError: null,
       });
 
-      console.log(`Successfully enriched recipe ${job.recipeId} (attempt ${currentRetryCount + 1})`);
-      
+      console.log(`Successfully enriched recipe ${job.recipeId} (essential, attempt ${currentRetryCount + 1})`);
+
+      // Queue content enrichment (Group 3) as a separate background job
+      this.addContentEnrichmentJob(job.recipeId);
+
       // Update session progress if part of multi-upload
       await updateSessionProgress(job.recipeId);
-      
-      // Queue image generation if not already started/completed
+
+      // Queue image generation IMMEDIATELY (don't wait for Group 3 content enrichment)
       const updatedRecipe = await storage.getRecipe(job.recipeId);
       if (updatedRecipe && updatedRecipe.imageGenerationStatus === 'pending') {
-        console.log(`Queuing image generation for recipe ${job.recipeId}...`);
+        console.log(`Queuing image generation for recipe ${job.recipeId} (immediately after essential enrichment)...`);
         const ingredientNames = updatedRecipe.normalizedIngredients?.map(i => i.item) || updatedRecipe.ingredients;
         this.addImageGenerationJob(job.recipeId, updatedRecipe.title, ingredientNames);
       }
@@ -1009,6 +1052,92 @@ class JobQueue {
       
       // Update session progress even for failed recipes
       await updateSessionProgress(job.recipeId);
+      throw error; // Re-throw to trigger retry logic
+    }
+  }
+
+  // Content-only enrichment (Group 3): tips, variations, beveragePairings, etc.
+  // Runs as a separate background job after essential enrichment (Groups 1+2) completes.
+  // Failure does NOT affect enrichmentStatus — the recipe stays usable.
+  private async processContentEnrichmentJob(job: ContentEnrichmentJob) {
+    console.log(`Processing content-enrichment job for recipe ${job.recipeId}...`);
+
+    try {
+      const recipe = await storage.getRecipe(job.recipeId);
+      if (!recipe) {
+        throw new Error(`Recipe ${job.recipeId} not found`);
+      }
+
+      // Build ExtractedRecipeRaw from the saved recipe
+      const raw: ExtractedRecipeRaw = {
+        title: recipe.title,
+        description: recipe.description || undefined,
+        prepTime: recipe.prepTime,
+        cookTime: recipe.cookTime || undefined,
+        totalTime: recipe.totalTime,
+        coolingTime: recipe.coolingTime || undefined,
+        servings: recipe.servings,
+        servingUnit: recipe.servingUnit || undefined,
+        yield: recipe.yield || undefined,
+        ingredients: recipe.ingredients,
+        instructions: recipe.instructions || [],
+        equipment: recipe.equipment || undefined,
+        dietType: recipe.dietType || undefined,
+        cuisine: recipe.cuisine || undefined,
+        mealType: recipe.mealType || undefined,
+        calories: recipe.calories || undefined,
+        protein: recipe.protein || undefined,
+        carbohydrates: recipe.carbohydrates || undefined,
+        fat: recipe.fat || undefined,
+        fiber: recipe.fiber || undefined,
+        sugar: recipe.sugar || undefined,
+        sodium: recipe.sodium || undefined,
+        cholesterol: recipe.cholesterol || undefined,
+      };
+
+      const provider = getCurrentProvider();
+      console.log(`[Job Queue] Content enrichment for "${recipe.title}" using ${provider.toUpperCase()}`);
+
+      const contentStart = Date.now();
+      const contentData = await this.withTimeout(
+        enrichRecipeContentOnly(raw),
+        this.JOB_TIMEOUT_MS,
+        'Content enrichment (Group 3)'
+      );
+      const contentMs = Date.now() - contentStart;
+      console.log(`[Timing] Content enrichment: ${contentMs}ms (${provider})`);
+
+      // Update ONLY the Group 3 fields in the database
+      await storage.updateRecipe(job.recipeId, {
+        tips: contentData.tips,
+        variations: contentData.variations,
+        servingSuggestions: contentData.servingSuggestions,
+        beveragePairings: contentData.beveragePairings,
+        recipeVariations: contentData.recipeVariations,
+        culturalSignificance: contentData.culturalSignificance,
+        celebrityChefReviews: contentData.celebrityChefReviews,
+
+        // Merge aiEnrichmentFields with existing
+        aiEnrichmentFields: [
+          ...(recipe.aiEnrichmentFields || []),
+          ...(contentData.aiEnrichmentFields || []),
+          'contentEnriched',
+        ],
+
+        // Mark content enrichment as complete
+        contentEnrichmentStatus: 'ready',
+      });
+
+      console.log(`Successfully completed content enrichment for recipe ${job.recipeId}`);
+    } catch (error) {
+      // Content enrichment failure does NOT affect enrichmentStatus
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error during content enrichment';
+      console.error(`[Job Queue] Content enrichment failed for ${job.recipeId}: ${errorMessage}`);
+
+      await storage.updateRecipe(job.recipeId, {
+        contentEnrichmentStatus: 'failed',
+      });
+
       throw error; // Re-throw to trigger retry logic
     }
   }

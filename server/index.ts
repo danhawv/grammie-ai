@@ -1,9 +1,11 @@
 import express, { type Request, Response, NextFunction } from "express";
+import compression from "compression";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { jobQueue } from "./job-queue";
 import { storage } from "./storage";
 import { groceryListWsManager } from "./websocket";
+import { runMigrations } from "./migrations";
 
 // ============================================================================
 // Environment validation
@@ -60,6 +62,7 @@ app.use(express.json({
   }
 }));
 app.use(express.urlencoded({ extended: false, limit: '10mb' }));
+app.use(compression());
 
 // CORS for production
 if (process.env.NODE_ENV === 'production' && process.env.PUBLIC_URL) {
@@ -117,6 +120,9 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Run startup migrations (GIN indexes, etc.) before registering routes
+  await runMigrations();
+
   const server = await registerRoutes(app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {

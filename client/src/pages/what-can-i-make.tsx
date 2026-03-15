@@ -82,6 +82,7 @@ function RecipeCard({ match, showSubstitutions = false }: { match: RecipeMatch; 
                 src={recipe.dishImage}
                 alt={recipe.dishName}
                 className="w-20 h-20 rounded-md object-cover flex-shrink-0"
+                loading="lazy"
               />
             ) : (
               <div className="w-20 h-20 rounded-md bg-muted flex items-center justify-center flex-shrink-0">

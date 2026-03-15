@@ -443,6 +443,21 @@ export class PostgresStorage implements IStorage {
     };
   }
 
+  /**
+   * Build case variants for array overlap matching.
+   * Returns an array containing the lowercase, Title Case, and UPPERCASE
+   * versions of each value to handle case-insensitive matching with GIN indexes.
+   */
+  private buildCaseVariants(values: string[]): string[] {
+    const variants = new Set<string>();
+    for (const v of values) {
+      variants.add(v.toLowerCase());
+      variants.add(v.charAt(0).toUpperCase() + v.slice(1).toLowerCase());
+      variants.add(v); // original case
+    }
+    return Array.from(variants);
+  }
+
   private buildFilterConditions(filters?: RecipeFilterParams): ReturnType<typeof and>[] {
     if (!filters) return [];
     const conditions: any[] = [];
@@ -458,24 +473,26 @@ export class PostgresStorage implements IStorage {
     }
 
     if (filters.mealTypes && filters.mealTypes.length > 0) {
-      const mealConditions = filters.mealTypes.map(mt =>
-        sql`${mt.toLowerCase()} = ANY(SELECT lower(unnest(${recipes.mealType})))`
+      // Use array overlap (&&) for GIN index compatibility
+      // Include both original case and lowercase variants for case-insensitive matching
+      const variants = this.buildCaseVariants(filters.mealTypes);
+      conditions.push(
+        sql`${recipes.mealType} ${sql.raw('&&')} ARRAY[${sql.join(variants.map(v => sql`${v}`), sql`, `)}]::text[]`
       );
-      conditions.push(or(...mealConditions));
     }
 
     if (filters.cuisines && filters.cuisines.length > 0) {
-      const cuisineConditions = filters.cuisines.map(c =>
-        sql`${c.toLowerCase()} = ANY(SELECT lower(unnest(${recipes.cuisines})))`
+      const variants = this.buildCaseVariants(filters.cuisines);
+      conditions.push(
+        sql`${recipes.cuisines} ${sql.raw('&&')} ARRAY[${sql.join(variants.map(v => sql`${v}`), sql`, `)}]::text[]`
       );
-      conditions.push(or(...cuisineConditions));
     }
 
     if (filters.cookingMethods && filters.cookingMethods.length > 0) {
-      const methodConditions = filters.cookingMethods.map(m =>
-        sql`${m.toLowerCase()} = ANY(SELECT lower(unnest(${recipes.cookingMethods})))`
+      const variants = this.buildCaseVariants(filters.cookingMethods);
+      conditions.push(
+        sql`${recipes.cookingMethods} ${sql.raw('&&')} ARRAY[${sql.join(variants.map(v => sql`${v}`), sql`, `)}]::text[]`
       );
-      conditions.push(or(...methodConditions));
     }
 
     if (filters.skillLevels && filters.skillLevels.length > 0) {
@@ -486,25 +503,25 @@ export class PostgresStorage implements IStorage {
     }
 
     if (filters.seasons && filters.seasons.length > 0) {
-      const seasonConditions = filters.seasons.map(s =>
-        sql`${s.toLowerCase()} = ANY(SELECT lower(unnest(${recipes.seasonTags})))`
+      const variants = this.buildCaseVariants(filters.seasons);
+      conditions.push(
+        sql`${recipes.seasonTags} ${sql.raw('&&')} ARRAY[${sql.join(variants.map(v => sql`${v}`), sql`, `)}]::text[]`
       );
-      conditions.push(or(...seasonConditions));
     }
 
     if (filters.timeConvenience && filters.timeConvenience.length > 0) {
-      const timeConditions = filters.timeConvenience.map(t =>
-        sql`${t.toLowerCase()} = ANY(SELECT lower(unnest(${recipes.timeConvenienceTags})))`
+      const variants = this.buildCaseVariants(filters.timeConvenience);
+      conditions.push(
+        sql`${recipes.timeConvenienceTags} ${sql.raw('&&')} ARRAY[${sql.join(variants.map(v => sql`${v}`), sql`, `)}]::text[]`
       );
-      conditions.push(or(...timeConditions));
     }
 
     if (filters.excludeAllergens && filters.excludeAllergens.length > 0) {
-      for (const allergen of filters.excludeAllergens) {
-        conditions.push(
-          sql`NOT (${allergen.toLowerCase()} = ANY(SELECT lower(unnest(${recipes.allergens}))))`
-        );
-      }
+      // NOT overlap: exclude recipes that contain ANY of the specified allergens
+      const variants = this.buildCaseVariants(filters.excludeAllergens);
+      conditions.push(
+        sql`NOT (${recipes.allergens} ${sql.raw('&&')} ARRAY[${sql.join(variants.map(v => sql`${v}`), sql`, `)}]::text[])`
+      );
     }
 
     if (filters.dietary) {
