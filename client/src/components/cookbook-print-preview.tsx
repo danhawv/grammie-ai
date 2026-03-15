@@ -1,17 +1,17 @@
-import { useState, useMemo, useEffect, useRef, useCallback } from "react";
+import { useState, useMemo, useEffect, useRef, useLayoutEffect, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import {
   X, ChevronLeft, ChevronRight, ZoomIn, ZoomOut,
-  Ruler, BookOpen,
+  Ruler, BookOpen, Info,
 } from "lucide-react";
 import type { PrintLayoutData } from "@shared/schema";
 import { BOOK_SIZES, type TrimSizeId } from "@/lib/print-constants";
 
 // --- Constants ---
 const DPI = 96;
-const BLEED = 0.125; // inches
+const BLEED = 0.125;
 const MARGIN_OUTER = 0.5;
 const MARGIN_INNER = 0.75;
 const MARGIN_TOP = 0.5;
@@ -32,7 +32,13 @@ interface Recipe {
   totalTimeMinutes?: number | null;
   servings?: number | null;
   tips?: any[] | null;
+  variations?: any[] | null;
   cuisine?: string | null;
+  calories?: number | null;
+  protein?: number | null;
+  carbohydrates?: number | null;
+  fat?: number | null;
+  fiber?: number | null;
 }
 
 interface CookbookPrintPreviewProps {
@@ -48,85 +54,91 @@ interface CookbookPrintPreviewProps {
 const THEMES = {
   classic: {
     name: 'Classic',
-    bg: 'bg-amber-50',
-    bgCover: 'bg-gradient-to-br from-amber-50 via-orange-50 to-amber-100',
-    bgBack: 'bg-gradient-to-br from-stone-50 via-stone-100 to-stone-50',
-    titleFont: 'font-serif',
-    bodyFont: 'font-sans',
-    accent: 'text-orange-600',
-    accentBg: 'bg-orange-50',
-    accentBorder: 'border-orange-200',
-    accentBar: 'bg-gradient-to-r from-orange-400 via-amber-500 to-orange-400',
-    divider: 'bg-orange-400',
-    stepNumber: 'text-orange-500',
-    badgeBg: 'bg-orange-50 text-orange-700',
-    tipsBg: 'bg-amber-50 border-amber-100',
-    tipsTitle: 'text-amber-800',
-    tipsText: 'text-amber-700',
-    borderFrame: 'border-orange-200/50',
-    pageNumColor: 'text-stone-400',
+    bg: '#fefbf3',
+    bgCover: 'linear-gradient(135deg, #fef3c7, #fed7aa, #fef3c7)',
+    bgBack: 'linear-gradient(135deg, #f5f5f4, #e7e5e4, #f5f5f4)',
+    titleFont: 'Georgia, "Times New Roman", serif',
+    bodyFont: '-apple-system, system-ui, sans-serif',
+    accent: '#ea580c',
+    accentLight: '#fff7ed',
+    accentBorder: '#fed7aa',
+    divider: '#f97316',
+    stepNum: '#f97316',
+    badgeBg: '#fff7ed',
+    badgeText: '#c2410c',
+    tipsBg: '#fffbeb',
+    tipsBorder: '#fef3c7',
+    tipsTitle: '#92400e',
+    tipsText: '#a16207',
+    coverDark: false,
+    pageNum: '#a8a29e',
   },
   modern: {
     name: 'Modern',
-    bg: 'bg-white',
-    bgCover: 'bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900',
-    bgBack: 'bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900',
-    titleFont: 'font-sans',
-    bodyFont: 'font-sans',
-    accent: 'text-blue-500',
-    accentBg: 'bg-blue-50',
-    accentBorder: 'border-blue-200',
-    accentBar: 'bg-gradient-to-r from-blue-500 via-cyan-400 to-blue-500',
-    divider: 'bg-blue-500',
-    stepNumber: 'text-blue-500',
-    badgeBg: 'bg-blue-50 text-blue-700',
-    tipsBg: 'bg-slate-50 border-slate-200',
-    tipsTitle: 'text-slate-800',
-    tipsText: 'text-slate-600',
-    borderFrame: 'border-slate-300/50',
-    pageNumColor: 'text-slate-400',
+    bg: '#ffffff',
+    bgCover: 'linear-gradient(135deg, #0f172a, #1e293b, #0f172a)',
+    bgBack: 'linear-gradient(135deg, #0f172a, #1e293b, #0f172a)',
+    titleFont: '-apple-system, system-ui, "Segoe UI", sans-serif',
+    bodyFont: '-apple-system, system-ui, sans-serif',
+    accent: '#3b82f6',
+    accentLight: '#eff6ff',
+    accentBorder: '#bfdbfe',
+    divider: '#3b82f6',
+    stepNum: '#3b82f6',
+    badgeBg: '#eff6ff',
+    badgeText: '#1d4ed8',
+    tipsBg: '#f8fafc',
+    tipsBorder: '#e2e8f0',
+    tipsTitle: '#1e293b',
+    tipsText: '#475569',
+    coverDark: true,
+    pageNum: '#94a3b8',
   },
   rustic: {
     name: 'Rustic',
-    bg: 'bg-amber-50/50',
-    bgCover: 'bg-gradient-to-br from-yellow-100 via-amber-100 to-yellow-200',
-    bgBack: 'bg-gradient-to-br from-amber-100 via-yellow-100 to-amber-200',
-    titleFont: 'font-serif',
-    bodyFont: 'font-sans',
-    accent: 'text-amber-700',
-    accentBg: 'bg-amber-100',
-    accentBorder: 'border-amber-300',
-    accentBar: 'bg-gradient-to-r from-amber-600 via-yellow-600 to-amber-600',
-    divider: 'bg-amber-600',
-    stepNumber: 'text-amber-600',
-    badgeBg: 'bg-amber-100 text-amber-800',
-    tipsBg: 'bg-yellow-50 border-yellow-200',
-    tipsTitle: 'text-yellow-900',
-    tipsText: 'text-yellow-800',
-    borderFrame: 'border-amber-300/50',
-    pageNumColor: 'text-amber-400',
+    bg: '#fefce8',
+    bgCover: 'linear-gradient(135deg, #fef9c3, #fde68a, #fef9c3)',
+    bgBack: 'linear-gradient(135deg, #fde68a, #fef9c3, #fde68a)',
+    titleFont: 'Georgia, "Times New Roman", serif',
+    bodyFont: '-apple-system, system-ui, sans-serif',
+    accent: '#b45309',
+    accentLight: '#fef3c7',
+    accentBorder: '#fde68a',
+    divider: '#d97706',
+    stepNum: '#d97706',
+    badgeBg: '#fef3c7',
+    badgeText: '#92400e',
+    tipsBg: '#fefce8',
+    tipsBorder: '#fef9c3',
+    tipsTitle: '#713f12',
+    tipsText: '#854d0e',
+    coverDark: false,
+    pageNum: '#d97706',
   },
   elegant: {
     name: 'Elegant',
-    bg: 'bg-stone-50',
-    bgCover: 'bg-gradient-to-br from-stone-800 via-stone-700 to-stone-900',
-    bgBack: 'bg-gradient-to-br from-stone-800 via-stone-700 to-stone-900',
-    titleFont: 'font-serif',
-    bodyFont: 'font-serif',
-    accent: 'text-rose-600',
-    accentBg: 'bg-rose-50',
-    accentBorder: 'border-rose-200',
-    accentBar: 'bg-gradient-to-r from-rose-400 via-pink-400 to-rose-400',
-    divider: 'bg-rose-400',
-    stepNumber: 'text-rose-500',
-    badgeBg: 'bg-rose-50 text-rose-700',
-    tipsBg: 'bg-rose-50 border-rose-100',
-    tipsTitle: 'text-rose-800',
-    tipsText: 'text-rose-700',
-    borderFrame: 'border-rose-200/50',
-    pageNumColor: 'text-stone-400',
+    bg: '#fafaf9',
+    bgCover: 'linear-gradient(135deg, #292524, #44403c, #292524)',
+    bgBack: 'linear-gradient(135deg, #292524, #44403c, #292524)',
+    titleFont: 'Georgia, "Playfair Display", serif',
+    bodyFont: 'Georgia, serif',
+    accent: '#e11d48',
+    accentLight: '#fff1f2',
+    accentBorder: '#fecdd3',
+    divider: '#fb7185',
+    stepNum: '#f43f5e',
+    badgeBg: '#fff1f2',
+    badgeText: '#be123c',
+    tipsBg: '#fff1f2',
+    tipsBorder: '#fecdd3',
+    tipsTitle: '#9f1239',
+    tipsText: '#be123c',
+    coverDark: true,
+    pageNum: '#a8a29e',
   },
 };
+
+type ThemeConfig = typeof THEMES['classic'];
 
 // --- Helpers ---
 function formatTime(minutes: number | null | undefined): string {
@@ -140,8 +152,8 @@ function formatTime(minutes: number | null | undefined): string {
 function formatQuantity(quantity: number | undefined, unit: string | undefined): string {
   if (!quantity) return "";
   const fractionMap: Record<number, string> = {
-    0.25: "¼", 0.33: "⅓", 0.5: "½", 0.66: "⅔", 0.75: "¾",
-    0.125: "⅛", 0.375: "⅜", 0.625: "⅝", 0.875: "⅞",
+    0.25: "1/4", 0.33: "1/3", 0.5: "1/2", 0.66: "2/3", 0.75: "3/4",
+    0.125: "1/8", 0.375: "3/8", 0.625: "5/8", 0.875: "7/8",
   };
   const whole = Math.floor(quantity);
   const decimal = quantity - whole;
@@ -159,40 +171,6 @@ function formatQuantity(quantity: number | undefined, unit: string | undefined):
   return quantityStr.trim();
 }
 
-// --- Auto-resize hook ---
-// Measures content and scales it down to fit within the page
-function useAutoResize(deps: any[]) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const contentRef = useRef<HTMLDivElement>(null);
-  const [scale, setScale] = useState(1);
-
-  useEffect(() => {
-    const container = containerRef.current;
-    const content = contentRef.current;
-    if (!container || !content) return;
-
-    // Reset scale to measure natural size
-    content.style.transform = 'scale(1)';
-    content.style.transformOrigin = 'top left';
-
-    // Use requestAnimationFrame to ensure layout is computed
-    requestAnimationFrame(() => {
-      const containerHeight = container.clientHeight;
-      const contentHeight = content.scrollHeight;
-
-      if (contentHeight > containerHeight) {
-        const newScale = Math.max(0.5, containerHeight / contentHeight);
-        setScale(newScale);
-      } else {
-        setScale(1);
-      }
-    });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, deps);
-
-  return { containerRef, contentRef, scale };
-}
-
 // --- Page types ---
 type PageContent =
   | { type: "cover" }
@@ -200,6 +178,7 @@ type PageContent =
   | { type: "toc" }
   | { type: "section-divider"; title: string }
   | { type: "recipe"; recipe: Recipe; index: number }
+  | { type: "recipe-extras"; recipe: Recipe; index: number }
   | { type: "back" };
 
 // --- Main component ---
@@ -212,7 +191,7 @@ export function CookbookPrintPreview({
   trimSize: trimSizeProp,
 }: CookbookPrintPreviewProps) {
   const [currentPage, setCurrentPage] = useState(0);
-  const [zoom, setZoom] = useState(1);
+  const [zoom, setZoom] = useState(0.85);
   const [showGuides, setShowGuides] = useState(false);
 
   const theme = THEMES[templateStyle] || THEMES.classic;
@@ -220,8 +199,12 @@ export function CookbookPrintPreview({
   const bookSize = BOOK_SIZES[sizeId] || BOOK_SIZES['0600X0900'];
 
   // Page dimensions in pixels at 96 DPI
-  const pageWidthPx = bookSize.width * DPI;
-  const pageHeightPx = bookSize.height * DPI;
+  const pageW = bookSize.width * DPI;
+  const pageH = bookSize.height * DPI;
+
+  const showNutrition = layoutData?.customizations?.showNutrition === true;
+  const showTips = layoutData?.customizations?.showTips === true;
+  const showVariations = layoutData?.customizations?.showVariations === true;
 
   // Fetch recipes
   const { data: recipesData } = useQuery<{ recipes: Recipe[] }>({
@@ -247,10 +230,17 @@ export function CookbookPrintPreview({
         if (recipe) ordered.push(recipe);
       }
     }
-    // Add any recipes not in sections
     if (ordered.length === 0) return recipes;
     return ordered;
   }, [recipes, layoutData?.sections]);
+
+  // Check if recipe has extras content
+  const hasExtras = useCallback((recipe: Recipe) => {
+    if (showNutrition && (recipe.calories || recipe.protein || recipe.carbohydrates || recipe.fat)) return true;
+    if (showTips && recipe.tips && Array.isArray(recipe.tips) && recipe.tips.length > 0) return true;
+    if (showVariations && recipe.variations && Array.isArray(recipe.variations) && recipe.variations.length > 0) return true;
+    return false;
+  }, [showNutrition, showTips, showVariations]);
 
   // Build pages
   const pages: PageContent[] = useMemo(() => {
@@ -259,7 +249,6 @@ export function CookbookPrintPreview({
     if (layoutData?.dedication) p.push({ type: "dedication" });
     if (orderedRecipes.length > 0) {
       p.push({ type: "toc" });
-      // If sections exist, add section dividers
       if (layoutData?.sections?.length) {
         let recipeIndex = 0;
         for (const section of layoutData.sections) {
@@ -270,6 +259,9 @@ export function CookbookPrintPreview({
             const recipe = orderedRecipes.find(r => String(r.id) === String(rid));
             if (recipe) {
               p.push({ type: "recipe", recipe, index: recipeIndex });
+              if (hasExtras(recipe)) {
+                p.push({ type: "recipe-extras", recipe, index: recipeIndex });
+              }
               recipeIndex++;
             }
           }
@@ -277,12 +269,15 @@ export function CookbookPrintPreview({
       } else {
         orderedRecipes.forEach((recipe, index) => {
           p.push({ type: "recipe", recipe, index });
+          if (hasExtras(recipe)) {
+            p.push({ type: "recipe-extras", recipe, index });
+          }
         });
       }
     }
     p.push({ type: "back" });
     return p;
-  }, [orderedRecipes, layoutData]);
+  }, [orderedRecipes, layoutData, hasExtras]);
 
   const totalPages = pages.length;
 
@@ -309,194 +304,198 @@ export function CookbookPrintPreview({
     if (open) setCurrentPage(0);
   }, [open]);
 
+  // Clamp currentPage when pages change
+  useEffect(() => {
+    if (currentPage >= totalPages && totalPages > 0) {
+      setCurrentPage(totalPages - 1);
+    }
+  }, [totalPages, currentPage]);
+
   const page = pages[currentPage];
-  const isDarkCover = templateStyle === 'modern' || templateStyle === 'elegant';
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-[95vw] max-h-[95vh] w-auto h-auto p-0 border-0 bg-stone-900/95 overflow-hidden [&>button]:hidden">
-        {/* Top toolbar */}
-        <div className="flex items-center justify-between px-4 py-2 bg-stone-800 text-white border-b border-stone-700">
-          <div className="flex items-center gap-3">
-            <span className="text-sm font-medium">
-              {layoutData?.title || 'Cookbook'} — Preview
-            </span>
-            <span className="text-xs text-stone-400">
-              Page {currentPage + 1} / {totalPages} • {bookSize.description}
-            </span>
-          </div>
+      <DialogContent
+        className="max-w-[95vw] max-h-[95vh] p-0 border-0 bg-stone-900/95 overflow-hidden [&>button]:hidden"
+        style={{ width: 'fit-content', height: '95vh' }}
+      >
+        <div className="flex flex-col h-full">
+          {/* Top toolbar */}
+          <div className="flex items-center justify-between px-4 py-2 bg-stone-800 text-white border-b border-stone-700 shrink-0">
+            <div className="flex items-center gap-3">
+              <span className="text-sm font-medium">
+                {layoutData?.title || 'Cookbook'} — Preview
+              </span>
+              <span className="text-xs text-stone-400">
+                Page {currentPage + 1} / {totalPages} &bull; {bookSize.description}
+              </span>
+            </div>
 
-          <div className="flex items-center gap-2">
-            {/* Zoom controls */}
-            <Button
-              variant="ghost" size="sm"
-              className="text-stone-300 hover:text-white hover:bg-stone-700 h-7 px-2"
-              onClick={() => setZoom(z => Math.max(0.5, z - 0.1))}
-            >
-              <ZoomOut className="h-3.5 w-3.5" />
-            </Button>
-            <span className="text-xs text-stone-400 w-10 text-center">
-              {Math.round(zoom * 100)}%
-            </span>
-            <Button
-              variant="ghost" size="sm"
-              className="text-stone-300 hover:text-white hover:bg-stone-700 h-7 px-2"
-              onClick={() => setZoom(z => Math.min(2, z + 0.1))}
-            >
-              <ZoomIn className="h-3.5 w-3.5" />
-            </Button>
-
-            {/* Measurement guides toggle */}
-            <Button
-              variant="ghost" size="sm"
-              className={`h-7 px-2 ${showGuides ? 'text-blue-400 bg-stone-700' : 'text-stone-300 hover:text-white hover:bg-stone-700'}`}
-              onClick={() => setShowGuides(!showGuides)}
-              title="Toggle measurement guides"
-            >
-              <Ruler className="h-3.5 w-3.5" />
-            </Button>
-
-            {/* Close */}
-            <Button
-              variant="ghost" size="sm"
-              className="text-stone-300 hover:text-white hover:bg-stone-700 h-7 px-2"
-              onClick={onClose}
-            >
-              <X className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-
-        {/* Main preview area */}
-        <div className="flex items-center justify-center flex-1 min-h-0 p-6 overflow-auto">
-          {/* Left arrow */}
-          <button
-            onClick={() => setCurrentPage(p => Math.max(p - 1, 0))}
-            disabled={currentPage === 0}
-            className="flex items-center justify-center w-10 h-10 rounded-full hover:bg-white/10 transition disabled:opacity-20 disabled:cursor-default mr-4 shrink-0"
-          >
-            <ChevronLeft className="h-6 w-6 text-white" />
-          </button>
-
-          {/* Page container with exact trim size dimensions */}
-          <div
-            className="relative shrink-0"
-            style={{
-              width: pageWidthPx * zoom,
-              height: pageHeightPx * zoom,
-            }}
-          >
-            {/* The actual page */}
-            <div
-              className="absolute top-0 left-0 bg-white rounded shadow-2xl overflow-hidden"
-              style={{
-                width: pageWidthPx,
-                height: pageHeightPx,
-                transform: `scale(${zoom})`,
-                transformOrigin: 'top left',
-                boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5), 0 0 0 1px rgba(0,0,0,0.1)',
-              }}
-            >
-              {page?.type === "cover" && (
-                <CoverPage
-                  layoutData={layoutData}
-                  theme={theme}
-                  isDark={isDarkCover}
-                  recipes={orderedRecipes}
-                  width={pageWidthPx}
-                  height={pageHeightPx}
-                />
-              )}
-              {page?.type === "dedication" && (
-                <DedicationPage
-                  dedication={layoutData.dedication || ''}
-                  theme={theme}
-                  width={pageWidthPx}
-                  height={pageHeightPx}
-                />
-              )}
-              {page?.type === "toc" && (
-                <TocPage
-                  recipes={orderedRecipes}
-                  sections={layoutData?.sections}
-                  theme={theme}
-                  onGoToRecipe={(i) => {
-                    // Find the recipe page index
-                    const recipePageIdx = pages.findIndex(
-                      p => p.type === 'recipe' && (p as any).index === i
-                    );
-                    if (recipePageIdx >= 0) setCurrentPage(recipePageIdx);
-                  }}
-                  width={pageWidthPx}
-                  height={pageHeightPx}
-                />
-              )}
-              {page?.type === "section-divider" && (
-                <SectionDividerPage
-                  title={page.title}
-                  theme={theme}
-                  width={pageWidthPx}
-                  height={pageHeightPx}
-                />
-              )}
-              {page?.type === "recipe" && (
-                <RecipePage
-                  recipe={page.recipe}
-                  index={page.index}
-                  theme={theme}
-                  templateStyle={templateStyle}
-                  width={pageWidthPx}
-                  height={pageHeightPx}
-                  includePhoto={
-                    layoutData?.recipePrintSettings?.[String(page.recipe.id)]?.includePhoto !== false
-                  }
-                />
-              )}
-              {page?.type === "back" && (
-                <BackPage
-                  layoutData={layoutData}
-                  theme={theme}
-                  isDark={isDarkCover}
-                  width={pageWidthPx}
-                  height={pageHeightPx}
-                />
-              )}
-
-              {/* Measurement guides overlay */}
-              {showGuides && (
-                <MeasurementGuides width={pageWidthPx} height={pageHeightPx} />
-              )}
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost" size="sm"
+                className="text-stone-300 hover:text-white hover:bg-stone-700 h-7 px-2"
+                onClick={() => setZoom(z => Math.max(0.3, z - 0.1))}
+              >
+                <ZoomOut className="h-3.5 w-3.5" />
+              </Button>
+              <span className="text-xs text-stone-400 w-10 text-center">
+                {Math.round(zoom * 100)}%
+              </span>
+              <Button
+                variant="ghost" size="sm"
+                className="text-stone-300 hover:text-white hover:bg-stone-700 h-7 px-2"
+                onClick={() => setZoom(z => Math.min(2, z + 0.1))}
+              >
+                <ZoomIn className="h-3.5 w-3.5" />
+              </Button>
+              <Button
+                variant="ghost" size="sm"
+                className={`h-7 px-2 ${showGuides ? 'text-blue-400 bg-stone-700' : 'text-stone-300 hover:text-white hover:bg-stone-700'}`}
+                onClick={() => setShowGuides(!showGuides)}
+                title="Toggle measurement guides"
+              >
+                <Ruler className="h-3.5 w-3.5" />
+              </Button>
+              <Button
+                variant="ghost" size="sm"
+                className="text-stone-300 hover:text-white hover:bg-stone-700 h-7 px-2"
+                onClick={onClose}
+              >
+                <X className="h-4 w-4" />
+              </Button>
             </div>
           </div>
 
-          {/* Right arrow */}
-          <button
-            onClick={() => setCurrentPage(p => Math.min(p + 1, totalPages - 1))}
-            disabled={currentPage === totalPages - 1}
-            className="flex items-center justify-center w-10 h-10 rounded-full hover:bg-white/10 transition disabled:opacity-20 disabled:cursor-default ml-4 shrink-0"
-          >
-            <ChevronRight className="h-6 w-6 text-white" />
-          </button>
-        </div>
-
-        {/* Page thumbnails strip */}
-        <div className="flex items-center gap-2 px-4 py-2 bg-stone-800 border-t border-stone-700 overflow-x-auto">
-          {pages.map((p, i) => (
+          {/* Main preview area */}
+          <div className="flex-1 flex items-center justify-center min-h-0 overflow-auto p-4">
+            {/* Left arrow */}
             <button
-              key={i}
-              onClick={() => setCurrentPage(i)}
-              className={`shrink-0 rounded border-2 transition-all ${
-                i === currentPage
-                  ? 'border-blue-500 shadow-lg shadow-blue-500/30'
-                  : 'border-transparent hover:border-stone-500 opacity-60 hover:opacity-100'
-              }`}
-              style={{ width: 40, height: 40 * (bookSize.height / bookSize.width) }}
+              onClick={() => setCurrentPage(p => Math.max(p - 1, 0))}
+              disabled={currentPage === 0}
+              className="flex items-center justify-center w-10 h-10 rounded-full hover:bg-white/10 transition disabled:opacity-20 mr-3 shrink-0"
             >
-              <div className="w-full h-full bg-white rounded-sm flex items-center justify-center">
-                <span className="text-[8px] text-stone-500">{i + 1}</span>
-              </div>
+              <ChevronLeft className="h-6 w-6 text-white" />
             </button>
-          ))}
+
+            {/* Page wrapper — scales the fixed-size page to fit the viewport */}
+            <div
+              className="relative shrink-0"
+              style={{
+                width: pageW * zoom,
+                height: pageH * zoom,
+              }}
+            >
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: pageW,
+                  height: pageH,
+                  transform: `scale(${zoom})`,
+                  transformOrigin: 'top left',
+                  borderRadius: 4,
+                  overflow: 'hidden',
+                  boxShadow: '0 25px 60px -12px rgba(0,0,0,0.5), 0 0 0 1px rgba(0,0,0,0.15)',
+                  background: '#fff',
+                }}
+              >
+                {page?.type === "cover" && (
+                  <CoverPage layoutData={layoutData} theme={theme} recipes={orderedRecipes} w={pageW} h={pageH} />
+                )}
+                {page?.type === "dedication" && (
+                  <DedicationPage dedication={layoutData.dedication || ''} theme={theme} w={pageW} h={pageH} />
+                )}
+                {page?.type === "toc" && (
+                  <TocPage
+                    recipes={orderedRecipes}
+                    theme={theme}
+                    onGoToRecipe={(i) => {
+                      const idx = pages.findIndex(p => p.type === 'recipe' && (p as any).index === i);
+                      if (idx >= 0) setCurrentPage(idx);
+                    }}
+                    w={pageW} h={pageH}
+                  />
+                )}
+                {page?.type === "section-divider" && (
+                  <SectionDividerPage title={page.title} theme={theme} w={pageW} h={pageH} />
+                )}
+                {page?.type === "recipe" && (
+                  <RecipePage
+                    recipe={page.recipe}
+                    index={page.index}
+                    theme={theme}
+                    w={pageW} h={pageH}
+                    includePhoto={
+                      layoutData?.recipePrintSettings?.[String(page.recipe.id)]?.includePhoto !== false
+                    }
+                  />
+                )}
+                {page?.type === "recipe-extras" && (
+                  <RecipeExtrasPage
+                    recipe={page.recipe}
+                    index={page.index}
+                    theme={theme}
+                    w={pageW} h={pageH}
+                    showNutrition={showNutrition}
+                    showTips={showTips}
+                    showVariations={showVariations}
+                  />
+                )}
+                {page?.type === "back" && (
+                  <BackPage layoutData={layoutData} theme={theme} w={pageW} h={pageH} />
+                )}
+
+                {showGuides && <MeasurementGuides w={pageW} h={pageH} />}
+              </div>
+            </div>
+
+            {/* Right arrow */}
+            <button
+              onClick={() => setCurrentPage(p => Math.min(p + 1, totalPages - 1))}
+              disabled={currentPage === totalPages - 1}
+              className="flex items-center justify-center w-10 h-10 rounded-full hover:bg-white/10 transition disabled:opacity-20 ml-3 shrink-0"
+            >
+              <ChevronRight className="h-6 w-6 text-white" />
+            </button>
+          </div>
+
+          {/* Page thumbnails */}
+          <div className="flex items-center gap-1.5 px-4 py-2 bg-stone-800 border-t border-stone-700 overflow-x-auto shrink-0">
+            {pages.map((p, i) => {
+              const aspect = bookSize.height / bookSize.width;
+              const thumbW = 36;
+              const thumbH = thumbW * aspect;
+              const label = p.type === 'cover' ? 'C' :
+                p.type === 'back' ? 'B' :
+                p.type === 'toc' ? 'ToC' :
+                p.type === 'section-divider' ? 'S' :
+                p.type === 'dedication' ? 'D' :
+                p.type === 'recipe-extras' ? `${(p as any).index + 1}+` :
+                p.type === 'recipe' ? `${(p as any).index + 1}` : '';
+              return (
+                <button
+                  key={i}
+                  onClick={() => setCurrentPage(i)}
+                  className={`shrink-0 rounded transition-all ${
+                    i === currentPage
+                      ? 'ring-2 ring-blue-500 shadow-lg shadow-blue-500/30'
+                      : 'opacity-50 hover:opacity-90'
+                  }`}
+                  style={{ width: thumbW, height: thumbH }}
+                  title={`Page ${i + 1} (${p.type})`}
+                >
+                  <div
+                    className="w-full h-full bg-white rounded-sm flex items-center justify-center"
+                    style={{ fontSize: 8, color: '#666' }}
+                  >
+                    {label}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
         </div>
       </DialogContent>
     </Dialog>
@@ -504,82 +503,156 @@ export function CookbookPrintPreview({
 }
 
 // ============================================================================
-// Page Components — each renders a single page that auto-fits its content
+// Auto-fit wrapper — renders children inside a container that CSS-scales to fit
 // ============================================================================
 
-function CoverPage({
-  layoutData, theme, isDark, recipes, width, height,
+function AutoFitPage({
+  w, h, bg, children, padding,
 }: {
-  layoutData: PrintLayoutData;
-  theme: typeof THEMES['classic'];
-  isDark: boolean;
-  recipes: Recipe[];
-  width: number;
-  height: number;
+  w: number; h: number; bg: string; children: React.ReactNode;
+  padding?: { top: number; right: number; bottom: number; left: number };
 }) {
-  const marginH = MARGIN_OUTER * DPI;
-  const marginV = MARGIN_TOP * DPI;
+  const outerRef = useRef<HTMLDivElement>(null);
+  const innerRef = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(1);
+
+  const pad = padding || {
+    top: MARGIN_TOP * DPI,
+    right: MARGIN_OUTER * DPI,
+    bottom: MARGIN_BOTTOM * DPI,
+    left: MARGIN_INNER * DPI,
+  };
+
+  // Measure after render and compute scale
+  useLayoutEffect(() => {
+    const outer = outerRef.current;
+    const inner = innerRef.current;
+    if (!outer || !inner) return;
+
+    // Reset to measure natural height
+    setScale(1);
+
+    const raf = requestAnimationFrame(() => {
+      const availH = h - pad.top - pad.bottom;
+      const contentH = inner.scrollHeight;
+      if (contentH > availH && contentH > 0) {
+        setScale(Math.max(0.45, availH / contentH));
+      } else {
+        setScale(1);
+      }
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [w, h, pad.top, pad.bottom, children]);
+
+  const availW = w - pad.left - pad.right;
 
   return (
     <div
-      className={`w-full h-full flex flex-col items-center justify-center text-center relative overflow-hidden ${theme.bgCover}`}
-      style={{ padding: `${marginV}px ${marginH}px` }}
+      ref={outerRef}
+      style={{
+        width: w,
+        height: h,
+        background: bg,
+        overflow: 'hidden',
+        position: 'relative',
+      }}
     >
-      {/* Top accent bar */}
-      <div className={`absolute top-0 left-0 w-full h-2 ${theme.accentBar}`} />
-      <div className={`absolute bottom-0 left-0 w-full h-2 ${theme.accentBar}`} />
-
-      {/* Decorative border */}
       <div
-        className={`absolute border-2 ${theme.borderFrame} rounded-lg pointer-events-none`}
-        style={{ top: marginV * 0.4, left: marginH * 0.5, right: marginH * 0.5, bottom: marginV * 0.4 }}
-      />
+        ref={innerRef}
+        style={{
+          position: 'absolute',
+          top: pad.top,
+          left: pad.left,
+          width: availW / scale,
+          transform: `scale(${scale})`,
+          transformOrigin: 'top left',
+        }}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// Page Components
+// ============================================================================
+
+function CoverPage({ layoutData, theme, recipes, w, h }: {
+  layoutData: PrintLayoutData; theme: ThemeConfig; recipes: Recipe[];
+  w: number; h: number;
+}) {
+  const m = MARGIN_OUTER * DPI;
+  const isDark = theme.coverDark;
+  const titleSize = Math.min(36, w * 0.06);
+  const subSize = Math.min(16, w * 0.025);
+
+  return (
+    <div style={{
+      width: w, height: h, background: theme.bgCover,
+      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+      textAlign: 'center', padding: m, position: 'relative', overflow: 'hidden',
+    }}>
+      {/* Accent bars */}
+      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 6, background: theme.divider }} />
+      <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 6, background: theme.divider }} />
+      {/* Border frame */}
+      <div style={{
+        position: 'absolute', top: m * 0.4, left: m * 0.5, right: m * 0.5, bottom: m * 0.4,
+        border: `2px solid ${isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.08)'}`,
+        borderRadius: 8, pointerEvents: 'none',
+      }} />
 
       {layoutData?.coverImage || layoutData?.coverData?.frontImageUrl ? (
         <img
           src={layoutData.coverData?.frontImageUrl || layoutData.coverImage || ''}
           alt=""
-          className="w-24 h-24 rounded-full object-cover mb-4 ring-4 ring-white/30 shadow-lg"
-          style={{ maxWidth: width * 0.25 }}
+          style={{
+            width: Math.min(120, w * 0.25), height: Math.min(120, w * 0.25),
+            borderRadius: '50%', objectFit: 'cover', marginBottom: 16,
+            boxShadow: '0 8px 24px rgba(0,0,0,0.2)',
+            border: `3px solid ${isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.1)'}`,
+          }}
         />
       ) : (
-        <div
-          className={`rounded-full flex items-center justify-center mb-4 shadow-lg ${
-            isDark ? 'bg-white/10' : 'bg-gradient-to-br from-orange-400 to-amber-500'
-          }`}
-          style={{ width: Math.min(96, width * 0.2), height: Math.min(96, width * 0.2) }}
-        >
-          <BookOpen className={`${isDark ? 'text-white/80' : 'text-white'}`} style={{ width: Math.min(48, width * 0.1) }} />
+        <div style={{
+          width: Math.min(96, w * 0.2), height: Math.min(96, w * 0.2),
+          borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          background: isDark ? 'rgba(255,255,255,0.1)' : theme.accent,
+          marginBottom: 16, boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
+        }}>
+          <BookOpen style={{ width: Math.min(48, w * 0.1), height: Math.min(48, w * 0.1), color: '#fff' }} />
         </div>
       )}
 
-      <h1
-        className={`${theme.titleFont} font-bold leading-tight mb-2 ${isDark ? 'text-white' : 'text-stone-800'}`}
-        style={{ fontSize: Math.min(36, width * 0.06) }}
-      >
+      <h1 style={{
+        fontFamily: theme.titleFont, fontWeight: 700, fontSize: titleSize,
+        color: isDark ? '#fff' : '#292524', lineHeight: 1.2, marginBottom: 8,
+      }}>
         {layoutData?.title || 'My Cookbook'}
       </h1>
 
       {layoutData?.subtitle && (
-        <p
-          className={`italic mb-4 ${isDark ? 'text-white/70' : 'text-stone-600'}`}
-          style={{ fontSize: Math.min(16, width * 0.025), maxWidth: width * 0.7 }}
-        >
+        <p style={{
+          fontStyle: 'italic', fontSize: subSize, maxWidth: w * 0.7,
+          color: isDark ? 'rgba(255,255,255,0.7)' : '#57534e', marginBottom: 16,
+        }}>
           {layoutData.subtitle}
         </p>
       )}
 
-      <div className="mt-auto">
-        <p
-          className={`font-medium tracking-wide uppercase ${isDark ? 'text-white/60' : 'text-stone-500'}`}
-          style={{ fontSize: Math.min(14, width * 0.022) }}
-        >
+      <div style={{ marginTop: 'auto' }}>
+        <p style={{
+          fontSize: Math.min(14, w * 0.022), fontWeight: 500,
+          textTransform: 'uppercase', letterSpacing: '0.1em',
+          color: isDark ? 'rgba(255,255,255,0.5)' : '#78716c',
+        }}>
           by {layoutData?.authorName || 'Chef'}
         </p>
-        <p
-          className={`mt-1 ${isDark ? 'text-white/40' : 'text-stone-400'}`}
-          style={{ fontSize: Math.min(12, width * 0.018) }}
-        >
+        <p style={{
+          fontSize: Math.min(12, w * 0.018), marginTop: 4,
+          color: isDark ? 'rgba(255,255,255,0.3)' : '#a8a29e',
+        }}>
           {recipes.length} recipe{recipes.length !== 1 ? 's' : ''}
         </p>
       </div>
@@ -587,139 +660,112 @@ function CoverPage({
   );
 }
 
-function DedicationPage({
-  dedication, theme, width, height,
-}: {
-  dedication: string;
-  theme: typeof THEMES['classic'];
-  width: number;
-  height: number;
+function DedicationPage({ dedication, theme, w, h }: {
+  dedication: string; theme: ThemeConfig; w: number; h: number;
 }) {
-  const marginH = MARGIN_OUTER * DPI;
-  const marginV = MARGIN_TOP * DPI;
-
   return (
-    <div
-      className={`w-full h-full flex flex-col items-center justify-center text-center ${theme.bg}`}
-      style={{ padding: `${marginV}px ${marginH}px` }}
-    >
-      <p
-        className={`${theme.titleFont} italic text-stone-600 leading-relaxed max-w-[80%]`}
-        style={{ fontSize: Math.min(18, width * 0.03) }}
-      >
-        "{dedication}"
+    <div style={{
+      width: w, height: h, background: theme.bg,
+      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+      textAlign: 'center', padding: MARGIN_OUTER * DPI,
+    }}>
+      <p style={{
+        fontFamily: theme.titleFont, fontStyle: 'italic',
+        fontSize: Math.min(18, w * 0.03), color: '#57534e',
+        lineHeight: 1.6, maxWidth: '80%',
+      }}>
+        &ldquo;{dedication}&rdquo;
       </p>
     </div>
   );
 }
 
-function TocPage({
-  recipes, sections, theme, onGoToRecipe, width, height,
-}: {
-  recipes: Recipe[];
-  sections?: PrintLayoutData['sections'];
-  theme: typeof THEMES['classic'];
-  onGoToRecipe: (index: number) => void;
-  width: number;
-  height: number;
+function TocPage({ recipes, theme, onGoToRecipe, w, h }: {
+  recipes: Recipe[]; theme: ThemeConfig;
+  onGoToRecipe: (i: number) => void; w: number; h: number;
 }) {
-  const marginH = MARGIN_OUTER * DPI;
-  const marginV = MARGIN_TOP * DPI;
-  const { containerRef, contentRef, scale } = useAutoResize([recipes, width, height]);
+  const titleSize = Math.min(22, w * 0.038);
+  const itemSize = Math.min(13, w * 0.021);
+  const numSize = Math.min(11, w * 0.017);
 
   return (
-    <div
-      ref={containerRef}
-      className={`w-full h-full overflow-hidden ${theme.bg}`}
-      style={{ padding: `${marginV}px ${marginH}px` }}
-    >
-      <div
-        ref={contentRef}
-        style={{
-          transform: `scale(${scale})`,
-          transformOrigin: 'top left',
-          width: `${100 / scale}%`,
-        }}
-      >
-        <h2
-          className={`${theme.titleFont} font-bold text-stone-800 text-center mb-1`}
-          style={{ fontSize: Math.min(24, width * 0.04) }}
-        >
+    <AutoFitPage w={w} h={h} bg={theme.bg}>
+      <div style={{ textAlign: 'center', marginBottom: 12 }}>
+        <h2 style={{
+          fontFamily: theme.titleFont, fontWeight: 700,
+          fontSize: titleSize, color: '#292524', marginBottom: 4,
+        }}>
           Table of Contents
         </h2>
-        <div className={`w-12 h-0.5 ${theme.divider} mx-auto mb-4`} />
-
-        <div className="space-y-0">
-          {recipes.map((recipe, idx) => (
-            <button
-              key={String(recipe.id)}
-              onClick={() => onGoToRecipe(idx)}
-              className={`w-full flex items-baseline gap-2 py-1 px-1.5 rounded hover:${theme.accentBg} transition text-left group`}
-            >
-              <span
-                className="text-stone-400 font-mono shrink-0"
-                style={{ fontSize: Math.min(11, width * 0.018), width: '1.5em' }}
-              >
-                {idx + 1}
-              </span>
-              <span
-                className={`text-stone-700 group-hover:${theme.accent} truncate flex-1`}
-                style={{ fontSize: Math.min(13, width * 0.021) }}
-              >
-                {recipe.title}
-              </span>
-              <span
-                className="text-stone-400 shrink-0"
-                style={{ fontSize: Math.min(10, width * 0.016) }}
-              >
-                {formatTime(recipe.totalTimeMinutes || recipe.cookTimeMinutes)}
-              </span>
-            </button>
-          ))}
-        </div>
+        <div style={{ width: 48, height: 2, background: theme.divider, margin: '0 auto' }} />
       </div>
-    </div>
+
+      {recipes.map((recipe, idx) => (
+        <button
+          key={String(recipe.id)}
+          onClick={() => onGoToRecipe(idx)}
+          style={{
+            display: 'flex', width: '100%', alignItems: 'baseline', gap: 6,
+            padding: '3px 6px', borderRadius: 4, border: 'none', background: 'transparent',
+            cursor: 'pointer', textAlign: 'left',
+          }}
+          onMouseEnter={(e) => e.currentTarget.style.background = theme.accentLight}
+          onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+        >
+          <span style={{ fontSize: numSize, color: '#a8a29e', fontFamily: 'monospace', width: '2em', flexShrink: 0 }}>
+            {idx + 1}
+          </span>
+          <span style={{ fontSize: itemSize, color: '#44403c', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {recipe.title}
+          </span>
+          <span style={{ fontSize: numSize, color: '#a8a29e', flexShrink: 0 }}>
+            {formatTime(recipe.totalTimeMinutes || recipe.cookTimeMinutes)}
+          </span>
+        </button>
+      ))}
+    </AutoFitPage>
   );
 }
 
-function SectionDividerPage({
-  title, theme, width, height,
-}: {
-  title: string;
-  theme: typeof THEMES['classic'];
-  width: number;
-  height: number;
+function SectionDividerPage({ title, theme, w, h }: {
+  title: string; theme: ThemeConfig; w: number; h: number;
 }) {
   return (
-    <div
-      className={`w-full h-full flex flex-col items-center justify-center text-center ${theme.bg}`}
-    >
-      <div className={`w-16 h-0.5 ${theme.divider} mb-4`} />
-      <h2
-        className={`${theme.titleFont} font-bold text-stone-800`}
-        style={{ fontSize: Math.min(32, width * 0.05) }}
-      >
+    <div style={{
+      width: w, height: h, background: theme.bg,
+      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+      textAlign: 'center',
+    }}>
+      <div style={{ width: 60, height: 2, background: theme.divider, marginBottom: 16 }} />
+      <h2 style={{
+        fontFamily: theme.titleFont, fontWeight: 700,
+        fontSize: Math.min(30, w * 0.05), color: '#292524',
+      }}>
         {title}
       </h2>
-      <div className={`w-16 h-0.5 ${theme.divider} mt-4`} />
+      <div style={{ width: 60, height: 2, background: theme.divider, marginTop: 16 }} />
     </div>
   );
 }
 
-function RecipePage({
-  recipe, index, theme, templateStyle, width, height, includePhoto,
-}: {
-  recipe: Recipe;
-  index: number;
-  theme: typeof THEMES['classic'];
-  templateStyle: string;
-  width: number;
-  height: number;
-  includePhoto: boolean;
+// ============================================================================
+// Recipe Page — ONE recipe per page, content auto-scales to fit
+// ============================================================================
+
+function RecipePage({ recipe, index, theme, w, h, includePhoto }: {
+  recipe: Recipe; index: number; theme: ThemeConfig;
+  w: number; h: number; includePhoto: boolean;
 }) {
-  const marginH = MARGIN_OUTER * DPI;
-  const marginV = MARGIN_TOP * DPI;
-  const { containerRef, contentRef, scale } = useAutoResize([recipe, width, height, includePhoto]);
+  const padTop = MARGIN_TOP * DPI;
+  const padBottom = MARGIN_BOTTOM * DPI;
+  const padLeft = MARGIN_INNER * DPI;
+  const padRight = MARGIN_OUTER * DPI;
+
+  const hasImage = includePhoto && (recipe.dishImageThumbnail || recipe.dishImage);
+  const imageUrl = recipe.dishImageThumbnail || recipe.dishImage || '';
+
+  // Image takes a proportional chunk of the page
+  const imageH = hasImage ? Math.min(h * 0.3, 220) : 0;
 
   const ingredients = recipe.normalizedIngredients ||
     (recipe.ingredients || []).map((raw: any) =>
@@ -730,232 +776,340 @@ function RecipePage({
       typeof text === 'string' ? { stepNumber: i + 1, text } : text
     );
 
-  const hasImage = includePhoto && (recipe.dishImageThumbnail || recipe.dishImage);
-  const imageUrl = recipe.dishImageThumbnail || recipe.dishImage || '';
+  // Dynamic font sizes based on page width
+  const titleSize = Math.min(20, w * 0.035);
+  const bodySize = Math.min(11.5, w * 0.019);
+  const labelSize = Math.min(10, w * 0.016);
+  const pageNumSize = Math.min(9, w * 0.014);
 
-  // Calculate dynamic sizes based on page width
-  const titleSize = Math.min(20, width * 0.035);
-  const bodySize = Math.min(12, width * 0.02);
-  const labelSize = Math.min(10, width * 0.016);
-  const imageHeight = hasImage ? Math.min(height * 0.28, 200) : 0;
+  // The text content area below the image
+  const contentPadding = {
+    top: hasImage ? padTop * 0.3 : padTop,
+    right: padRight,
+    bottom: padBottom,
+    left: padLeft,
+  };
+  const contentH = h - imageH;
 
   return (
-    <div
-      ref={containerRef}
-      className={`w-full h-full overflow-hidden ${theme.bg}`}
-    >
-      <div
-        ref={contentRef}
-        className="flex flex-col"
-        style={{
-          transform: `scale(${scale})`,
-          transformOrigin: 'top left',
-          width: `${100 / scale}%`,
-          minHeight: height,
-        }}
+    <div style={{ width: w, height: h, background: theme.bg, overflow: 'hidden', position: 'relative' }}>
+      {/* Image header */}
+      {hasImage && (
+        <div style={{ position: 'relative', width: w, height: imageH, overflow: 'hidden' }}>
+          <img
+            src={imageUrl}
+            alt={recipe.title}
+            style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+          />
+          <div style={{
+            position: 'absolute', inset: 0,
+            background: 'linear-gradient(to top, rgba(0,0,0,0.65) 0%, transparent 60%)',
+          }} />
+          <div style={{
+            position: 'absolute', bottom: 0, left: 0, right: 0,
+            padding: `12px ${padRight}px 10px ${padLeft}px`,
+          }}>
+            <h2 style={{
+              fontFamily: theme.titleFont, fontWeight: 700, fontSize: titleSize,
+              color: '#fff', lineHeight: 1.2, textShadow: '0 1px 3px rgba(0,0,0,0.3)',
+            }}>
+              {recipe.title}
+            </h2>
+          </div>
+        </div>
+      )}
+
+      {/* Auto-fit content area */}
+      <AutoFitPage
+        w={w}
+        h={contentH}
+        bg="transparent"
+        padding={contentPadding}
       >
-        {/* Recipe image header */}
-        {hasImage && (
-          <div className="relative shrink-0" style={{ height: imageHeight }}>
-            <img
-              src={imageUrl}
-              alt={recipe.title}
-              className="w-full h-full object-cover"
-            />
-            <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
-            <div className="absolute bottom-0 left-0 right-0 p-3" style={{ paddingLeft: marginH, paddingRight: marginH }}>
-              <h2
-                className={`${theme.titleFont} font-bold text-white leading-tight`}
-                style={{ fontSize: titleSize }}
-              >
-                {recipe.title}
-              </h2>
-            </div>
+        {/* Title (when no image) */}
+        {!hasImage && (
+          <div style={{ marginBottom: 6 }}>
+            <h2 style={{
+              fontFamily: theme.titleFont, fontWeight: 700,
+              fontSize: titleSize, color: '#292524', lineHeight: 1.2,
+            }}>
+              {recipe.title}
+            </h2>
+            <div style={{ width: 40, height: 2, background: theme.divider, marginTop: 4 }} />
           </div>
         )}
 
-        <div
-          className="flex-1 flex flex-col"
-          style={{
-            padding: `${hasImage ? marginV * 0.5 : marginV}px ${marginH}px ${marginV * 0.5}px`,
-          }}
-        >
-          {/* Title if no image */}
-          {!hasImage && (
-            <div className="mb-2">
-              <h2
-                className={`${theme.titleFont} font-bold text-stone-800`}
-                style={{ fontSize: titleSize }}
-              >
-                {recipe.title}
-              </h2>
-              <div className={`w-10 h-0.5 ${theme.divider} mt-1`} />
-            </div>
+        {/* Time/servings badges */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
+          {recipe.prepTimeMinutes && (
+            <span style={{
+              fontSize: labelSize, background: theme.badgeBg, color: theme.badgeText,
+              padding: '2px 8px', borderRadius: 12,
+            }}>
+              Prep: {formatTime(recipe.prepTimeMinutes)}
+            </span>
           )}
+          {recipe.cookTimeMinutes && (
+            <span style={{
+              fontSize: labelSize, background: theme.badgeBg, color: theme.badgeText,
+              padding: '2px 8px', borderRadius: 12,
+            }}>
+              Cook: {formatTime(recipe.cookTimeMinutes)}
+            </span>
+          )}
+          {recipe.servings && (
+            <span style={{
+              fontSize: labelSize, background: '#f5f5f4', color: '#57534e',
+              padding: '2px 8px', borderRadius: 12,
+            }}>
+              Serves {recipe.servings}
+            </span>
+          )}
+        </div>
 
-          {/* Time/servings badges */}
-          <div className="flex flex-wrap gap-1 mb-2">
-            {recipe.prepTimeMinutes && (
-              <span
-                className={`${theme.badgeBg} px-1.5 py-0.5 rounded-full`}
-                style={{ fontSize: labelSize }}
-              >
-                Prep: {formatTime(recipe.prepTimeMinutes)}
-              </span>
-            )}
-            {recipe.cookTimeMinutes && (
-              <span
-                className={`${theme.badgeBg} px-1.5 py-0.5 rounded-full`}
-                style={{ fontSize: labelSize }}
-              >
-                Cook: {formatTime(recipe.cookTimeMinutes)}
-              </span>
-            )}
-            {recipe.servings && (
-              <span
-                className="bg-stone-100 text-stone-600 px-1.5 py-0.5 rounded-full"
-                style={{ fontSize: labelSize }}
-              >
-                Serves {recipe.servings}
-              </span>
-            )}
+        {/* Description */}
+        {recipe.description && (
+          <p style={{
+            fontSize: bodySize * 0.9, color: '#57534e', fontStyle: 'italic',
+            lineHeight: 1.35, marginBottom: 6,
+          }}>
+            {recipe.description}
+          </p>
+        )}
+
+        {/* Two-column: ingredients + instructions */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.6fr', gap: 12 }}>
+          {/* Ingredients */}
+          <div>
+            <h3 style={{
+              fontSize: labelSize, fontWeight: 700, color: '#292524',
+              textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4,
+            }}>
+              Ingredients
+            </h3>
+            {ingredients.map((ing: any, idx: number) => {
+              const qty = formatQuantity(ing.quantity, ing.unit);
+              return (
+                <div key={idx} style={{
+                  fontSize: bodySize, color: '#44403c', display: 'flex', gap: 3,
+                  lineHeight: 1.35, marginBottom: 1,
+                }}>
+                  {qty && <span style={{ fontWeight: 600, color: '#1c1917', flexShrink: 0 }}>{qty}</span>}
+                  <span>
+                    {ing.item || ing.raw || ing.name || ''}
+                    {ing.preparation && <span style={{ color: '#78716c' }}>, {ing.preparation}</span>}
+                  </span>
+                </div>
+              );
+            })}
           </div>
 
-          {/* Description */}
-          {recipe.description && (
-            <p
-              className="text-stone-600 italic mb-2 leading-snug"
-              style={{ fontSize: bodySize * 0.9 }}
-            >
-              {recipe.description}
-            </p>
-          )}
-
-          {/* Two-column layout: ingredients + instructions */}
-          <div
-            className="grid gap-3 flex-1"
-            style={{ gridTemplateColumns: '1fr 1.5fr' }}
-          >
-            {/* Ingredients */}
-            <div>
-              <h3
-                className="font-bold text-stone-800 uppercase tracking-wider mb-1"
-                style={{ fontSize: labelSize }}
-              >
-                Ingredients
-              </h3>
-              <ul className="space-y-0.5">
-                {ingredients.map((ing: any, idx: number) => {
-                  const quantityStr = formatQuantity(ing.quantity, ing.unit);
-                  return (
-                    <li key={idx} className="text-stone-700 flex gap-1" style={{ fontSize: bodySize }}>
-                      {quantityStr && (
-                        <span className="font-medium text-stone-900 shrink-0">{quantityStr}</span>
-                      )}
-                      <span>
-                        {ing.item || ing.raw || ing.name || ''}
-                        {ing.preparation && <span className="text-stone-500">, {ing.preparation}</span>}
-                      </span>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-
-            {/* Instructions */}
-            <div>
-              <h3
-                className="font-bold text-stone-800 uppercase tracking-wider mb-1"
-                style={{ fontSize: labelSize }}
-              >
-                Instructions
-              </h3>
-              <ol className="space-y-1">
-                {instructions.map((step: any, idx: number) => (
-                  <li key={idx} className="text-stone-700 flex gap-1.5" style={{ fontSize: bodySize }}>
-                    <span className={`font-bold ${theme.stepNumber} shrink-0`}>{idx + 1}.</span>
-                    <span className="leading-snug">{typeof step === 'string' ? step : step.text}</span>
-                  </li>
-                ))}
-              </ol>
-            </div>
+          {/* Instructions */}
+          <div>
+            <h3 style={{
+              fontSize: labelSize, fontWeight: 700, color: '#292524',
+              textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4,
+            }}>
+              Instructions
+            </h3>
+            {instructions.map((step: any, idx: number) => (
+              <div key={idx} style={{
+                fontSize: bodySize, color: '#44403c', display: 'flex', gap: 5,
+                lineHeight: 1.4, marginBottom: 3,
+              }}>
+                <span style={{ fontWeight: 700, color: theme.stepNum, flexShrink: 0 }}>{idx + 1}.</span>
+                <span>{typeof step === 'string' ? step : step.text}</span>
+              </div>
+            ))}
           </div>
-
-          {/* Tips */}
-          {recipe.tips && Array.isArray(recipe.tips) && recipe.tips.length > 0 && (
-            <div className={`mt-2 p-2 rounded border ${theme.tipsBg}`}>
-              <h4
-                className={`font-bold ${theme.tipsTitle} uppercase tracking-wider mb-0.5`}
-                style={{ fontSize: labelSize * 0.9 }}
-              >
-                Tips
-              </h4>
-              {(recipe.tips as any[]).map((tip: any, idx: number) => (
-                <p
-                  key={idx}
-                  className={`${theme.tipsText} leading-snug`}
-                  style={{ fontSize: bodySize * 0.85 }}
-                >
-                  {typeof tip === 'string' ? tip : tip.text}
-                </p>
-              ))}
-            </div>
-          )}
         </div>
 
         {/* Page number */}
-        <div className={`text-center pb-2 ${theme.pageNumColor} shrink-0`} style={{ fontSize: labelSize }}>
+        <div style={{
+          textAlign: 'center', fontSize: pageNumSize, color: theme.pageNum,
+          marginTop: 8, paddingTop: 4,
+        }}>
           {index + 1}
         </div>
-      </div>
+      </AutoFitPage>
     </div>
   );
 }
 
-function BackPage({
-  layoutData, theme, isDark, width, height,
-}: {
-  layoutData: PrintLayoutData;
-  theme: typeof THEMES['classic'];
-  isDark: boolean;
-  width: number;
-  height: number;
+// ============================================================================
+// Recipe Extras Page — nutrition, tips, variations (always page 2)
+// ============================================================================
+
+function RecipeExtrasPage({ recipe, index, theme, w, h, showNutrition, showTips, showVariations }: {
+  recipe: Recipe; index: number; theme: ThemeConfig;
+  w: number; h: number;
+  showNutrition: boolean; showTips: boolean; showVariations: boolean;
 }) {
-  const marginH = MARGIN_OUTER * DPI;
-  const marginV = MARGIN_TOP * DPI;
+  const titleSize = Math.min(16, w * 0.028);
+  const bodySize = Math.min(12, w * 0.02);
+  const labelSize = Math.min(10, w * 0.016);
+  const sectionGap = 16;
+
+  const hasTips = showTips && recipe.tips && Array.isArray(recipe.tips) && recipe.tips.length > 0;
+  const hasNutrition = showNutrition && (recipe.calories || recipe.protein || recipe.carbohydrates || recipe.fat);
+  const hasVariations = showVariations && recipe.variations && Array.isArray(recipe.variations) && recipe.variations.length > 0;
 
   return (
-    <div
-      className={`w-full h-full flex flex-col items-center justify-center text-center relative ${theme.bgBack}`}
-      style={{ padding: `${marginV}px ${marginH}px` }}
-    >
-      <div className={`absolute top-0 left-0 w-full h-2 ${theme.accentBar}`} />
-      <div className={`absolute bottom-0 left-0 w-full h-2 ${theme.accentBar}`} />
+    <AutoFitPage w={w} h={h} bg={theme.bg}>
+      {/* Header — reference back to recipe */}
+      <div style={{ marginBottom: sectionGap, borderBottom: `1px solid ${theme.accentBorder}`, paddingBottom: 8 }}>
+        <p style={{
+          fontSize: labelSize, color: '#78716c', textTransform: 'uppercase',
+          letterSpacing: '0.05em', marginBottom: 2,
+        }}>
+          Additional Info
+        </p>
+        <h2 style={{
+          fontFamily: theme.titleFont, fontWeight: 700,
+          fontSize: titleSize, color: '#292524',
+        }}>
+          {recipe.title}
+        </h2>
+      </div>
 
-      <BookOpen
-        className={`mb-4 ${isDark ? 'text-white/20' : 'text-stone-300'}`}
-        style={{ width: Math.min(64, width * 0.12), height: Math.min(64, width * 0.12) }}
-      />
-      <h2
-        className={`${theme.titleFont} font-bold mb-2 ${isDark ? 'text-white' : 'text-stone-700'}`}
-        style={{ fontSize: Math.min(24, width * 0.04) }}
-      >
+      {/* Nutrition Info */}
+      {hasNutrition && (
+        <div style={{ marginBottom: sectionGap }}>
+          <h3 style={{
+            fontSize: labelSize, fontWeight: 700, color: theme.tipsTitle,
+            textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8,
+          }}>
+            Nutrition per Serving
+          </h3>
+          <div style={{
+            display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8,
+          }}>
+            {[
+              { label: 'Calories', value: recipe.calories, unit: '' },
+              { label: 'Protein', value: recipe.protein, unit: 'g' },
+              { label: 'Carbs', value: recipe.carbohydrates, unit: 'g' },
+              { label: 'Fat', value: recipe.fat, unit: 'g' },
+            ].map(({ label, value, unit }) => value != null && (
+              <div key={label} style={{
+                textAlign: 'center', padding: '8px 4px',
+                background: theme.accentLight, borderRadius: 8,
+                border: `1px solid ${theme.accentBorder}`,
+              }}>
+                <div style={{ fontSize: bodySize * 1.4, fontWeight: 700, color: theme.accent }}>
+                  {typeof value === 'number' ? Math.round(value) : value}{unit}
+                </div>
+                <div style={{ fontSize: labelSize, color: '#78716c', marginTop: 2 }}>
+                  {label}
+                </div>
+              </div>
+            ))}
+          </div>
+          {recipe.fiber != null && (
+            <p style={{ fontSize: labelSize, color: '#78716c', marginTop: 4 }}>
+              Fiber: {Math.round(recipe.fiber)}g per serving
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Tips */}
+      {hasTips && (
+        <div style={{
+          marginBottom: sectionGap, padding: 12, borderRadius: 8,
+          background: theme.tipsBg, border: `1px solid ${theme.tipsBorder}`,
+        }}>
+          <h3 style={{
+            fontSize: labelSize, fontWeight: 700, color: theme.tipsTitle,
+            textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6,
+          }}>
+            Chef&apos;s Tips
+          </h3>
+          {(recipe.tips as any[]).map((tip: any, idx: number) => (
+            <p key={idx} style={{
+              fontSize: bodySize, color: theme.tipsText, lineHeight: 1.5,
+              marginBottom: idx < (recipe.tips as any[]).length - 1 ? 6 : 0,
+            }}>
+              &bull; {typeof tip === 'string' ? tip : tip.text}
+            </p>
+          ))}
+        </div>
+      )}
+
+      {/* Variations */}
+      {hasVariations && (
+        <div style={{ marginBottom: sectionGap }}>
+          <h3 style={{
+            fontSize: labelSize, fontWeight: 700, color: theme.tipsTitle,
+            textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6,
+          }}>
+            Variations
+          </h3>
+          {(recipe.variations as any[]).map((v: any, idx: number) => (
+            <div key={idx} style={{ marginBottom: 6 }}>
+              <p style={{ fontSize: bodySize, fontWeight: 600, color: '#292524' }}>
+                {v.title}
+              </p>
+              <p style={{ fontSize: bodySize * 0.9, color: '#57534e', lineHeight: 1.4 }}>
+                {v.description}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Page number */}
+      <div style={{
+        textAlign: 'center', fontSize: Math.min(9, w * 0.014), color: theme.pageNum,
+        marginTop: 'auto', paddingTop: 8,
+      }}>
+        {index + 1} (continued)
+      </div>
+    </AutoFitPage>
+  );
+}
+
+function BackPage({ layoutData, theme, w, h }: {
+  layoutData: PrintLayoutData; theme: ThemeConfig; w: number; h: number;
+}) {
+  const m = MARGIN_OUTER * DPI;
+  const isDark = theme.coverDark;
+
+  return (
+    <div style={{
+      width: w, height: h, background: theme.bgBack,
+      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+      textAlign: 'center', padding: m, position: 'relative',
+    }}>
+      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 6, background: theme.divider }} />
+      <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 6, background: theme.divider }} />
+
+      <BookOpen style={{
+        width: Math.min(64, w * 0.12), height: Math.min(64, w * 0.12),
+        color: isDark ? 'rgba(255,255,255,0.15)' : '#d6d3d1', marginBottom: 16,
+      }} />
+      <h2 style={{
+        fontFamily: theme.titleFont, fontWeight: 700, marginBottom: 8,
+        fontSize: Math.min(24, w * 0.04),
+        color: isDark ? '#fff' : '#44403c',
+      }}>
         {layoutData?.title || 'My Cookbook'}
       </h2>
 
       {layoutData?.coverData?.backText && (
-        <p
-          className={`italic max-w-[80%] mb-6 ${isDark ? 'text-white/60' : 'text-stone-500'}`}
-          style={{ fontSize: Math.min(14, width * 0.022) }}
-        >
+        <p style={{
+          fontStyle: 'italic', maxWidth: '80%', marginBottom: 24,
+          fontSize: Math.min(14, w * 0.022),
+          color: isDark ? 'rgba(255,255,255,0.5)' : '#78716c',
+        }}>
           {layoutData.coverData.backText}
         </p>
       )}
 
-      <p
-        className={`mt-auto ${isDark ? 'text-white/30' : 'text-stone-400'}`}
-        style={{ fontSize: Math.min(11, width * 0.018) }}
-      >
+      <p style={{
+        marginTop: 'auto',
+        fontSize: Math.min(11, w * 0.018),
+        color: isDark ? 'rgba(255,255,255,0.25)' : '#a8a29e',
+      }}>
         Made with Grammie
       </p>
     </div>
@@ -966,68 +1120,57 @@ function BackPage({
 // Measurement Guides Overlay
 // ============================================================================
 
-function MeasurementGuides({ width, height }: { width: number; height: number }) {
-  const bleedPx = BLEED * DPI;
-  const marginOuterPx = MARGIN_OUTER * DPI;
-  const marginInnerPx = MARGIN_INNER * DPI;
-  const marginTopPx = MARGIN_TOP * DPI;
-  const marginBottomPx = MARGIN_BOTTOM * DPI;
+function MeasurementGuides({ w, h }: { w: number; h: number }) {
+  const bleed = BLEED * DPI;
+  const mOuter = MARGIN_OUTER * DPI;
+  const mInner = MARGIN_INNER * DPI;
+  const mTop = MARGIN_TOP * DPI;
+  const mBottom = MARGIN_BOTTOM * DPI;
 
   return (
-    <div className="absolute inset-0 pointer-events-none z-50">
-      {/* Bleed zone — red dashed border */}
-      <div
-        className="absolute border-2 border-dashed border-red-400/60"
-        style={{
-          top: bleedPx,
-          left: bleedPx,
-          right: bleedPx,
-          bottom: bleedPx,
-        }}
-      />
-      {/* Bleed label */}
-      <div
-        className="absolute text-red-400 bg-white/80 px-1 rounded"
-        style={{ top: 2, left: bleedPx + 4, fontSize: 8 }}
-      >
-        Bleed {BLEED}"
+    <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 50 }}>
+      {/* Bleed */}
+      <div style={{
+        position: 'absolute', top: bleed, left: bleed, right: bleed, bottom: bleed,
+        border: '2px dashed rgba(239,68,68,0.5)',
+      }} />
+      <div style={{
+        position: 'absolute', top: 2, left: bleed + 4, fontSize: 8,
+        color: '#ef4444', background: 'rgba(255,255,255,0.85)', padding: '0 3px', borderRadius: 2,
+      }}>
+        Bleed {BLEED}&quot;
       </div>
 
-      {/* Margin zone — blue dashed */}
-      <div
-        className="absolute border border-dashed border-blue-400/50"
-        style={{
-          top: marginTopPx,
-          left: marginInnerPx,
-          right: marginOuterPx,
-          bottom: marginBottomPx,
-        }}
-      />
-      {/* Margin labels */}
-      <div
-        className="absolute text-blue-400 bg-white/80 px-1 rounded"
-        style={{ top: marginTopPx + 2, left: marginInnerPx + 4, fontSize: 8 }}
-      >
-        Safe zone ({MARGIN_INNER}" gutter / {MARGIN_OUTER}" outer)
+      {/* Safe zone */}
+      <div style={{
+        position: 'absolute', top: mTop, left: mInner, right: mOuter, bottom: mBottom,
+        border: '1px dashed rgba(59,130,246,0.4)',
+      }} />
+      <div style={{
+        position: 'absolute', top: mTop + 2, left: mInner + 4, fontSize: 8,
+        color: '#3b82f6', background: 'rgba(255,255,255,0.85)', padding: '0 3px', borderRadius: 2,
+      }}>
+        Safe zone ({MARGIN_INNER}&quot; gutter / {MARGIN_OUTER}&quot; outer)
       </div>
 
-      {/* Dimension labels */}
-      <div
-        className="absolute text-stone-500 bg-white/90 px-1.5 py-0.5 rounded shadow-sm"
-        style={{ bottom: 4, right: 4, fontSize: 9 }}
-      >
-        {(width / DPI).toFixed(2)}" × {(height / DPI).toFixed(2)}"
+      {/* Dimensions */}
+      <div style={{
+        position: 'absolute', bottom: 4, right: 4, fontSize: 9,
+        color: '#57534e', background: 'rgba(255,255,255,0.9)', padding: '2px 6px',
+        borderRadius: 3, boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+      }}>
+        {(w / DPI).toFixed(2)}&quot; &times; {(h / DPI).toFixed(2)}&quot;
       </div>
 
-      {/* Center crosshairs */}
-      <div
-        className="absolute border-l border-dashed border-green-400/30"
-        style={{ left: width / 2, top: marginTopPx, bottom: marginBottomPx }}
-      />
-      <div
-        className="absolute border-t border-dashed border-green-400/30"
-        style={{ top: height / 2, left: marginInnerPx, right: marginOuterPx }}
-      />
+      {/* Center cross */}
+      <div style={{
+        position: 'absolute', left: w / 2, top: mTop, bottom: mBottom,
+        borderLeft: '1px dashed rgba(34,197,94,0.25)',
+      }} />
+      <div style={{
+        position: 'absolute', top: h / 2, left: mInner, right: mOuter,
+        borderTop: '1px dashed rgba(34,197,94,0.25)',
+      }} />
     </div>
   );
 }

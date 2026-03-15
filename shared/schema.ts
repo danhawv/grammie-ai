@@ -539,7 +539,9 @@ export const printLayoutDataSchema = z.object({
   customizations: z.object({
     fontFamily: z.string().optional(),
     accentColor: z.string().optional(),
-    showNutrition: z.boolean().default(true),
+    showNutrition: z.boolean().optional().default(false),
+    showTips: z.boolean().optional().default(false),
+    showVariations: z.boolean().optional().default(false),
     showPageNumbers: z.boolean().default(true),
     pageSize: z.enum(['6x9', '8.5x11', 'a4']).default('6x9'),
   }).optional(),

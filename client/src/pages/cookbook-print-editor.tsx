@@ -771,7 +771,9 @@ function CookbookPrintEditorInner() {
     setLayoutData(prev => ({
       ...prev,
       customizations: {
-        showNutrition: prev.customizations?.showNutrition ?? true,
+        showNutrition: prev.customizations?.showNutrition ?? false,
+        showTips: prev.customizations?.showTips ?? false,
+        showVariations: prev.customizations?.showVariations ?? false,
         showPageNumbers: prev.customizations?.showPageNumbers ?? true,
         pageSize: prev.customizations?.pageSize ?? '6x9',
         ...prev.customizations,
@@ -1239,17 +1241,6 @@ function CookbookPrintEditorInner() {
 
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <Label htmlFor="show-nutrition">Show Nutrition Info</Label>
-                  <input
-                    type="checkbox"
-                    id="show-nutrition"
-                    checked={layoutData.customizations?.showNutrition !== false}
-                    onChange={(e) => updateCustomization("showNutrition", e.target.checked)}
-                    className="h-4 w-4"
-                    data-testid="checkbox-nutrition"
-                  />
-                </div>
-                <div className="flex items-center justify-between">
                   <Label htmlFor="show-page-numbers">Show Page Numbers</Label>
                   <input
                     type="checkbox"
@@ -1259,6 +1250,50 @@ function CookbookPrintEditorInner() {
                     className="h-4 w-4"
                     data-testid="checkbox-page-numbers"
                   />
+                </div>
+              </div>
+
+              <Separator />
+
+              <div className="space-y-1">
+                <Label className="text-sm font-medium">Extra Pages (per recipe)</Label>
+                <p className="text-xs text-muted-foreground mb-2">
+                  These appear on a second page after each recipe to keep the main recipe page clean and easy to read.
+                </p>
+                <div className="space-y-2 pl-1">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="show-nutrition" className="text-sm font-normal">Nutrition Info</Label>
+                    <input
+                      type="checkbox"
+                      id="show-nutrition"
+                      checked={layoutData.customizations?.showNutrition === true}
+                      onChange={(e) => updateCustomization("showNutrition", e.target.checked)}
+                      className="h-4 w-4"
+                      data-testid="checkbox-nutrition"
+                    />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="show-tips" className="text-sm font-normal">Tips</Label>
+                    <input
+                      type="checkbox"
+                      id="show-tips"
+                      checked={layoutData.customizations?.showTips === true}
+                      onChange={(e) => updateCustomization("showTips", e.target.checked)}
+                      className="h-4 w-4"
+                      data-testid="checkbox-tips"
+                    />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="show-variations" className="text-sm font-normal">Variations</Label>
+                    <input
+                      type="checkbox"
+                      id="show-variations"
+                      checked={layoutData.customizations?.showVariations === true}
+                      onChange={(e) => updateCustomization("showVariations", e.target.checked)}
+                      className="h-4 w-4"
+                      data-testid="checkbox-variations"
+                    />
+                  </div>
                 </div>
               </div>
 
