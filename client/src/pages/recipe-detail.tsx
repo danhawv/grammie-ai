@@ -342,16 +342,19 @@ export default function RecipeDetail() {
       const data = query.state.data;
       if (!data) return false;
       
-      // Poll every 3s if enrichment or image generation is in progress
-      const enrichmentInProgress = 
+      // Poll every 3s if enrichment, content enrichment, or image generation is in progress
+      const enrichmentInProgress =
         data.enrichmentStatus === 'enriching' ||
         data.enrichmentStatus === 'extracting';
-      
+
+      const contentEnrichmentInProgress =
+        data.contentEnrichmentStatus === 'enriching';
+
       const imageGenerationInProgress =
         data.imageGenerationStatus === 'pending' ||
         data.imageGenerationStatus === 'generating';
-      
-      const needsPolling = enrichmentInProgress || imageGenerationInProgress;
+
+      const needsPolling = enrichmentInProgress || contentEnrichmentInProgress || imageGenerationInProgress;
       
       return needsPolling ? 3000 : false;
     },
@@ -1474,6 +1477,26 @@ export default function RecipeDetail() {
               )}
             </CardContent>
           </Card>
+
+            {/* Content enrichment loading skeleton — shown while Group 3 content loads in background */}
+            {recipe.contentEnrichmentStatus === 'enriching' && !recipe.beveragePairings && !recipe.culturalSignificance && !recipe.celebrityChefReviews && (
+              <Card className="border-dashed">
+                <CardHeader className="gap-2">
+                  <CardTitle className="font-serif text-lg flex items-center gap-2 text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Loading additional content...
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <Skeleton className="h-4 w-3/4" />
+                  <Skeleton className="h-4 w-1/2" />
+                  <Skeleton className="h-4 w-2/3" />
+                  <p className="text-xs text-muted-foreground mt-2">
+                    Chef reviews, beverage pairings, and cultural context are being generated...
+                  </p>
+                </CardContent>
+              </Card>
+            )}
 
             {recipe.beveragePairings && (
               (recipe.beveragePairings.wines?.length > 0 ||
