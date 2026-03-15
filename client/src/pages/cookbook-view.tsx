@@ -461,7 +461,7 @@ export default function CookbookViewPage() {
                     <UserPlus className="h-4 w-4 mr-2" />
                     Collaborators
                   </Button>
-                  <Link href={`/cookbook/${cookbookId}/print`}>
+                  <Link href={`/cookbook/${cookbookId}/print-editor`}>
                     <Button
                       variant="outline"
                       size="sm"
