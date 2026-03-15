@@ -168,6 +168,12 @@ export async function setupAuth(app: Express) {
   // Current user endpoint — upserts on first Clerk sign-in
   app.get("/api/user", async (req: any, res) => {
     try {
+      // 0. Auth bypass — check first, before anything else
+      if (process.env.BYPASS_AUTH === "true") {
+        const dbUser = await storage.getUser("37290791");
+        return res.json(dbUser ?? null);
+      }
+
       // 1. Bearer token (mobile JWT then Clerk)
       const bearerToken = extractBearerToken(req);
       if (bearerToken) {
