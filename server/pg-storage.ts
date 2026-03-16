@@ -555,17 +555,25 @@ export class PostgresStorage implements IStorage {
     }
 
     if (filters.onePot) {
+      // Use array overlap (&&) for GIN index compatibility
+      const onePotVariants = [
+        'One-Pot', 'one-pot', 'One-Pan', 'one-pan', 'Sheet Pan', 'sheet pan',
+        'Slow-Cooking', 'slow-cooking', 'Slow Cooking', 'slow cooking',
+        'One Pot', 'one pot', 'One Pan', 'one pan',
+      ];
       conditions.push(
-        or(
-          sql`EXISTS (SELECT 1 FROM unnest(${recipes.cookingMethods}) AS m WHERE lower(m) IN ('one-pot', 'one-pan', 'sheet pan', 'slow-cooking', 'slow cooking'))`,
-          sql`EXISTS (SELECT 1 FROM unnest(${recipes.cookingMethods}) AS m WHERE lower(m) LIKE '%one pot%' OR lower(m) LIKE '%one pan%' OR lower(m) LIKE '%sheet pan%')`
-        )
+        sql`${recipes.cookingMethods} ${sql.raw('&&')} ARRAY[${sql.join(onePotVariants.map(v => sql`${v}`), sql`, `)}]::text[]`
       );
     }
 
     if (filters.airFryer) {
+      // Use array overlap (&&) for GIN index compatibility
+      const airFryerVariants = [
+        'Air Frying', 'air frying', 'Air Fryer', 'air fryer',
+        'Air-Frying', 'air-frying', 'Air-Fryer', 'air-fryer',
+      ];
       conditions.push(
-        sql`EXISTS (SELECT 1 FROM unnest(${recipes.cookingMethods}) AS m WHERE lower(m) IN ('air frying', 'air fryer', 'air-frying', 'air-fryer') OR lower(m) LIKE '%air fr%')`
+        sql`${recipes.cookingMethods} ${sql.raw('&&')} ARRAY[${sql.join(airFryerVariants.map(v => sql`${v}`), sql`, `)}]::text[]`
       );
     }
 

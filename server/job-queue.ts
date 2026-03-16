@@ -4,7 +4,6 @@ import {
   extractRecipeFromImageUnified,
   extractRecipeFromMultipleImagesUnified,
   enrichRecipeUnified,
-  enrichRecipeParallel,
   enrichRecipeEssential,
   enrichRecipeContentOnly,
   enrichVariationRecipe,
