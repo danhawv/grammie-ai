@@ -16,6 +16,7 @@ import adminRoutes from "./routes/admin";
 import printRoutes from "./routes/print";
 import socialRoutes from "./routes/social";
 import grammieRoutes from "./routes/grammie";
+import mealPlanRoutes from "./routes/meal-plans";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Setup authentication
@@ -35,6 +36,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use("/api", usersRoutes);
   app.use("/api", adminRoutes);
   app.use("/api", grammieRoutes);
+  app.use("/api", mealPlanRoutes);
 
   // Mount print routes (has both /lulu/* and /api/print/* paths)
   // The /lulu/pdfs/:id route is public and not under /api

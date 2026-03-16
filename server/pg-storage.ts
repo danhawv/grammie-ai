@@ -64,6 +64,22 @@ import {
   pantryScanSessions,
   groceryListShares,
   groceryListCollaborators,
+  mealPlans,
+  mealPlanEntries,
+  mealPlanCollaborators,
+  mealPlanInvitations,
+  type MealPlan,
+  type MealPlanWithEntries,
+  type MealPlanEntry,
+  type MealPlanEntryWithRecipe,
+  type InsertMealPlan,
+  type InsertMealPlanEntry,
+  type MealPlanCollaborator,
+  type MealPlanCollaboratorWithUser,
+  type InsertMealPlanCollaborator,
+  type MealPlanInvitation,
+  type MealPlanInvitationWithDetails,
+  type InsertMealPlanInvitation,
 } from "@shared/schema";
 
 export interface RecipeFilterParams {
@@ -244,6 +260,36 @@ export interface IStorage {
   updatePrintProjectPreflight(id: number, status: 'pending' | 'passed' | 'warnings' | 'failed', warnings?: PreflightWarning[]): Promise<void>;
   updatePrintProjectPdf(id: number, pdfUrl: string): Promise<void>;
   updatePrintProjectLuluOrder(id: number, orderId: string, status: string): Promise<void>;
+
+  // Meal plan operations
+  createMealPlan(plan: import("@shared/schema").InsertMealPlan): Promise<import("@shared/schema").MealPlan>;
+  getMealPlan(id: string, userId: string): Promise<import("@shared/schema").MealPlanWithEntries | undefined>;
+  getUserMealPlans(userId: string, status?: string, includeTemplates?: boolean): Promise<import("@shared/schema").MealPlan[]>;
+  updateMealPlan(id: string, updates: Partial<import("@shared/schema").InsertMealPlan>, userId: string): Promise<import("@shared/schema").MealPlan | undefined>;
+  deleteMealPlan(id: string, userId: string): Promise<boolean>;
+
+  // Meal plan entry operations
+  addMealPlanEntry(entry: import("@shared/schema").InsertMealPlanEntry): Promise<import("@shared/schema").MealPlanEntry>;
+  updateMealPlanEntry(entryId: string, updates: Partial<import("@shared/schema").InsertMealPlanEntry>): Promise<import("@shared/schema").MealPlanEntry | undefined>;
+  removeMealPlanEntry(entryId: string): Promise<boolean>;
+  moveMealPlanEntry(entryId: string, date: Date, mealSlot: string, position: number): Promise<import("@shared/schema").MealPlanEntry | undefined>;
+  canEditMealPlan(mealPlanId: string, userId: string): Promise<boolean>;
+
+  // Meal plan collaboration
+  getMealPlanCollaborators(mealPlanId: string): Promise<import("@shared/schema").MealPlanCollaboratorWithUser[]>;
+  addMealPlanCollaborator(collaborator: import("@shared/schema").InsertMealPlanCollaborator): Promise<import("@shared/schema").MealPlanCollaborator>;
+  removeMealPlanCollaborator(mealPlanId: string, userId: string, requesterId: string): Promise<boolean>;
+  createMealPlanInvitation(invitation: import("@shared/schema").InsertMealPlanInvitation): Promise<import("@shared/schema").MealPlanInvitation>;
+  getUserMealPlanInvitations(userId: string): Promise<import("@shared/schema").MealPlanInvitationWithDetails[]>;
+  respondToMealPlanInvitation(invitationId: number, userId: string, accept: boolean): Promise<boolean>;
+
+  // Meal plan templates
+  saveMealPlanAsTemplate(mealPlanId: string, templateName: string, userId: string): Promise<import("@shared/schema").MealPlan>;
+  getUserMealPlanTemplates(userId: string): Promise<import("@shared/schema").MealPlan[]>;
+  createMealPlanFromTemplate(templateId: string, startDate: Date, userId: string, name?: string): Promise<import("@shared/schema").MealPlan>;
+
+  // Grocery list from meal plan
+  generateGroceryListFromMealPlan(mealPlanId: string, userId: string, options?: { excludeLeftovers?: boolean; excludePantryItems?: boolean; mode?: string }): Promise<import("@shared/schema").GroceryList>;
 }
 
 export class PostgresStorage implements IStorage {
@@ -2779,11 +2825,524 @@ export class PostgresStorage implements IStorage {
   
   async updatePrintProjectLuluOrder(id: number, orderId: string, status: string): Promise<void> {
     await db.update(cookbookPrintProjects)
-      .set({ 
-        luluOrderId: orderId, 
+      .set({
+        luluOrderId: orderId,
         luluOrderStatus: status,
-        updatedAt: new Date() 
+        updatedAt: new Date()
       })
       .where(eq(cookbookPrintProjects.id, id));
+  }
+
+  // ========== MEAL PLAN OPERATIONS ==========
+
+  async createMealPlan(plan: InsertMealPlan): Promise<MealPlan> {
+    const [result] = await db.insert(mealPlans).values([plan as any]).returning();
+    return result;
+  }
+
+  async getMealPlan(id: string, userId: string): Promise<MealPlanWithEntries | undefined> {
+    // Check access: owner or collaborator
+    const [plan] = await db.select().from(mealPlans).where(eq(mealPlans.id, id));
+    if (!plan) return undefined;
+
+    const hasAccess = plan.ownerUserId === userId ||
+      (await db.select().from(mealPlanCollaborators)
+        .where(and(eq(mealPlanCollaborators.mealPlanId, id), eq(mealPlanCollaborators.userId, userId)))
+      ).length > 0;
+
+    if (!hasAccess) return undefined;
+
+    // Get entries with recipes
+    const entries = await db
+      .select({
+        entry: mealPlanEntries,
+        recipe: recipes,
+        assignedUser: {
+          id: users.id,
+          firstName: users.firstName,
+          lastName: users.lastName,
+          profileImageUrl: users.profileImageUrl,
+        },
+      })
+      .from(mealPlanEntries)
+      .leftJoin(recipes, eq(mealPlanEntries.recipeId, recipes.id))
+      .leftJoin(users, eq(mealPlanEntries.assignedUserId, users.id))
+      .where(eq(mealPlanEntries.mealPlanId, id))
+      .orderBy(asc(mealPlanEntries.date), asc(mealPlanEntries.position));
+
+    const entriesWithRecipes: MealPlanEntryWithRecipe[] = entries.map(e => ({
+      ...e.entry,
+      recipe: e.recipe || undefined,
+      assignedUser: e.assignedUser?.id ? e.assignedUser : undefined,
+    }));
+
+    // Get collaborators
+    const collabs = await this.getMealPlanCollaborators(id);
+
+    return { ...plan, entries: entriesWithRecipes, collaborators: collabs };
+  }
+
+  async getUserMealPlans(userId: string, status?: string, includeTemplates?: boolean): Promise<MealPlan[]> {
+    // Get owned plans
+    const conditions = [eq(mealPlans.ownerUserId, userId)];
+    if (status) conditions.push(eq(mealPlans.status, status as any));
+    if (!includeTemplates) conditions.push(eq(mealPlans.isTemplate, false));
+
+    const owned = await db.select().from(mealPlans)
+      .where(and(...conditions))
+      .orderBy(desc(mealPlans.updatedAt));
+
+    // Get collaborated plans
+    const collabPlanIds = await db.select({ mealPlanId: mealPlanCollaborators.mealPlanId })
+      .from(mealPlanCollaborators)
+      .where(eq(mealPlanCollaborators.userId, userId));
+
+    let collaborated: MealPlan[] = [];
+    if (collabPlanIds.length > 0) {
+      const collabConditions = [
+        inArray(mealPlans.id, collabPlanIds.map(c => c.mealPlanId)),
+        eq(mealPlans.isTemplate, false),
+      ];
+      if (status) collabConditions.push(eq(mealPlans.status, status as any));
+
+      collaborated = await db.select().from(mealPlans)
+        .where(and(...collabConditions))
+        .orderBy(desc(mealPlans.updatedAt));
+    }
+
+    // Merge and dedupe
+    const seen = new Set<string>();
+    const result: MealPlan[] = [];
+    for (const plan of [...owned, ...collaborated]) {
+      if (!seen.has(plan.id)) {
+        seen.add(plan.id);
+        result.push(plan);
+      }
+    }
+    return result;
+  }
+
+  async updateMealPlan(id: string, updates: Partial<InsertMealPlan>, userId: string): Promise<MealPlan | undefined> {
+    const canEdit = await this.canEditMealPlan(id, userId);
+    if (!canEdit) return undefined;
+
+    const [result] = await db.update(mealPlans)
+      .set({ ...updates, updatedAt: new Date() } as any)
+      .where(eq(mealPlans.id, id))
+      .returning();
+    return result;
+  }
+
+  async deleteMealPlan(id: string, userId: string): Promise<boolean> {
+    const [plan] = await db.select().from(mealPlans).where(eq(mealPlans.id, id));
+    if (!plan || plan.ownerUserId !== userId) return false;
+
+    await db.delete(mealPlans).where(eq(mealPlans.id, id));
+    return true;
+  }
+
+  async addMealPlanEntry(entry: InsertMealPlanEntry): Promise<MealPlanEntry> {
+    const [result] = await db.insert(mealPlanEntries).values([entry as any]).returning();
+
+    // Update plan timestamp
+    await db.update(mealPlans)
+      .set({ updatedAt: new Date() })
+      .where(eq(mealPlans.id, entry.mealPlanId));
+
+    return result;
+  }
+
+  async updateMealPlanEntry(entryId: string, updates: Partial<InsertMealPlanEntry>): Promise<MealPlanEntry | undefined> {
+    const [result] = await db.update(mealPlanEntries)
+      .set({ ...updates, updatedAt: new Date() } as any)
+      .where(eq(mealPlanEntries.id, entryId))
+      .returning();
+    return result;
+  }
+
+  async removeMealPlanEntry(entryId: string): Promise<boolean> {
+    const result = await db.delete(mealPlanEntries).where(eq(mealPlanEntries.id, entryId));
+    return (result as any).rowCount > 0;
+  }
+
+  async moveMealPlanEntry(entryId: string, date: Date, mealSlot: string, position: number): Promise<MealPlanEntry | undefined> {
+    const [result] = await db.update(mealPlanEntries)
+      .set({
+        date,
+        mealSlot: mealSlot as 'breakfast' | 'lunch' | 'dinner' | 'snack',
+        position,
+        updatedAt: new Date(),
+      })
+      .where(eq(mealPlanEntries.id, entryId))
+      .returning();
+    return result;
+  }
+
+  async canEditMealPlan(mealPlanId: string, userId: string): Promise<boolean> {
+    const [plan] = await db.select().from(mealPlans).where(eq(mealPlans.id, mealPlanId));
+    if (!plan) return false;
+    if (plan.ownerUserId === userId) return true;
+
+    const [collab] = await db.select().from(mealPlanCollaborators)
+      .where(and(
+        eq(mealPlanCollaborators.mealPlanId, mealPlanId),
+        eq(mealPlanCollaborators.userId, userId),
+        eq(mealPlanCollaborators.role, 'editor'),
+      ));
+    return !!collab;
+  }
+
+  // ========== MEAL PLAN COLLABORATION ==========
+
+  async getMealPlanCollaborators(mealPlanId: string): Promise<MealPlanCollaboratorWithUser[]> {
+    const result = await db
+      .select({
+        collab: mealPlanCollaborators,
+        user: {
+          id: users.id,
+          email: users.email,
+          firstName: users.firstName,
+          lastName: users.lastName,
+          profileImageUrl: users.profileImageUrl,
+        },
+      })
+      .from(mealPlanCollaborators)
+      .innerJoin(users, eq(mealPlanCollaborators.userId, users.id))
+      .where(eq(mealPlanCollaborators.mealPlanId, mealPlanId));
+
+    return result.map(r => ({ ...r.collab, user: r.user }));
+  }
+
+  async addMealPlanCollaborator(collaborator: InsertMealPlanCollaborator): Promise<MealPlanCollaborator> {
+    const [result] = await db.insert(mealPlanCollaborators).values([collaborator as any]).returning();
+    return result;
+  }
+
+  async removeMealPlanCollaborator(mealPlanId: string, userId: string, requesterId: string): Promise<boolean> {
+    // Owner can remove anyone, users can remove themselves
+    const [plan] = await db.select().from(mealPlans).where(eq(mealPlans.id, mealPlanId));
+    if (!plan) return false;
+    if (plan.ownerUserId !== requesterId && requesterId !== userId) return false;
+
+    const result = await db.delete(mealPlanCollaborators)
+      .where(and(
+        eq(mealPlanCollaborators.mealPlanId, mealPlanId),
+        eq(mealPlanCollaborators.userId, userId),
+      ));
+    return (result as any).rowCount > 0;
+  }
+
+  async createMealPlanInvitation(invitation: InsertMealPlanInvitation): Promise<MealPlanInvitation> {
+    const [result] = await db.insert(mealPlanInvitations).values([invitation as any]).returning();
+    return result;
+  }
+
+  async getUserMealPlanInvitations(userId: string): Promise<MealPlanInvitationWithDetails[]> {
+    // Find by userId or email
+    const [user] = await db.select().from(users).where(eq(users.id, userId));
+    if (!user) return [];
+
+    const conditions = [eq(mealPlanInvitations.status, 'pending')];
+    if (user.email) {
+      conditions.push(
+        or(
+          eq(mealPlanInvitations.inviteeUserId, userId),
+          eq(mealPlanInvitations.inviteeEmail, user.email),
+        )!
+      );
+    } else {
+      conditions.push(eq(mealPlanInvitations.inviteeUserId, userId));
+    }
+
+    const result = await db
+      .select({
+        invitation: mealPlanInvitations,
+        mealPlan: {
+          id: mealPlans.id,
+          name: mealPlans.name,
+          description: mealPlans.description,
+        },
+        inviter: {
+          id: users.id,
+          firstName: users.firstName,
+          lastName: users.lastName,
+          profileImageUrl: users.profileImageUrl,
+        },
+      })
+      .from(mealPlanInvitations)
+      .innerJoin(mealPlans, eq(mealPlanInvitations.mealPlanId, mealPlans.id))
+      .innerJoin(users, eq(mealPlanInvitations.inviterUserId, users.id))
+      .where(and(...conditions));
+
+    return result.map(r => ({
+      ...r.invitation,
+      mealPlan: r.mealPlan,
+      inviter: r.inviter,
+    }));
+  }
+
+  async respondToMealPlanInvitation(invitationId: number, userId: string, accept: boolean): Promise<boolean> {
+    const [invitation] = await db.select().from(mealPlanInvitations)
+      .where(eq(mealPlanInvitations.id, invitationId));
+    if (!invitation || invitation.status !== 'pending') return false;
+
+    // Verify this user can respond
+    const [user] = await db.select().from(users).where(eq(users.id, userId));
+    if (!user) return false;
+
+    const isInvitee = invitation.inviteeUserId === userId ||
+      (invitation.inviteeEmail && user.email && invitation.inviteeEmail.toLowerCase() === user.email.toLowerCase());
+    if (!isInvitee) return false;
+
+    // Check expiration
+    if (invitation.expiresAt && new Date(invitation.expiresAt) < new Date()) {
+      await db.update(mealPlanInvitations)
+        .set({ status: 'expired' })
+        .where(eq(mealPlanInvitations.id, invitationId));
+      return false;
+    }
+
+    if (accept) {
+      // Add as collaborator
+      await db.insert(mealPlanCollaborators).values([{
+        mealPlanId: invitation.mealPlanId,
+        userId,
+        role: 'editor' as const,
+        addedByUserId: invitation.inviterUserId,
+      }]).onConflictDoNothing();
+    }
+
+    await db.update(mealPlanInvitations)
+      .set({ status: accept ? 'accepted' : 'rejected', respondedAt: new Date() })
+      .where(eq(mealPlanInvitations.id, invitationId));
+
+    return true;
+  }
+
+  // ========== MEAL PLAN TEMPLATES ==========
+
+  async saveMealPlanAsTemplate(mealPlanId: string, templateName: string, userId: string): Promise<MealPlan> {
+    const plan = await this.getMealPlan(mealPlanId, userId);
+    if (!plan) throw new Error("Meal plan not found");
+
+    // Create template copy
+    const [template] = await db.insert(mealPlans).values([{
+      name: templateName,
+      description: plan.description,
+      ownerUserId: userId,
+      startDate: plan.startDate,
+      endDate: plan.endDate,
+      isTemplate: true,
+      templateName,
+      status: 'active' as 'active' | 'archived',
+    }]).returning();
+
+    // Copy entries with relative day offsets preserved
+    if (plan.entries.length > 0) {
+      const entryValues = plan.entries.map(entry => ({
+        mealPlanId: template.id,
+        date: entry.date,
+        mealSlot: entry.mealSlot as 'breakfast' | 'lunch' | 'dinner' | 'snack',
+        position: entry.position,
+        recipeId: entry.recipeId,
+        scaledServings: entry.scaledServings,
+        isLeftover: entry.isLeftover,
+        leftoverFromEntryId: null as string | null,
+        customMealName: entry.customMealName,
+        notes: entry.notes,
+      }));
+      await db.insert(mealPlanEntries).values(entryValues);
+    }
+
+    return template;
+  }
+
+  async getUserMealPlanTemplates(userId: string): Promise<MealPlan[]> {
+    return db.select().from(mealPlans)
+      .where(and(
+        eq(mealPlans.ownerUserId, userId),
+        eq(mealPlans.isTemplate, true),
+      ))
+      .orderBy(desc(mealPlans.createdAt));
+  }
+
+  async createMealPlanFromTemplate(templateId: string, startDate: Date, userId: string, name?: string): Promise<MealPlan> {
+    const template = await this.getMealPlan(templateId, userId);
+    if (!template) throw new Error("Template not found");
+
+    // Calculate end date (same duration as template)
+    const templateDuration = template.endDate.getTime() - template.startDate.getTime();
+    const endDate = new Date(startDate.getTime() + templateDuration);
+
+    // Create new plan
+    const [plan] = await db.insert(mealPlans).values([{
+      name: name || template.name,
+      description: template.description,
+      ownerUserId: userId,
+      startDate,
+      endDate,
+      isTemplate: false,
+      createdFromTemplateId: templateId,
+      status: 'active' as 'active' | 'archived',
+    }]).returning();
+
+    // Copy entries with shifted dates
+    if (template.entries.length > 0) {
+      const templateStart = template.startDate.getTime();
+      const entryValues = template.entries.map(entry => {
+        const dayOffset = entry.date.getTime() - templateStart;
+        return {
+          mealPlanId: plan.id,
+          date: new Date(startDate.getTime() + dayOffset),
+          mealSlot: entry.mealSlot as 'breakfast' | 'lunch' | 'dinner' | 'snack',
+          position: entry.position,
+          recipeId: entry.recipeId,
+          scaledServings: entry.scaledServings,
+          isLeftover: entry.isLeftover,
+          leftoverFromEntryId: null as string | null,
+          customMealName: entry.customMealName,
+          notes: entry.notes,
+        };
+      });
+      await db.insert(mealPlanEntries).values(entryValues);
+    }
+
+    return plan;
+  }
+
+  // ========== GROCERY LIST FROM MEAL PLAN ==========
+
+  async generateGroceryListFromMealPlan(
+    mealPlanId: string,
+    userId: string,
+    options?: { excludeLeftovers?: boolean; excludePantryItems?: boolean; mode?: string }
+  ): Promise<GroceryList> {
+    const { convertToBaseUnit } = await import('./unit-conversion');
+
+    const plan = await this.getMealPlan(mealPlanId, userId);
+    if (!plan) throw new Error("Meal plan not found");
+
+    // Filter entries
+    let entries = plan.entries.filter(e => e.recipe?.normalizedIngredients);
+    if (options?.excludeLeftovers !== false) {
+      entries = entries.filter(e => !e.isLeftover);
+    }
+
+    // Aggregate ingredients across all entries
+    type AggregatedItem = {
+      item: string; quantity: number; unit: string; displayName: string;
+      aisle: string; category: string | null; emoji: string | null;
+      originalEntries: any[];
+    };
+    const aggregated = new Map<string, AggregatedItem>();
+
+    for (const entry of entries) {
+      const recipe = entry.recipe!;
+      const ingredients = recipe.normalizedIngredients as any[];
+      const scaleFactor = (entry.scaledServings || recipe.servings || 1) / (recipe.servings || 1);
+
+      for (const ingredient of ingredients) {
+        if (ingredient.isToolOrConsumable || ingredient.isOptional) continue;
+
+        const scaledQty = (ingredient.quantity || 1) * scaleFactor;
+        const conversion = convertToBaseUnit(scaledQty, ingredient.unit);
+        const unitKey = conversion.unit || '_none_';
+        const itemKey = `${(ingredient.item || '').toLowerCase()}|${unitKey}`;
+
+        const provenance = {
+          recipeId: recipe.id,
+          recipeTitle: recipe.title,
+          quantity: scaledQty,
+          unit: ingredient.unit || 'count',
+          raw: ingredient.raw,
+        };
+
+        if (aggregated.has(itemKey) && conversion.canConvert) {
+          const existing = aggregated.get(itemKey)!;
+          existing.quantity += conversion.quantity;
+          existing.originalEntries.push(provenance);
+        } else {
+          aggregated.set(itemKey, {
+            item: ingredient.item || ingredient.raw,
+            quantity: conversion.quantity,
+            unit: conversion.unit,
+            displayName: ingredient.item || ingredient.raw,
+            aisle: ingredient.groceryMapping?.aisle || 'Other',
+            category: ingredient.groceryMapping?.category || null,
+            emoji: ingredient.emoji || null,
+            originalEntries: [provenance],
+          });
+        }
+      }
+    }
+
+    // Optionally subtract pantry items
+    if (options?.excludePantryItems) {
+      const pantryItems_ = await this.getPantryItems(userId);
+      const pantryMap = new Map<string, any>();
+      for (const item of pantryItems_) {
+        const key = (item.normalizedName || item.name).toLowerCase();
+        pantryMap.set(key, item);
+      }
+
+      Array.from(aggregated.entries()).forEach(([key, agg]) => {
+        const itemName = agg.item.toLowerCase();
+        if (pantryMap.has(itemName)) {
+          aggregated.delete(key);
+        }
+      });
+    }
+
+    // Create or get grocery list
+    let list: GroceryList;
+
+    if (options?.mode === 'add_to_existing') {
+      // Add to existing active list
+      const existing = await this.getActiveGroceryList(userId);
+      if (existing) {
+        list = existing;
+      } else {
+        [list] = await db.insert(groceryLists).values([{
+          userId,
+          name: `Meal Plan: ${plan.name}`,
+          status: 'active' as const,
+        }]).returning();
+      }
+    } else {
+      // Archive existing active list first
+      await db.update(groceryLists)
+        .set({ status: 'archived' as any })
+        .where(and(eq(groceryLists.userId, userId), eq(groceryLists.status, 'active')));
+
+      [list] = await db.insert(groceryLists).values([{
+        userId,
+        name: `Meal Plan: ${plan.name}`,
+        status: 'active' as const,
+      }]).returning();
+    }
+
+    // Insert aggregated items
+    if (aggregated.size > 0) {
+      const itemValues = Array.from(aggregated.values()).map(agg => ({
+        listId: list.id,
+        item: agg.item,
+        quantity: Math.round(agg.quantity * 100) / 100,
+        unit: agg.unit,
+        displayName: agg.displayName,
+        aisle: agg.aisle,
+        category: agg.category,
+        emoji: agg.emoji,
+        checked: false,
+        originalEntries: agg.originalEntries as any,
+      }));
+      await db.insert(groceryListItems).values(itemValues);
+    }
+
+    // Link plan to grocery list
+    await db.update(mealPlans)
+      .set({ groceryListId: list.id, updatedAt: new Date() })
+      .where(eq(mealPlans.id, mealPlanId));
+
+    return list;
   }
 }

@@ -1,7 +1,7 @@
 import { Switch, Route, Link, useLocation } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { Settings as SettingsIcon, ShoppingCart } from "lucide-react";
+import { Settings as SettingsIcon, ShoppingCart, CalendarDays } from "lucide-react";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/components/theme-provider";
@@ -31,6 +31,8 @@ const CookbookView = lazy(() => import("@/pages/cookbook-view"));
 const CookbookPrint = lazy(() => import("@/pages/cookbook-print"));
 const CookbookPrintEditor = lazy(() => import("@/pages/cookbook-print-editor"));
 const Processing = lazy(() => import("@/pages/processing"));
+const MealPlans = lazy(() => import("@/pages/meal-plans"));
+const MealPlanDetail = lazy(() => import("@/pages/meal-plan-detail"));
 const NotFound = lazy(() => import("@/pages/not-found"));
 
 const CLERK_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string | undefined;
@@ -60,6 +62,8 @@ function Router() {
         <Route path="/cookbook/:id" component={CookbookView} />
         <Route path="/cookbook/:id/print" component={CookbookPrint} />
         <Route path="/cookbook/:id/print-editor" component={CookbookPrintEditor} />
+        <Route path="/meal-plans" component={MealPlans} />
+        <Route path="/meal-plans/:id" component={MealPlanDetail} />
         <Route path="/processing" component={Processing} />
         <Route component={NotFound} />
       </Switch>
@@ -83,6 +87,11 @@ function AppHeader() {
           </Link>
         </div>
         <div className="flex items-center gap-3">
+          <Link href="/meal-plans">
+            <Button variant="ghost" className="inline-flex items-center justify-center touch-target p-0" aria-label="Meal plans">
+              <CalendarDays className="h-5 w-5" />
+            </Button>
+          </Link>
           <Link href="/grocery-list">
             <Button variant="ghost" className="inline-flex items-center justify-center touch-target p-0" data-testid="button-grocery-list" aria-label="Grocery list">
               <ShoppingCart className="h-5 w-5" />

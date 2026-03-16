@@ -905,6 +905,112 @@ export const groceryListCollaborators = pgTable("grocery_list_collaborators", {
 }));
 
 // ============================================================================
+// MEAL_PLANS TABLE (weekly/monthly meal planning)
+// ============================================================================
+export const mealPlans = pgTable("meal_plans", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  description: text("description"),
+  ownerUserId: varchar("owner_user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+
+  // Plan range
+  startDate: timestamp("start_date").notNull(),
+  endDate: timestamp("end_date").notNull(),
+
+  // Template support
+  isTemplate: boolean("is_template").default(false).notNull(),
+  templateName: text("template_name"),
+  createdFromTemplateId: varchar("created_from_template_id"),
+
+  // Link to generated grocery list
+  groceryListId: varchar("grocery_list_id"),
+
+  status: text("status").$type<'active' | 'archived'>().default('active').notNull(),
+
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  ownerIdx: index("meal_plans_owner_user_id_idx").on(table.ownerUserId),
+  statusIdx: index("meal_plans_status_idx").on(table.status),
+  dateRangeIdx: index("meal_plans_date_range_idx").on(table.startDate, table.endDate),
+}));
+
+// ============================================================================
+// MEAL_PLAN_ENTRIES TABLE (recipe-to-day/slot assignments)
+// ============================================================================
+export const mealPlanEntries = pgTable("meal_plan_entries", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  mealPlanId: varchar("meal_plan_id").notNull().references(() => mealPlans.id, { onDelete: 'cascade' }),
+
+  // Slot identification
+  date: timestamp("date").notNull(),
+  mealSlot: text("meal_slot").$type<'breakfast' | 'lunch' | 'dinner' | 'snack'>().notNull(),
+  position: integer("position").default(0).notNull(),
+
+  // Recipe (nullable for custom entries like "eating out")
+  recipeId: varchar("recipe_id").references(() => recipes.id, { onDelete: 'cascade' }),
+
+  // Scaling
+  scaledServings: integer("scaled_servings"),
+
+  // Cooking assignment
+  assignedUserId: varchar("assigned_user_id").references(() => users.id, { onDelete: 'set null' }),
+
+  // Leftover tracking
+  isLeftover: boolean("is_leftover").default(false).notNull(),
+  leftoverFromEntryId: varchar("leftover_from_entry_id"),
+
+  // Custom text for non-recipe meals
+  customMealName: text("custom_meal_name"),
+  notes: text("notes"),
+
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  mealPlanIdx: index("meal_plan_entries_meal_plan_id_idx").on(table.mealPlanId),
+  dateIdx: index("meal_plan_entries_date_idx").on(table.date),
+  recipeIdx: index("meal_plan_entries_recipe_id_idx").on(table.recipeId),
+  planDateSlotIdx: index("meal_plan_entries_plan_date_slot_idx").on(table.mealPlanId, table.date, table.mealSlot),
+}));
+
+// ============================================================================
+// MEAL_PLAN_COLLABORATORS TABLE (multi-user meal planning)
+// ============================================================================
+export const mealPlanCollaborators = pgTable("meal_plan_collaborators", {
+  id: serial("id").primaryKey(),
+  mealPlanId: varchar("meal_plan_id").notNull().references(() => mealPlans.id, { onDelete: 'cascade' }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  role: text("role").$type<'editor' | 'viewer'>().default('editor').notNull(),
+  addedByUserId: varchar("added_by_user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  uniqueMealPlanCollaborator: unique().on(table.mealPlanId, table.userId),
+  mealPlanIdIdx: index("meal_plan_collaborators_meal_plan_id_idx").on(table.mealPlanId),
+  userIdIdx: index("meal_plan_collaborators_user_id_idx").on(table.userId),
+}));
+
+// ============================================================================
+// MEAL_PLAN_INVITATIONS TABLE (invitation flow for collaboration)
+// ============================================================================
+export const mealPlanInvitations = pgTable("meal_plan_invitations", {
+  id: serial("id").primaryKey(),
+  mealPlanId: varchar("meal_plan_id").notNull().references(() => mealPlans.id, { onDelete: 'cascade' }),
+  inviterUserId: varchar("inviter_user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  inviteeEmail: varchar("invitee_email"),
+  inviteeUserId: varchar("invitee_user_id").references(() => users.id, { onDelete: 'cascade' }),
+  status: text("status").$type<'pending' | 'accepted' | 'rejected' | 'expired'>().default('pending').notNull(),
+  token: varchar("token").notNull().unique(),
+  message: text("message"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  respondedAt: timestamp("responded_at"),
+}, (table) => ({
+  mealPlanIdIdx: index("meal_plan_invitations_meal_plan_id_idx").on(table.mealPlanId),
+  inviteeUserIdIdx: index("meal_plan_invitations_invitee_user_id_idx").on(table.inviteeUserId),
+  tokenIdx: index("meal_plan_invitations_token_idx").on(table.token),
+}));
+
+// ============================================================================
 // RELATIONS
 // ============================================================================
 export const usersRelations = relations(users, ({ many }) => ({
@@ -917,6 +1023,8 @@ export const usersRelations = relations(users, ({ many }) => ({
   groceryLists: many(groceryLists),
   pantryItems: many(pantryItems),
   pantryScanSessions: many(pantryScanSessions),
+  mealPlans: many(mealPlans),
+  mealPlanCollaborations: many(mealPlanCollaborators),
 }));
 
 export const authCredentialsRelations = relations(authCredentials, ({ one }) => ({
@@ -1086,6 +1194,31 @@ export const groceryListCollaboratorsRelations = relations(groceryListCollaborat
     fields: [groceryListCollaborators.userId],
     references: [users.id],
   }),
+}));
+
+export const mealPlansRelations = relations(mealPlans, ({ one, many }) => ({
+  owner: one(users, { fields: [mealPlans.ownerUserId], references: [users.id] }),
+  entries: many(mealPlanEntries),
+  collaborators: many(mealPlanCollaborators),
+  invitations: many(mealPlanInvitations),
+}));
+
+export const mealPlanEntriesRelations = relations(mealPlanEntries, ({ one }) => ({
+  mealPlan: one(mealPlans, { fields: [mealPlanEntries.mealPlanId], references: [mealPlans.id] }),
+  recipe: one(recipes, { fields: [mealPlanEntries.recipeId], references: [recipes.id] }),
+  assignedUser: one(users, { fields: [mealPlanEntries.assignedUserId], references: [users.id] }),
+}));
+
+export const mealPlanCollaboratorsRelations = relations(mealPlanCollaborators, ({ one }) => ({
+  mealPlan: one(mealPlans, { fields: [mealPlanCollaborators.mealPlanId], references: [mealPlans.id] }),
+  user: one(users, { fields: [mealPlanCollaborators.userId], references: [users.id] }),
+  addedBy: one(users, { fields: [mealPlanCollaborators.addedByUserId], references: [users.id] }),
+}));
+
+export const mealPlanInvitationsRelations = relations(mealPlanInvitations, ({ one }) => ({
+  mealPlan: one(mealPlans, { fields: [mealPlanInvitations.mealPlanId], references: [mealPlans.id] }),
+  inviter: one(users, { fields: [mealPlanInvitations.inviterUserId], references: [users.id] }),
+  invitee: one(users, { fields: [mealPlanInvitations.inviteeUserId], references: [users.id] }),
 }));
 
 // ============================================================================
@@ -1383,6 +1516,79 @@ export const insertGroceryListCollaboratorSchema = createInsertSchema(groceryLis
 });
 export type InsertGroceryListCollaborator = z.infer<typeof insertGroceryListCollaboratorSchema>;
 export type GroceryListCollaborator = typeof groceryListCollaborators.$inferSelect;
+
+// Meal Plans
+export const insertMealPlanSchema = createInsertSchema(mealPlans).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type InsertMealPlan = z.infer<typeof insertMealPlanSchema>;
+export type MealPlan = typeof mealPlans.$inferSelect;
+
+// Meal Plan Entries
+export const insertMealPlanEntrySchema = createInsertSchema(mealPlanEntries).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type InsertMealPlanEntry = z.infer<typeof insertMealPlanEntrySchema>;
+export type MealPlanEntry = typeof mealPlanEntries.$inferSelect;
+
+// Meal Plan Collaborators
+export const insertMealPlanCollaboratorSchema = createInsertSchema(mealPlanCollaborators).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertMealPlanCollaborator = z.infer<typeof insertMealPlanCollaboratorSchema>;
+export type MealPlanCollaborator = typeof mealPlanCollaborators.$inferSelect;
+
+// Meal Plan Invitations
+export const insertMealPlanInvitationSchema = createInsertSchema(mealPlanInvitations).omit({
+  id: true,
+  createdAt: true,
+  respondedAt: true,
+});
+export type InsertMealPlanInvitation = z.infer<typeof insertMealPlanInvitationSchema>;
+export type MealPlanInvitation = typeof mealPlanInvitations.$inferSelect;
+
+// Extended meal plan types
+export type MealPlanEntryWithRecipe = MealPlanEntry & {
+  recipe?: Recipe | null;
+  assignedUser?: { id: string; firstName: string | null; lastName: string | null; profileImageUrl: string | null } | null;
+};
+
+export type MealPlanWithEntries = MealPlan & {
+  entries: MealPlanEntryWithRecipe[];
+  collaborators?: MealPlanCollaboratorWithUser[];
+};
+
+export type MealPlanCollaboratorWithUser = MealPlanCollaborator & {
+  user: {
+    id: string;
+    email: string | null;
+    firstName: string | null;
+    lastName: string | null;
+    profileImageUrl: string | null;
+  };
+};
+
+export type MealPlanInvitationWithDetails = MealPlanInvitation & {
+  mealPlan: { id: string; name: string; description: string | null };
+  inviter: { id: string; firstName: string | null; lastName: string | null; profileImageUrl: string | null };
+};
+
+export type MealPlanNutritionSummary = {
+  daily: Record<string, {
+    calories: number; protein: number; carbs: number; fat: number;
+    fiber: number; sugar: number; sodium: number;
+    mealBreakdown: Record<'breakfast' | 'lunch' | 'dinner' | 'snack', {
+      calories: number; protein: number; carbs: number; fat: number;
+    }>;
+  }>;
+  weeklyAverage: { calories: number; protein: number; carbs: number; fat: number; fiber: number };
+  budgetEstimate: { min: number; max: number };
+};
 
 // Extended types for pantry/grocery matching
 export type GroceryListItemWithPantryMatch = GroceryListItemWithDisplay & {
