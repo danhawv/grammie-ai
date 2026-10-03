@@ -7,3 +7,4 @@ dist/
 
 # Uploaded media (MEDIA_STORAGE=disk)
 /media/
+.env.clerk
