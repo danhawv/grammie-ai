@@ -1,5 +1,7 @@
+# Node >=22.12 required by the Vite 8 toolchain (and its npm reads the
+# lockfile's optional esbuild entries correctly, unlike npm 10.8)
 [phases.setup]
-nixPkgs = ["nodejs_20", "chromium"]
+nixPkgs = ["nodejs_22", "chromium"]
 
 [variables]
 PUPPETEER_SKIP_DOWNLOAD = "true"

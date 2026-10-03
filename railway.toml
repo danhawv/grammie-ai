@@ -4,7 +4,9 @@ buildCommand = "npm install && npm run build"
 nixpacksConfigPath = "nixpacks.toml"
 
 [deploy]
-startCommand = "npm run db:push || echo 'db:push failed, continuing anyway'; npm run start"
+# No schema push on boot: drizzle-kit can prompt interactively and hang, and
+# production schema changes should be deliberate, not a deploy side effect
+startCommand = "npm run start"
 healthcheckPath = "/health"
 healthcheckTimeout = 300
 restartPolicyType = "on_failure"
