@@ -139,5 +139,10 @@
   },
   "engines": {
     "node": ">=22.12.0"
+  },
+  "overrides": {
+    "vitest": {
+      "vite": "^7.1.0"
+    }
   }
 }
