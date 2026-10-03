@@ -68,14 +68,20 @@ import {
   AlertCircle,
   Check,
   Download,
+  Palette,
+  Sparkles,
+  Pencil,
+  ListChecks,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { CookbookPrintPreview } from "@/components/cookbook-print-preview";
+import { RecipeReviewDialog } from "@/components/recipe-review-dialog";
 import { PreflightCheckPanel } from "@/components/preflight-check-panel";
 import { PrintOrderPanel } from "@/components/print-order-panel";
-import type { PrintLayoutData, CookbookPrintProject } from "@shared/schema";
+import type { PrintLayoutData, CookbookPrintProject, CustomTemplate } from "@shared/schema";
+import { TemplateDesigner } from "@/components/template-designer";
 
 interface CookbookWithOwner {
   id: number;
@@ -471,13 +477,41 @@ function CookbookPrintEditorInner() {
   const [showNewSectionDialog, setShowNewSectionDialog] = useState(false);
   const [newSectionTitle, setNewSectionTitle] = useState("");
   const [showPreview, setShowPreview] = useState(false);
+  const [showRecipeReview, setShowRecipeReview] = useState(false);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [trimSize, setTrimSize] = useState<TrimSizeId>('0600X0900');
   const [bindingType, setBindingType] = useState<BindingTypeId>('PB');
   const [paperType, setPaperType] = useState<PaperTypeId>('080CW444');
   const [colorType, setColorType] = useState<ColorTypeId>('FC');
   const [coverFinish, setCoverFinish] = useState<CoverFinishId>('M');
+  const [showTemplateDesigner, setShowTemplateDesigner] = useState(false);
+  const [editingCustomTemplate, setEditingCustomTemplate] = useState<CustomTemplate | null>(null);
+  const [selectedCustomTemplateId, setSelectedCustomTemplateId] = useState<number | null>(null);
   const isInitialized = useRef(false);
+
+  // Fetch user's custom templates
+  const { data: customTemplates = [] } = useQuery<CustomTemplate[]>({
+    queryKey: ["/api/templates"],
+  });
+
+  const handleDeleteTemplate = async (ct: CustomTemplate) => {
+    if (!confirm(`Delete "${ct.name}"?`)) return;
+    try {
+      let res = await fetch(`/api/templates/${ct.id}`, { method: 'DELETE', credentials: 'include' });
+      if (res.status === 409) {
+        // Template is used by print projects — surface the server's warning
+        const body = await res.json();
+        if (!confirm(`${body.message}\n\nDelete anyway?`)) return;
+        res = await fetch(`/api/templates/${ct.id}?force=true`, { method: 'DELETE', credentials: 'include' });
+      }
+      if (!res.ok && res.status !== 204) throw new Error('Delete failed');
+      if (selectedCustomTemplateId === ct.id) setSelectedCustomTemplateId(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/templates"] });
+      toast({ title: "Template deleted", description: `"${ct.name}" has been removed.` });
+    } catch {
+      toast({ title: "Couldn't delete template", variant: "destructive" });
+    }
+  };
 
   // Get compatible paper types for current binding
   const compatiblePapers = BINDING_PAPER_COMPATIBILITY[bindingType] || [];
@@ -494,6 +528,7 @@ function CookbookPrintEditorInner() {
         body: JSON.stringify({
           layoutData,
           templateStyle,
+          customTemplateId: selectedCustomTemplateId,
         }),
       });
       
@@ -887,8 +922,16 @@ function CookbookPrintEditorInner() {
             )}
             Save
           </Button>
-          <Button 
-            variant="outline" 
+          <Button
+            variant="outline"
+            onClick={() => setShowRecipeReview(true)}
+            data-testid="button-review-recipes"
+          >
+            <ListChecks className="h-4 w-4 mr-2" />
+            Review
+          </Button>
+          <Button
+            variant="outline"
             onClick={() => setShowPreview(true)}
             disabled={!layoutData?.sections?.length || layoutData.sections.every(s => s.recipeIds.length === 0)}
             data-testid="button-preview"
@@ -1078,23 +1121,25 @@ function CookbookPrintEditorInner() {
               <CardTitle className="text-lg">Template Style</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
+              {/* Built-in templates */}
               {TEMPLATE_STYLES.map((style) => (
                 <div
                   key={style.id}
                   className={`p-3 border rounded-md cursor-pointer transition-colors ${
-                    templateStyle === style.id
+                    templateStyle === style.id && !selectedCustomTemplateId
                       ? "border-primary bg-primary/5"
                       : "hover-elevate"
                   }`}
                   onClick={() => {
                     setTemplateStyle(style.id);
+                    setSelectedCustomTemplateId(null);
                     setHasUnsavedChanges(true);
                   }}
                   data-testid={`template-${style.id}`}
                 >
                   <div className="flex items-center justify-between">
                     <span className="font-medium text-sm">{style.name}</span>
-                    {templateStyle === style.id && (
+                    {templateStyle === style.id && !selectedCustomTemplateId && (
                       <Check className="h-4 w-4 text-primary" />
                     )}
                   </div>
@@ -1103,8 +1148,93 @@ function CookbookPrintEditorInner() {
                   </p>
                 </div>
               ))}
+
+              {/* My Custom Templates */}
+              {customTemplates.length > 0 && (
+                <>
+                  <Separator className="my-2" />
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <Palette className="w-3.5 h-3.5 text-muted-foreground" />
+                    <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">My Templates</span>
+                  </div>
+                  {customTemplates.map((ct: CustomTemplate) => (
+                    <div
+                      key={ct.id}
+                      className={`p-3 border rounded-md cursor-pointer transition-colors ${
+                        selectedCustomTemplateId === ct.id
+                          ? "border-primary bg-primary/5"
+                          : "hover-elevate"
+                      }`}
+                      onClick={() => {
+                        setSelectedCustomTemplateId(ct.id);
+                        setHasUnsavedChanges(true);
+                      }}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium text-sm">{ct.name}</span>
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditingCustomTemplate(ct);
+                              setShowTemplateDesigner(true);
+                            }}
+                            className="p-1 rounded hover:bg-accent"
+                            title="Edit template"
+                          >
+                            <Pencil className="w-3 h-3 text-muted-foreground" />
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteTemplate(ct);
+                            }}
+                            className="p-1 rounded hover:bg-accent"
+                            title="Delete template"
+                            data-testid={`delete-template-${ct.id}`}
+                          >
+                            <Trash2 className="w-3 h-3 text-muted-foreground" />
+                          </button>
+                          {selectedCustomTemplateId === ct.id && (
+                            <Check className="h-4 w-4 text-primary" />
+                          )}
+                        </div>
+                      </div>
+                      {ct.description && (
+                        <p className="text-xs text-muted-foreground mt-1">{ct.description}</p>
+                      )}
+                    </div>
+                  ))}
+                </>
+              )}
+
+              {/* Design Custom Template button */}
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full gap-1.5 mt-2"
+                data-testid="design-custom-template"
+                onClick={() => {
+                  setEditingCustomTemplate(null);
+                  setShowTemplateDesigner(true);
+                }}
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                Design Custom Template
+              </Button>
             </CardContent>
           </Card>
+
+          {/* Template Designer Dialog */}
+          <TemplateDesigner
+            open={showTemplateDesigner}
+            onOpenChange={setShowTemplateDesigner}
+            editingTemplate={editingCustomTemplate}
+            onSaved={(template) => {
+              setSelectedCustomTemplateId(template.id);
+              setHasUnsavedChanges(true);
+            }}
+          />
 
           {/* Print Specifications */}
           <Card>
@@ -1363,6 +1493,23 @@ function CookbookPrintEditorInner() {
         templateStyle={templateStyle}
         cookbookId={cookbookId}
         trimSize={trimSize}
+        customTemplateData={
+          selectedCustomTemplateId
+            ? (customTemplates.find(ct => ct.id === selectedCustomTemplateId)?.templateData as any) || null
+            : null
+        }
+        customFonts={
+          selectedCustomTemplateId
+            ? (customTemplates.find(ct => ct.id === selectedCustomTemplateId)?.customFonts as any) || null
+            : null
+        }
+      />
+
+      {/* Pre-print recipe review */}
+      <RecipeReviewDialog
+        cookbookId={cookbookId}
+        open={showRecipeReview}
+        onClose={() => setShowRecipeReview(false)}
       />
     </div>
   );

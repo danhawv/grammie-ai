@@ -85,9 +85,6 @@ function LegacyUserHeader() {
             <AvatarImage src={user?.avatar || undefined} alt={user?.username || user?.email || "User"} />
             <AvatarFallback>{initials}</AvatarFallback>
           </Avatar>
-          <span className="hidden sm:inline-block text-sm font-medium">
-            {user?.username || user?.email}
-          </span>
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">

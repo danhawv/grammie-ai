@@ -4,8 +4,9 @@ import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { jobQueue } from "./job-queue";
 import { storage } from "./storage";
-import { groceryListWsManager } from "./websocket";
+import { groceryListWsManager, mealPlanWsManager } from "./websocket";
 import { runMigrations } from "./migrations";
+import { MEDIA_DIR } from "./lib/media-storage";
 
 // ============================================================================
 // Environment validation
@@ -63,6 +64,9 @@ app.use(express.json({
 }));
 app.use(express.urlencoded({ extended: false, limit: '10mb' }));
 app.use(compression());
+
+// Uploaded media (when MEDIA_STORAGE=disk); immutable content-hashed filenames
+app.use('/media', express.static(MEDIA_DIR, { maxAge: '365d', immutable: true }));
 
 // CORS for production
 if (process.env.NODE_ENV === 'production' && process.env.PUBLIC_URL) {
@@ -134,9 +138,21 @@ app.use((req, res, next) => {
     }
   });
 
-  // Initialize WebSocket server for real-time grocery list updates BEFORE Vite
+  // Initialize WebSocket servers (noServer mode) BEFORE Vite
   // This prevents conflicts with Vite's HMR WebSocket upgrade handlers
   groceryListWsManager.initialize(server);
+  mealPlanWsManager.initialize(server);
+
+  // Route WebSocket upgrade requests to the appropriate manager
+  server.on("upgrade", (req, socket, head) => {
+    const pathname = req.url?.split("?")[0];
+    if (pathname === "/ws/grocery-list") {
+      groceryListWsManager.handleUpgrade(req, socket, head);
+    } else if (pathname === "/ws/meal-plan") {
+      mealPlanWsManager.handleUpgrade(req, socket, head);
+    }
+    // Let other upgrade requests (e.g., Vite HMR) pass through
+  });
 
   // importantly only setup vite in development and after
   // setting up all the other routes so the catch-all route
@@ -152,11 +168,7 @@ app.use((req, res, next) => {
   // this serves both the API and the client.
   // It is the only port that is not firewalled.
   const port = parseInt(process.env.PORT || '5000', 10);
-  server.listen({
-    port,
-    host: "0.0.0.0",
-    reusePort: true,
-  }, () => {
+  server.listen(port, "0.0.0.0", () => {
     log(`serving on port ${port}`);
 
     // Start periodic watchdog for stuck jobs (every 5 minutes)

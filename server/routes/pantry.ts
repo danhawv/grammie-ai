@@ -325,4 +325,126 @@ router.post("/pantry/scan/:sessionId/confirm", isAuthenticated, async (req: any,
   }
 });
 
+// ============================================================================
+// PANTRY STAPLES ENDPOINTS
+// ============================================================================
+
+// List user's staples
+router.get("/pantry/staples", isAuthenticated, async (req: any, res) => {
+  try {
+    const userId = getUserId(req);
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+    const staples = await storage.getStaples(userId);
+    res.json(staples);
+  } catch (error) {
+    console.error("Error fetching pantry staples:", error);
+    res.status(500).json({ error: "Failed to fetch pantry staples" });
+  }
+});
+
+// Add a staple
+router.post("/pantry/staples", isAuthenticated, async (req: any, res) => {
+  try {
+    const userId = getUserId(req);
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+    const schema = z.object({
+      name: z.string().min(1),
+      category: z.string().optional(),
+      emoji: z.string().optional(),
+      minQuantity: z.coerce.number().optional(),
+      preferredUnit: z.string().optional(),
+    });
+
+    const data = schema.parse(req.body);
+
+    const staple = await storage.addStaple({
+      userId,
+      name: data.name,
+      normalizedName: data.name.toLowerCase().trim(),
+      category: data.category,
+      emoji: data.emoji,
+      minQuantity: data.minQuantity,
+      preferredUnit: data.preferredUnit,
+    });
+
+    res.status(201).json(staple);
+  } catch (error) {
+    console.error("Error adding pantry staple:", error);
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: "Invalid data", details: error.errors });
+    }
+    res.status(500).json({ error: "Failed to add pantry staple" });
+  }
+});
+
+// Delete a staple
+router.delete("/pantry/staples/:id", isAuthenticated, async (req: any, res) => {
+  try {
+    const userId = getUserId(req);
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+    const { id } = req.params;
+    await storage.deleteStaple(id, userId);
+    res.json({ message: "Staple deleted" });
+  } catch (error) {
+    console.error("Error deleting pantry staple:", error);
+    res.status(500).json({ error: "Failed to delete staple" });
+  }
+});
+
+// Get restock items (staples that are low/missing)
+router.get("/pantry/restock", isAuthenticated, async (req: any, res) => {
+  try {
+    const userId = getUserId(req);
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+    const restockItems = await storage.getRestockItems(userId);
+    res.json(restockItems);
+  } catch (error) {
+    console.error("Error fetching restock items:", error);
+    res.status(500).json({ error: "Failed to fetch restock items" });
+  }
+});
+
+// Add all restock items to grocery list
+router.post("/pantry/restock/add-to-grocery", isAuthenticated, async (req: any, res) => {
+  try {
+    const userId = getUserId(req);
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+    const restockItems = await storage.getRestockItems(userId);
+    const neededItems = restockItems.filter(r => r.needed);
+
+    if (neededItems.length === 0) {
+      return res.json({ added: 0, message: "All staples are stocked!" });
+    }
+
+    for (const { staple, currentQuantity } of neededItems) {
+      const quantityToAdd = staple.minQuantity != null && currentQuantity != null
+        ? staple.minQuantity - currentQuantity
+        : staple.minQuantity ?? 1;
+
+      await storage.addManualItemToGroceryList(userId, {
+        item: staple.name,
+        displayName: staple.name,
+        quantity: quantityToAdd,
+        unit: staple.preferredUnit || 'count',
+        category: staple.category,
+        emoji: staple.emoji,
+        aisle: staple.category || 'Other',
+      });
+    }
+
+    res.json({
+      added: neededItems.length,
+      message: `Added ${neededItems.length} item${neededItems.length !== 1 ? 's' : ''} to your grocery list`,
+    });
+  } catch (error) {
+    console.error("Error adding restock items to grocery list:", error);
+    res.status(500).json({ error: "Failed to add restock items to grocery list" });
+  }
+});
+
 export default router;

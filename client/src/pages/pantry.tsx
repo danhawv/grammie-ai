@@ -9,8 +9,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { Plus, Camera, Trash2, Package, ScanLine, Loader2, ChevronRight, Pencil, ShoppingCart, Scale, ChefHat, Mic, MicOff, Square, CheckCircle2 } from 'lucide-react';
-import type { PantryItem, PantryScanSession } from '@shared/schema';
+import { Plus, Camera, Trash2, Package, ScanLine, Loader2, ChevronRight, Pencil, ShoppingCart, Scale, ChefHat, Mic, MicOff, Square, CheckCircle2, AlertTriangle, Star, CalendarDays, ArrowUpDown } from 'lucide-react';
+import type { PantryItem, PantryScanSession, PantryStaple } from '@shared/schema';
 import { Link } from 'wouter';
 import grammieImage from "@assets/image_1763329917086.png";
 
@@ -53,6 +53,40 @@ const METRIC_UNIT_OPTIONS = [
   { value: 'pack', label: 'Pack' },
 ] as const;
 
+// Smart expiration defaults by category (in days)
+const EXPIRATION_DEFAULTS: Record<string, number> = {
+  produce: 5, dairy: 10, meat: 3, seafood: 2, bakery: 5,
+  frozen: 90, canned: 365, 'dry-goods': 180,
+};
+
+// Get expiration status for display
+function getExpirationStatus(expiresAt: string | Date | null | undefined): {
+  label: string;
+  variant: 'default' | 'warning' | 'urgent' | 'expired' | 'ok';
+  dateText: string | null;
+} {
+  if (!expiresAt) return { label: 'In Stock', variant: 'ok', dateText: null };
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  const exp = new Date(expiresAt);
+  exp.setHours(0, 0, 0, 0);
+  const diffDays = Math.ceil((exp.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+  const dateStr = exp.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+
+  if (diffDays < 0) return { label: 'Expired', variant: 'expired', dateText: `Expired ${Math.abs(diffDays)}d ago` };
+  if (diffDays <= 2) return { label: 'Expiring', variant: 'urgent', dateText: `Expires ${dateStr}` };
+  if (diffDays <= 5) return { label: 'Expires Soon', variant: 'warning', dateText: `Expires ${dateStr}` };
+  return { label: 'In Stock', variant: 'ok', dateText: `Expires ${dateStr}` };
+}
+
+const EXPIRATION_BADGE_STYLES = {
+  ok: 'bg-green-500/10 text-green-600 border-green-200',
+  warning: 'bg-amber-500/10 text-amber-600 border-amber-200',
+  urgent: 'bg-orange-500/10 text-orange-600 border-orange-200',
+  expired: 'bg-red-500/10 text-red-600 border-red-200',
+  default: 'bg-green-500/10 text-green-600 border-green-200',
+};
+
 // Format quantity - round to sensible precision
 const formatQuantity = (qty: number | null | undefined): string => {
   if (qty === null || qty === undefined) return '';
@@ -81,6 +115,15 @@ export default function PantryPage() {
   const [editCategory, setEditCategory] = useState<string>('other');
   const [editQuantity, setEditQuantity] = useState('');
   const [editUnit, setEditUnit] = useState('');
+
+  // Expiration date state
+  const [newItemExpires, setNewItemExpires] = useState('');
+  const [editExpires, setEditExpires] = useState('');
+
+  // Sort/filter state
+  const [sortMode, setSortMode] = useState<'category' | 'expiration'>('category');
+  const [showExpiringOnly, setShowExpiringOnly] = useState(false);
+  const [dismissedBanner, setDismissedBanner] = useState(false);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
@@ -126,6 +169,7 @@ export default function PantryPage() {
       setNewItemCategory('other');
       setNewItemQuantity('');
       setNewItemUnit('');
+      setNewItemExpires('');
       toast({ title: 'Item added', description: 'Pantry item added successfully' });
     },
     onError: () => {
@@ -204,7 +248,8 @@ export default function PantryPage() {
       category: newItemCategory,
       quantity: newItemQuantity ? parseFloat(newItemQuantity) : undefined,
       unit: newItemUnit || undefined,
-    });
+      expiresAt: newItemExpires ? new Date(newItemExpires).toISOString() : undefined,
+    } as any);
   };
 
   const startRecording = useCallback(() => {
@@ -296,6 +341,7 @@ export default function PantryPage() {
     setEditCategory(item.category || 'other');
     setEditQuantity(item.quantity?.toString() || '');
     setEditUnit(item.unit || '');
+    setEditExpires(item.expiresAt ? new Date(item.expiresAt).toISOString().split('T')[0] : '');
     setIsEditDialogOpen(true);
   };
 
@@ -307,15 +353,40 @@ export default function PantryPage() {
       category: editCategory,
       quantity: editQuantity ? parseFloat(editQuantity) : null,
       unit: editUnit || null,
-    });
+      expiresAt: editExpires ? new Date(editExpires).toISOString() : null,
+    } as any);
   };
 
-  const groupedItems = pantryItems?.reduce((acc, item) => {
-    const category = item.category || 'other';
-    if (!acc[category]) acc[category] = [];
-    acc[category].push(item);
-    return acc;
-  }, {} as Record<string, PantryItem[]>) || {};
+  // Count items expiring soon (within 3 days) for banner
+  const expiringItems = pantryItems?.filter((item) => {
+    if (!item.expiresAt) return false;
+    const status = getExpirationStatus(item.expiresAt);
+    return status.variant === 'expired' || status.variant === 'urgent' || status.variant === 'warning';
+  }) || [];
+
+  // Filter items if "Expiring Soon" filter is active
+  const filteredItems = showExpiringOnly
+    ? pantryItems?.filter((item) => {
+        if (!item.expiresAt) return false;
+        const status = getExpirationStatus(item.expiresAt);
+        return status.variant !== 'ok';
+      }) || []
+    : pantryItems || [];
+
+  // Group and sort items
+  const groupedItems = sortMode === 'expiration'
+    ? { 'By Expiration': [...filteredItems].sort((a, b) => {
+        if (!a.expiresAt && !b.expiresAt) return a.name.localeCompare(b.name);
+        if (!a.expiresAt) return 1;
+        if (!b.expiresAt) return -1;
+        return new Date(a.expiresAt).getTime() - new Date(b.expiresAt).getTime();
+      }) }
+    : filteredItems.reduce((acc, item) => {
+        const category = item.category || 'other';
+        if (!acc[category]) acc[category] = [];
+        acc[category].push(item);
+        return acc;
+      }, {} as Record<string, PantryItem[]>);
 
   if (isLoading) {
     return (
@@ -333,32 +404,32 @@ export default function PantryPage() {
   return (
     <div className="min-h-screen bg-background">
       <div className="max-w-4xl mx-auto px-4 py-6">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-          <div className="flex items-center gap-3">
-            <Package className="w-7 h-7 sm:w-8 sm:h-8 text-primary" />
-            <h1 className="text-2xl sm:text-3xl font-bold" data-testid="text-pantry-title">My Pantry</h1>
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <Package className="w-5 h-5 text-primary" />
+            <h1 className="text-lg font-bold" data-testid="text-pantry-title">My Pantry</h1>
           </div>
-          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5">
             <Link href="/what-can-i-make">
               <Button variant="default" size="sm" data-testid="button-what-can-i-make">
-                <ChefHat className="w-4 h-4 mr-2" />
+                <ChefHat className="w-4 h-4 mr-1" />
                 What Can I Make?
               </Button>
             </Link>
             <Button
               variant="outline"
-              size="sm"
+              size="icon"
+              className="h-8 w-8"
               onClick={() => setUnitSystem(unitSystem === 'us' ? 'metric' : 'us')}
+              title={unitSystem === 'us' ? 'Switch to Metric' : 'Switch to US'}
               data-testid="button-toggle-units"
             >
-              <Scale className="w-4 h-4 mr-1" />
-              <span className="text-xs font-medium">{unitSystem === 'us' ? 'US' : 'Metric'}</span>
+              <Scale className="w-4 h-4" />
             </Button>
             <Dialog open={isScanDialogOpen} onOpenChange={setIsScanDialogOpen}>
               <DialogTrigger asChild>
-                <Button variant="outline" size="sm" data-testid="button-scan-pantry">
-                  <Camera className="w-4 h-4 sm:mr-2" />
-                  <span className="hidden sm:inline">Scan</span>
+                <Button variant="outline" size="icon" className="h-8 w-8" title="Scan pantry with AI" data-testid="button-scan-pantry">
+                  <Camera className="w-4 h-4" />
                 </Button>
               </DialogTrigger>
               <DialogContent>
@@ -437,24 +508,25 @@ export default function PantryPage() {
 
             <Button
               variant="outline"
-              size="sm"
+              size="icon"
+              className="h-8 w-8"
               onClick={isRecording ? stopRecording : startRecording}
               disabled={!speechSupported || isVoiceProcessing}
+              title={isRecording ? 'Stop recording' : 'Add items by voice'}
               data-testid="button-voice-pantry"
             >
               {isRecording ? (
-                <Square className="w-4 h-4 sm:mr-2 text-red-500" />
+                <Square className="w-4 h-4 text-red-500" />
               ) : (
-                <Mic className="w-4 h-4 sm:mr-2" />
+                <Mic className="w-4 h-4" />
               )}
-              <span className="hidden sm:inline">{isRecording ? 'Stop' : 'Speak'}</span>
             </Button>
 
             <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
               <DialogTrigger asChild>
                 <Button size="sm" data-testid="button-add-item">
-                  <Plus className="w-4 h-4 sm:mr-2" />
-                  <span className="hidden sm:inline">Add Item</span>
+                  <Plus className="w-4 h-4 mr-1" />
+                  Add
                 </Button>
               </DialogTrigger>
               <DialogContent>
@@ -506,8 +578,31 @@ export default function PantryPage() {
                       </SelectContent>
                     </Select>
                   </div>
-                  <Button 
-                    className="w-full" 
+                  <div>
+                    <label className="text-sm text-muted-foreground flex items-center gap-1 mb-1">
+                      <CalendarDays className="w-3.5 h-3.5" /> Expires
+                      {newItemCategory && EXPIRATION_DEFAULTS[newItemCategory] && !newItemExpires && (
+                        <button
+                          type="button"
+                          className="text-xs text-primary hover:underline ml-1"
+                          onClick={() => {
+                            const d = new Date();
+                            d.setDate(d.getDate() + EXPIRATION_DEFAULTS[newItemCategory]);
+                            setNewItemExpires(d.toISOString().split('T')[0]);
+                          }}
+                        >
+                          (suggest ~{EXPIRATION_DEFAULTS[newItemCategory]}d)
+                        </button>
+                      )}
+                    </label>
+                    <Input
+                      type="date"
+                      value={newItemExpires}
+                      onChange={(e) => setNewItemExpires(e.target.value)}
+                    />
+                  </div>
+                  <Button
+                    className="w-full"
                     onClick={handleAddItem}
                     disabled={!newItemName.trim() || addItemMutation.isPending}
                     data-testid="button-confirm-add"
@@ -575,8 +670,18 @@ export default function PantryPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <Button 
-                className="w-full" 
+              <div>
+                <label className="text-sm text-muted-foreground flex items-center gap-1 mb-1">
+                  <CalendarDays className="w-3.5 h-3.5" /> Expires
+                </label>
+                <Input
+                  type="date"
+                  value={editExpires}
+                  onChange={(e) => setEditExpires(e.target.value)}
+                />
+              </div>
+              <Button
+                className="w-full"
                 onClick={handleSaveEdit}
                 disabled={!editName.trim() || updateItemMutation.isPending}
                 data-testid="button-save-edit"
@@ -702,13 +807,69 @@ export default function PantryPage() {
           </Card>
         )}
 
+        {/* Expiration banner */}
+        {expiringItems.length > 0 && !dismissedBanner && (
+          <div className="mb-4 p-3 rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-950/20 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-amber-600" />
+              <span className="text-sm font-medium text-amber-800 dark:text-amber-200">
+                {expiringItems.length} item{expiringItems.length > 1 ? 's' : ''} expiring soon
+              </span>
+              <button
+                className="text-xs text-amber-600 hover:underline"
+                onClick={() => setShowExpiringOnly(true)}
+              >
+                Show
+              </button>
+            </div>
+            <button
+              className="text-xs text-muted-foreground hover:text-foreground"
+              onClick={() => setDismissedBanner(true)}
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
+
         <Tabs defaultValue="inventory" className="w-full">
-          <TabsList className="grid w-full grid-cols-2 mb-6">
+          <TabsList className="grid w-full grid-cols-3 mb-4">
             <TabsTrigger value="inventory" data-testid="tab-inventory">Inventory</TabsTrigger>
+            <TabsTrigger value="staples" data-testid="tab-staples">Staples</TabsTrigger>
             <TabsTrigger value="history" data-testid="tab-history">Scan History</TabsTrigger>
           </TabsList>
 
           <TabsContent value="inventory">
+            {/* Sort & Filter controls */}
+            {pantryItems && pantryItems.length > 0 && (
+              <div className="flex items-center gap-2 mb-4">
+                <Button
+                  variant={sortMode === 'category' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setSortMode('category')}
+                >
+                  By Category
+                </Button>
+                <Button
+                  variant={sortMode === 'expiration' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setSortMode('expiration')}
+                >
+                  <ArrowUpDown className="w-3.5 h-3.5 mr-1" />
+                  By Expiration
+                </Button>
+                {expiringItems.length > 0 && (
+                  <Button
+                    variant={showExpiringOnly ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setShowExpiringOnly(!showExpiringOnly)}
+                    className={showExpiringOnly ? 'bg-amber-600 hover:bg-amber-700' : ''}
+                  >
+                    <AlertTriangle className="w-3.5 h-3.5 mr-1" />
+                    Expiring ({expiringItems.length})
+                  </Button>
+                )}
+              </div>
+            )}
             {Object.keys(groupedItems).length === 0 ? (
               <div className="text-center py-16">
                 <Package className="w-12 h-12 mx-auto text-muted-foreground/50 mb-4" />
@@ -734,15 +895,30 @@ export default function PantryPage() {
                         >
                           <div className="flex-1">
                             <p className="font-medium">{item.emoji ? `${item.emoji} ` : ''}{item.name}</p>
-                            {(item.quantity || item.unit) && (
-                              <p className="text-sm text-muted-foreground">
-                                {formatQuantity(item.quantity)} {item.unit || ''}
-                              </p>
-                            )}
+                            <div className="flex items-center gap-2">
+                              {(item.quantity || item.unit) && (
+                                <p className="text-sm text-muted-foreground">
+                                  {formatQuantity(item.quantity)} {item.unit || ''}
+                                </p>
+                              )}
+                              {(() => {
+                                const status = getExpirationStatus(item.expiresAt);
+                                return status.dateText ? (
+                                  <p className={`text-xs ${status.variant === 'expired' ? 'text-red-500' : status.variant === 'urgent' ? 'text-orange-500' : status.variant === 'warning' ? 'text-amber-500' : 'text-muted-foreground'}`}>
+                                    {status.dateText}
+                                  </p>
+                                ) : null;
+                              })()}
+                            </div>
                           </div>
-                          <Badge variant="outline" className="bg-green-500/10 text-green-600 border-green-200">
-                            In Stock
-                          </Badge>
+                          {(() => {
+                            const status = getExpirationStatus(item.expiresAt);
+                            return (
+                              <Badge variant="outline" className={EXPIRATION_BADGE_STYLES[status.variant]}>
+                                {status.label}
+                              </Badge>
+                            );
+                          })()}
                           <Button
                             variant="ghost"
                             size="icon"
@@ -772,6 +948,10 @@ export default function PantryPage() {
                 ))}
               </div>
             )}
+          </TabsContent>
+
+          <TabsContent value="staples">
+            <StaplesTab pantryItems={pantryItems || []} />
           </TabsContent>
 
           <TabsContent value="history">
@@ -820,6 +1000,173 @@ export default function PantryPage() {
           </Link>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// Staples Tab Component
+// ============================================================================
+function StaplesTab({ pantryItems }: { pantryItems: PantryItem[] }) {
+  const { toast } = useToast();
+  const [isAddOpen, setIsAddOpen] = useState(false);
+  const [name, setName] = useState('');
+  const [category, setCategory] = useState('other');
+  const [minQuantity, setMinQuantity] = useState('');
+  const [preferredUnit, setPreferredUnit] = useState('');
+
+  const { data: staples, isLoading } = useQuery<PantryStaple[]>({
+    queryKey: ['/api/pantry/staples'],
+  });
+
+  const { data: restockItems } = useQuery<{ staple: PantryStaple; currentQuantity: number | null; needed: boolean }[]>({
+    queryKey: ['/api/pantry/restock'],
+  });
+
+  const addStapleMutation = useMutation({
+    mutationFn: async (data: { name: string; category?: string; minQuantity?: number; preferredUnit?: string }) => {
+      return apiRequest('POST', '/api/pantry/staples', data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/pantry/staples'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/pantry/restock'] });
+      setIsAddOpen(false);
+      setName(''); setCategory('other'); setMinQuantity(''); setPreferredUnit('');
+      toast({ title: 'Staple added' });
+    },
+    onError: () => toast({ title: 'Error', description: 'Failed to add staple', variant: 'destructive' }),
+  });
+
+  const deleteStapleMutation = useMutation({
+    mutationFn: async (id: string) => apiRequest('DELETE', `/api/pantry/staples/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/pantry/staples'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/pantry/restock'] });
+      toast({ title: 'Staple removed' });
+    },
+  });
+
+  const restockMutation = useMutation({
+    mutationFn: async () => apiRequest('POST', '/api/pantry/restock/add-to-grocery'),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/grocery-list/by-aisle'] });
+      toast({ title: 'Added to grocery list', description: 'Low-stock staples added to your grocery list' });
+    },
+    onError: () => toast({ title: 'Error', description: 'Failed to add to grocery list', variant: 'destructive' }),
+  });
+
+  const needsRestock = restockItems?.filter(r => r.needed) || [];
+
+  if (isLoading) {
+    return <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin" /></div>;
+  }
+
+  return (
+    <div>
+      {/* Restock banner */}
+      {needsRestock.length > 0 && (
+        <div className="mb-4 p-3 rounded-lg border border-orange-200 bg-orange-50 dark:bg-orange-950/20 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <ShoppingCart className="w-4 h-4 text-orange-600" />
+            <span className="text-sm font-medium text-orange-800 dark:text-orange-200">
+              {needsRestock.length} staple{needsRestock.length > 1 ? 's' : ''} need restocking
+            </span>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => restockMutation.mutate()}
+            disabled={restockMutation.isPending}
+          >
+            {restockMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : <ShoppingCart className="w-3.5 h-3.5 mr-1" />}
+            Add to Grocery List
+          </Button>
+        </div>
+      )}
+
+      <div className="flex items-center justify-between mb-4">
+        <p className="text-sm text-muted-foreground">Items you always want stocked</p>
+        <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
+          <DialogTrigger asChild>
+            <Button size="sm"><Plus className="w-4 h-4 mr-1" /> Add Staple</Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader><DialogTitle>Add Staple Item</DialogTitle></DialogHeader>
+            <div className="space-y-4">
+              <Input placeholder="Item name (e.g., Eggs)" value={name} onChange={(e) => setName(e.target.value)} />
+              <Select value={category} onValueChange={setCategory}>
+                <SelectTrigger><SelectValue placeholder="Category" /></SelectTrigger>
+                <SelectContent>
+                  {PANTRY_CATEGORIES.map((cat) => (
+                    <SelectItem key={cat} value={cat}>{cat.charAt(0).toUpperCase() + cat.slice(1).replace('-', ' ')}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <div className="flex gap-2">
+                <Input type="number" placeholder="Min quantity" value={minQuantity} onChange={(e) => setMinQuantity(e.target.value)} className="flex-1" />
+                <Input placeholder="Unit (e.g., pcs)" value={preferredUnit} onChange={(e) => setPreferredUnit(e.target.value)} className="w-24" />
+              </div>
+              <Button
+                className="w-full"
+                onClick={() => addStapleMutation.mutate({
+                  name: name.trim(),
+                  category,
+                  minQuantity: minQuantity ? parseFloat(minQuantity) : undefined,
+                  preferredUnit: preferredUnit || undefined,
+                })}
+                disabled={!name.trim() || addStapleMutation.isPending}
+              >
+                {addStapleMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Add Staple'}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      </div>
+
+      {!staples || staples.length === 0 ? (
+        <div className="text-center py-16">
+          <Star className="w-12 h-12 mx-auto text-muted-foreground/50 mb-4" />
+          <p className="text-muted-foreground">No staples yet</p>
+          <p className="text-sm text-muted-foreground/70 mt-1">Add items you always want to keep in stock</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {staples.map((staple) => {
+            const restock = restockItems?.find(r => r.staple.id === staple.id);
+            const isLow = restock?.needed;
+            const currentQty = restock?.currentQuantity;
+            return (
+              <div key={staple.id} className="flex items-center gap-3 py-3 px-3 rounded-lg bg-card border">
+                <div className="flex-1">
+                  <p className="font-medium">{staple.emoji ? `${staple.emoji} ` : ''}{staple.name}</p>
+                  <p className="text-xs text-muted-foreground">
+                    Min: {staple.minQuantity || '—'} {staple.preferredUnit || ''}
+                    {currentQty !== null && currentQty !== undefined && (
+                      <> · Have: {currentQty} {staple.preferredUnit || ''}</>
+                    )}
+                  </p>
+                </div>
+                {isLow ? (
+                  <Badge variant="outline" className="bg-red-500/10 text-red-600 border-red-200">
+                    {currentQty === null || currentQty === undefined ? 'Out' : 'Low'}
+                  </Badge>
+                ) : (
+                  <Badge variant="outline" className="bg-green-500/10 text-green-600 border-green-200">
+                    ✓ Stocked
+                  </Badge>
+                )}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => deleteStapleMutation.mutate(staple.id)}
+                >
+                  <Trash2 className="w-4 h-4 text-muted-foreground" />
+                </Button>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

@@ -745,14 +745,6 @@ export default function Home() {
       <LiquidGlassToolbar
         searchValue={filters.search}
         onSearchChange={(value) => dispatch({ type: "SET_SEARCH", payload: value })}
-        onUploadClick={() => {
-          setUploadInitialMode("image");
-          setUploadModalOpen(true);
-        }}
-        onQuickPasteClick={() => {
-          setUploadInitialMode("link");
-          setUploadModalOpen(true);
-        }}
       />
 
       {/* Hero Section with Clear Glass Overlay */}
@@ -770,7 +762,7 @@ export default function Home() {
               className="font-serif text-4xl md:text-5xl lg:text-6xl font-bold text-white mb-3 md:mb-4"
               data-testid="text-hero-title"
             >
-              Your Recipe Collection
+              Your Recipes
             </h1>
             <p className="text-base md:text-lg lg:text-xl text-white/95 mb-6 md:mb-8">
               Discover, save, and share delicious recipes with AI-powered extraction

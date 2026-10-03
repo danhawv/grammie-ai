@@ -15,30 +15,33 @@ class GroceryListWebSocketManager {
   private listConnections: Map<string, Set<ListConnection>> = new Map();
   private heartbeatInterval: NodeJS.Timeout | null = null;
   
-  initialize(server: Server) {
-    this.wss = new WebSocketServer({ 
-      server,
-      path: '/ws/grocery-list',
-    });
-    
+  initialize(_server: Server) {
+    this.wss = new WebSocketServer({ noServer: true });
+
     this.wss.on("connection", (ws, req) => {
       const url = new URL(req.url || "", `http://${req.headers.host}`);
       const token = url.searchParams.get("token");
       const displayName = url.searchParams.get("name") || "Guest";
-      
+
       if (!token) {
         ws.close(4001, "Token required");
         return;
       }
-      
+
       this.handleConnection(ws, token, displayName);
     });
-    
+
     this.heartbeatInterval = setInterval(() => {
       this.cleanupStaleConnections();
     }, 30000);
-    
+
     console.log("[WebSocket] Grocery list WebSocket server initialized");
+  }
+
+  handleUpgrade(req: any, socket: any, head: any) {
+    this.wss?.handleUpgrade(req, socket, head, (ws) => {
+      this.wss?.emit("connection", ws, req);
+    });
   }
   
   private async handleConnection(ws: WebSocket, token: string, displayName: string) {
@@ -253,3 +256,176 @@ class GroceryListWebSocketManager {
 }
 
 export const groceryListWsManager = new GroceryListWebSocketManager();
+
+// --- Meal Plan WebSocket Manager ---
+
+type MealPlanConnection = {
+  ws: WebSocket;
+  userId: string;
+  displayName: string;
+  lastSeen: Date;
+};
+
+class MealPlanWebSocketManager {
+  private wss: WebSocketServer | null = null;
+  private planConnections: Map<string, Set<MealPlanConnection>> = new Map();
+  private heartbeatInterval: NodeJS.Timeout | null = null;
+
+  initialize(_server: Server) {
+    this.wss = new WebSocketServer({ noServer: true });
+
+    this.wss.on("connection", async (ws, req) => {
+      const url = new URL(req.url || "", `http://${req.headers.host}`);
+      const planId = url.searchParams.get("planId");
+      const userId = url.searchParams.get("userId");
+
+      if (!planId || !userId) {
+        ws.close(4001, "planId and userId required");
+        return;
+      }
+
+      // Verify user has access to this plan
+      const canEdit = await storage.canEditMealPlan(planId, userId);
+      if (!canEdit) {
+        // Check if they're the owner
+        const plan = await storage.getMealPlan(planId, userId).catch(() => null);
+        if (!plan) {
+          ws.close(4003, "Access denied");
+          return;
+        }
+      }
+
+      const user = await storage.getUser(userId).catch(() => null);
+      const displayName = user ? [user.firstName, user.lastName].filter(Boolean).join(" ") || user.email || "User" : "User";
+
+      this.handleConnection(ws, planId, userId, displayName);
+    });
+
+    this.heartbeatInterval = setInterval(() => {
+      this.cleanupStaleConnections();
+    }, 30000);
+
+    console.log("[WebSocket] Meal plan WebSocket server initialized");
+  }
+
+  handleUpgrade(req: any, socket: any, head: any) {
+    this.wss?.handleUpgrade(req, socket, head, (ws) => {
+      this.wss?.emit("connection", ws, req);
+    });
+  }
+
+  private handleConnection(ws: WebSocket, planId: string, userId: string, displayName: string) {
+    const connection: MealPlanConnection = {
+      ws,
+      userId,
+      displayName,
+      lastSeen: new Date(),
+    };
+
+    if (!this.planConnections.has(planId)) {
+      this.planConnections.set(planId, new Set());
+    }
+    this.planConnections.get(planId)!.add(connection);
+
+    this.broadcastToPlan(planId, {
+      type: "presence_update",
+      users: this.getPresenceList(planId),
+    });
+
+    ws.on("message", (data) => {
+      try {
+        const message = JSON.parse(data.toString());
+        if (message.type === "ping") {
+          ws.send(JSON.stringify({ type: "pong" }));
+        }
+        connection.lastSeen = new Date();
+      } catch {
+        // ignore
+      }
+    });
+
+    ws.on("close", () => {
+      this.planConnections.get(planId)?.delete(connection);
+      this.broadcastToPlan(planId, {
+        type: "presence_update",
+        users: this.getPresenceList(planId),
+      });
+    });
+
+    ws.on("pong", () => {
+      connection.lastSeen = new Date();
+    });
+
+    console.log(`[WebSocket] User ${displayName} connected to meal plan ${planId.substring(0, 8)}...`);
+  }
+
+  private getPresenceList(planId: string) {
+    const connections = this.planConnections.get(planId);
+    if (!connections) return [];
+
+    const seen = new Set<string>();
+    const users: { userId: string; displayName: string }[] = [];
+    Array.from(connections).forEach((conn) => {
+      if (!seen.has(conn.userId)) {
+        seen.add(conn.userId);
+        users.push({ userId: conn.userId, displayName: conn.displayName });
+      }
+    });
+    return users;
+  }
+
+  broadcastToPlan(planId: string, message: Record<string, any>) {
+    const connections = this.planConnections.get(planId);
+    if (!connections) return;
+
+    const messageStr = JSON.stringify(message);
+    Array.from(connections).forEach((conn) => {
+      if (conn.ws.readyState === WebSocket.OPEN) {
+        conn.ws.send(messageStr);
+      }
+    });
+  }
+
+  broadcastEntryChange(planId: string, action: string, entry: any, actorName?: string) {
+    this.broadcastToPlan(planId, {
+      type: action,
+      entry,
+      actorName,
+    });
+  }
+
+  private cleanupStaleConnections() {
+    const staleThreshold = 60000;
+    const now = Date.now();
+
+    for (const [planId, connections] of Array.from(this.planConnections.entries())) {
+      Array.from(connections).forEach((conn) => {
+        if (now - conn.lastSeen.getTime() > staleThreshold) {
+          if (conn.ws.readyState === WebSocket.OPEN) {
+            conn.ws.ping();
+          } else {
+            connections.delete(conn);
+          }
+        }
+      });
+
+      if (connections.size === 0) {
+        this.planConnections.delete(planId);
+      }
+    }
+  }
+
+  shutdown() {
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+    }
+    Array.from(this.planConnections.values()).forEach((connections) => {
+      Array.from(connections).forEach((conn) => {
+        conn.ws.close(1001, "Server shutting down");
+      });
+    });
+    this.wss?.close();
+  }
+}
+
+export const mealPlanWsManager = new MealPlanWebSocketManager();

@@ -1,4 +1,5 @@
 import type { Recipe } from '@shared/schema';
+import { formatNormalizedIngredient } from '@shared/print-format';
 import type { NormalizedRecipe, IngredientGroup, InstructionStep } from './types';
 
 /**
@@ -25,7 +26,7 @@ export function transformRecipe(recipe: Recipe): NormalizedRecipe {
       ...(recipe.mealType ?? []),
       ...(recipe.cuisines ?? []),
     ],
-    imageUrl: recipe.dishImageThumbnail ?? undefined,
+    imageUrl: recipe.dishImagePrint ?? recipe.dishImageThumbnail ?? undefined,
     source: recipe.socialSourceUrl ?? undefined,
     nutritionInfo: (recipe.calories || recipe.protein || recipe.carbohydrates || recipe.fat || recipe.fiber) ? {
       calories: recipe.calories ?? undefined,
@@ -65,15 +66,6 @@ function transformIngredients(recipe: Recipe): IngredientGroup[] {
   }
 
   return [{ items: [] }];
-}
-
-function formatNormalizedIngredient(ing: any): string {
-  const parts: string[] = [];
-  if (ing.quantity) parts.push(ing.quantity);
-  if (ing.unit) parts.push(ing.unit);
-  if (ing.name) parts.push(ing.name);
-  if (ing.preparation) parts.push(`(${ing.preparation})`);
-  return parts.join(' ') || ing.original || '';
 }
 
 function transformInstructions(recipe: Recipe): InstructionStep[] {

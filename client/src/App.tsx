@@ -33,6 +33,7 @@ const CookbookPrintEditor = lazy(() => import("@/pages/cookbook-print-editor"));
 const Processing = lazy(() => import("@/pages/processing"));
 const MealPlans = lazy(() => import("@/pages/meal-plans"));
 const MealPlanDetail = lazy(() => import("@/pages/meal-plan-detail"));
+const RecipeCreator = lazy(() => import("@/pages/recipe-creator"));
 const NotFound = lazy(() => import("@/pages/not-found"));
 
 const CLERK_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string | undefined;
@@ -58,6 +59,7 @@ function Router() {
         <Route path="/grocery-list/shared/:token" component={SharedGroceryList} />
         <Route path="/pantry" component={Pantry} />
         <Route path="/what-can-i-make" component={WhatCanIMake} />
+        <Route path="/recipe-creator" component={RecipeCreator} />
         <Route path="/profile/:userId" component={Profile} />
         <Route path="/cookbook/:id" component={CookbookView} />
         <Route path="/cookbook/:id/print" component={CookbookPrint} />
@@ -83,7 +85,7 @@ function AppHeader() {
       <div className="container flex h-14 items-center justify-between px-4">
         <div className="flex items-center gap-2">
           <Link href="/">
-            <h2 className="font-serif text-xl font-bold cursor-pointer hover-elevate">Recipe Collection</h2>
+            <h2 className="font-serif text-xl font-bold cursor-pointer hover-elevate">Recipes</h2>
           </Link>
         </div>
         <div className="flex items-center gap-3">

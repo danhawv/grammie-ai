@@ -3,7 +3,7 @@ import { z } from "zod";
 import { isAuthenticated, optionalAuth } from "../clerkAuth";
 import { storage } from "../storage";
 import { db } from "../db";
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, getTableColumns } from "drizzle-orm";
 import {
   insertCookbookSchema,
   printLayoutDataSchema,
@@ -16,8 +16,42 @@ import { buildPodPackageId, BINDING_PAGE_LIMITS } from "../lib/lulu/pod-package"
 import { createPrintJob } from "../lib/lulu/client";
 import type { BookConfig, LuluPrintJobRequest, ShippingLevel } from "../lib/lulu/types";
 import { getUserId, upload, storePdf } from "./route-utils";
+import { toEmbeddableImage } from "../lib/media-storage";
 
 const router = Router();
+
+// PDF generation renders dishImageThumbnail only, so skip the full base64
+// image columns — with them, a large cookbook exceeds the Neon HTTP driver's
+// 64MB response cap. Batch as a safety margin for very large cookbooks.
+// Puppeteer pages built with setContent can't fetch relative /media URLs, so
+// disk-stored template assets must be inlined as data URLs before rendering.
+// Mutates templateData/fonts in place; returns the resolved background image.
+async function embedTemplateMediaForPdf(
+  templateData: any,
+  fonts: { dataUrl?: string }[] | undefined,
+  backgroundImage: string | undefined
+): Promise<string | undefined> {
+  if (templateData?.cover?.coverImage) {
+    templateData.cover.coverImage = await toEmbeddableImage(templateData.cover.coverImage);
+  }
+  if (Array.isArray(fonts)) {
+    for (const f of fonts) {
+      if (f?.dataUrl) f.dataUrl = (await toEmbeddableImage(f.dataUrl)) || f.dataUrl;
+    }
+  }
+  if (!backgroundImage) return undefined;
+  return (await toEmbeddableImage(backgroundImage)) || undefined;
+}
+
+async function fetchPrintRecipesByIds(ids: string[]) {
+  const { dishImage, handwrittenImage, dishImages, ...printColumns } = getTableColumns(recipes);
+  const BATCH = 50;
+  const rows: Record<string, any>[] = [];
+  for (let i = 0; i < ids.length; i += BATCH) {
+    rows.push(...await db.select(printColumns).from(recipes).where(inArray(recipes.id, ids.slice(i, i + BATCH))));
+  }
+  return rows.map(r => ({ ...r, dishImage: null, handwrittenImage: null, dishImages: null })) as (typeof recipes.$inferSelect)[];
+}
 
 router.get("/cookbooks", optionalAuth, async (req: any, res) => {
   try {
@@ -881,7 +915,7 @@ router.post("/cookbooks/:id/generate-pdf", isAuthenticated, async (req: any, res
       return res.status(403).json({ error: "Not authorized to generate PDF for this cookbook" });
     }
 
-    const { layoutData, templateStyle } = req.body;
+    const { layoutData, templateStyle, customTemplateId } = req.body;
 
     const validatedLayout = printLayoutDataSchema.safeParse(layoutData);
     if (!validatedLayout.success) {
@@ -896,10 +930,12 @@ router.post("/cookbooks/:id/generate-pdf", isAuthenticated, async (req: any, res
       return res.status(400).json({ error: "No recipes in layout" });
     }
 
-    // Fetch full recipe data for transformation
-    const recipesResult = await db.select()
-      .from(recipes)
-      .where(inArray(recipes.id, allRecipeIds));
+    // Backfill print-resolution derivatives (no-op once generated), then fetch
+    const generatedCount = await storage.ensurePrintImagesForRecipes(allRecipeIds);
+    if (generatedCount > 0) {
+      console.log(`[PDF Generation] Generated ${generatedCount} print-resolution image derivatives`);
+    }
+    const recipesResult = await fetchPrintRecipesByIds(allRecipeIds);
 
     if (recipesResult.length === 0) {
       return res.status(400).json({ error: "No recipes found in database for this layout" });
@@ -915,11 +951,27 @@ router.post("/cookbooks/:id/generate-pdf", isAuthenticated, async (req: any, res
     const templateId = printProject?.templateStyle || templateStyle || 'classic';
     const recipePrintSettings = validatedLayout.data.recipePrintSettings || {};
 
+    // Resolve custom template if provided
+    let customTemplateData = undefined;
+    let customFonts = undefined;
+    let backgroundImage = undefined;
+
+    const resolvedCustomTemplateId = customTemplateId || printProject?.customTemplateId;
+    if (resolvedCustomTemplateId) {
+      const customTemplate = await storage.getCustomTemplate(resolvedCustomTemplateId);
+      if (customTemplate) {
+        customTemplateData = customTemplate.templateData as any;
+        customFonts = customTemplate.customFonts as any;
+        backgroundImage = await embedTemplateMediaForPdf(customTemplateData, customFonts, customTemplate.backgroundImage || undefined);
+      }
+    }
+
     // Build cookbook print data using recipe transformer
     const cookbookPrintData: CookbookPrintData = {
       title: validatedLayout.data.title || cookbook.name,
       subtitle: validatedLayout.data.subtitle,
       authorName: validatedLayout.data.authorName || 'Unknown',
+      dedication: validatedLayout.data.dedication,
       templateId,
       trimSize,
       bindingType,
@@ -948,6 +1000,9 @@ router.post("/cookbooks/:id/generate-pdf", isAuthenticated, async (req: any, res
         showTips: validatedLayout.data.customizations.showTips,
         showVariations: validatedLayout.data.customizations.showVariations,
       } : undefined,
+      customTemplateData,
+      customFonts,
+      backgroundImage,
     };
 
     console.log(`[PDF Generation] Starting PDF generation for cookbook ${cookbookId} with ${cookbookPrintData.recipes.length} recipes`);
@@ -1010,10 +1065,9 @@ router.post("/cookbooks/:id/print-order", isAuthenticated, async (req: any, res)
       return res.status(400).json({ error: "No recipes in layout" });
     }
 
-    // Fetch full recipe data
-    const recipesResult = await db.select()
-      .from(recipes)
-      .where(inArray(recipes.id, allRecipeIds));
+    // Backfill print-resolution derivatives (no-op once generated), then fetch
+    await storage.ensurePrintImagesForRecipes(allRecipeIds);
+    const recipesResult = await fetchPrintRecipesByIds(allRecipeIds);
 
     if (recipesResult.length === 0) {
       return res.status(400).json({ error: "No recipes found in database for this layout" });
@@ -1031,11 +1085,26 @@ router.post("/cookbooks/:id/print-order", isAuthenticated, async (req: any, res)
     const templateId = printProject?.templateStyle || 'classic';
     const recipePrintSettings = validatedLayout.data.recipePrintSettings || {};
 
+    // Resolve custom template if the print project uses one
+    let orderCustomTemplateData = undefined;
+    let orderCustomFonts = undefined;
+    let orderBackgroundImage = undefined;
+
+    if (printProject?.customTemplateId) {
+      const customTemplate = await storage.getCustomTemplate(printProject.customTemplateId);
+      if (customTemplate) {
+        orderCustomTemplateData = customTemplate.templateData as any;
+        orderCustomFonts = customTemplate.customFonts as any;
+        orderBackgroundImage = await embedTemplateMediaForPdf(orderCustomTemplateData, orderCustomFonts, customTemplate.backgroundImage || undefined);
+      }
+    }
+
     // Build cookbook print data
     const cookbookPrintData: CookbookPrintData = {
       title: validatedLayout.data.title || cookbook.name,
       subtitle: validatedLayout.data.subtitle,
       authorName: validatedLayout.data.authorName || 'Unknown',
+      dedication: validatedLayout.data.dedication,
       templateId,
       trimSize,
       bindingType,
@@ -1064,6 +1133,9 @@ router.post("/cookbooks/:id/print-order", isAuthenticated, async (req: any, res)
         showTips: validatedLayout.data.customizations.showTips,
         showVariations: validatedLayout.data.customizations.showVariations,
       } : undefined,
+      customTemplateData: orderCustomTemplateData,
+      customFonts: orderCustomFonts,
+      backgroundImage: orderBackgroundImage,
     };
 
     console.log(`[Print Order] Generating PDF for cookbook ${cookbookId} with ${cookbookPrintData.recipes.length} recipes`);

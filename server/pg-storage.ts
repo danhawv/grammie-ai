@@ -1,5 +1,6 @@
 import { db } from "./db";
-import { eq, and, or, asc, desc, inArray, sql, getTableColumns } from "drizzle-orm";
+import { eq, and, or, asc, desc, inArray, sql, getTableColumns, isNull, isNotNull } from "drizzle-orm";
+import { buildPrintImage } from "./lib/images";
 import {
   type Recipe,
   type RecipeListItem,
@@ -32,6 +33,8 @@ import {
   type InsertPantryItem,
   type PantryScanSession,
   type InsertPantryScanSession,
+  type PantryStaple,
+  type InsertPantryStaple,
   type GroceryListShare,
   type InsertGroceryListShare,
   type GroceryListCollaborator,
@@ -62,6 +65,7 @@ import {
   groceryListItems,
   pantryItems,
   pantryScanSessions,
+  pantryStaples,
   groceryListShares,
   groceryListCollaborators,
   mealPlans,
@@ -80,6 +84,9 @@ import {
   type MealPlanInvitation,
   type MealPlanInvitationWithDetails,
   type InsertMealPlanInvitation,
+  type CustomTemplate,
+  type InsertCustomTemplate,
+  customTemplates,
 } from "@shared/schema";
 
 export interface RecipeFilterParams {
@@ -226,11 +233,20 @@ export interface IStorage {
   bulkAddPantryItems(items: InsertPantryItem[]): Promise<PantryItem[]>;
   clearPantry(userId: string): Promise<void>;
   
+  // Grocery checkout operations
+  checkoutGroceryItems(userId: string, itemIds: string[], addToPantry: boolean): Promise<void>;
+
   // Pantry scan session operations
   createPantryScanSession(session: InsertPantryScanSession): Promise<PantryScanSession>;
   getPantryScanSession(id: string, userId: string): Promise<PantryScanSession | undefined>;
   updatePantryScanSession(id: string, updates: Partial<PantryScanSession>): Promise<PantryScanSession | undefined>;
-  
+
+  // Pantry staples operations
+  getStaples(userId: string): Promise<PantryStaple[]>;
+  addStaple(staple: InsertPantryStaple): Promise<PantryStaple>;
+  deleteStaple(id: string, userId: string): Promise<boolean>;
+  getRestockItems(userId: string): Promise<{ staple: PantryStaple; currentQuantity: number | null; needed: boolean }[]>;
+
   // Grocery list sharing operations
   createGroceryListShare(share: InsertGroceryListShare): Promise<GroceryListShare>;
   getGroceryListShareByToken(token: string): Promise<GroceryListShare | undefined>;
@@ -290,6 +306,13 @@ export interface IStorage {
 
   // Grocery list from meal plan
   generateGroceryListFromMealPlan(mealPlanId: string, userId: string, options?: { excludeLeftovers?: boolean; excludePantryItems?: boolean; mode?: string }): Promise<import("@shared/schema").GroceryList>;
+
+  // Custom templates
+  getCustomTemplates(userId: string, includePublic?: boolean): Promise<CustomTemplate[]>;
+  getCustomTemplate(id: number): Promise<CustomTemplate | undefined>;
+  createCustomTemplate(data: InsertCustomTemplate): Promise<CustomTemplate>;
+  updateCustomTemplate(id: number, updates: Partial<InsertCustomTemplate>, userId: string): Promise<CustomTemplate | undefined>;
+  deleteCustomTemplate(id: number, userId: string): Promise<boolean>;
 }
 
 export class PostgresStorage implements IStorage {
@@ -1575,17 +1598,52 @@ export class PostgresStorage implements IStorage {
   }
 
   async getCookbookRecipesForPrint(cookbookId: number): Promise<Recipe[]> {
+    // The on-screen preview renders from dishImageThumbnail only. The full
+    // base64 image columns (and the ~300KB print derivatives) add hundreds of
+    // MB per cookbook and can exceed the Neon HTTP driver's 64MB response cap —
+    // exclude them. PDF generation fetches print derivatives separately.
+    const { dishImage, handwrittenImage, dishImages, dishImagePrint, ...printColumns } = getTableColumns(recipes);
     const results = await db
       .select({
-        recipe: recipes,
+        recipe: printColumns,
         position: cookbookRecipes.position,
       })
       .from(cookbookRecipes)
       .innerJoin(recipes, eq(cookbookRecipes.recipeId, recipes.id))
       .where(eq(cookbookRecipes.cookbookId, cookbookId))
       .orderBy(cookbookRecipes.position);
-    
-    return results.map(r => r.recipe);
+
+    return results.map(r => ({ ...r.recipe, dishImage: null, handwrittenImage: null, dishImages: null, dishImagePrint: null }) as Recipe);
+  }
+
+  async ensurePrintImagesForRecipes(ids: string[]): Promise<number> {
+    if (ids.length === 0) return 0;
+
+    // Cheap pass: which of these recipes still need a print derivative?
+    const candidates = await db
+      .select({ id: recipes.id })
+      .from(recipes)
+      .where(and(
+        inArray(recipes.id, ids),
+        isNull(recipes.dishImagePrint),
+        isNotNull(recipes.dishImage),
+      ));
+
+    // Process one at a time — dish_image rows are multi-MB base64 and bulk
+    // selects can exceed the Neon HTTP driver's 64MB response cap.
+    let generated = 0;
+    for (const { id } of candidates) {
+      const [row] = await db
+        .select({ img: recipes.dishImage })
+        .from(recipes)
+        .where(eq(recipes.id, id));
+      const printImage = await buildPrintImage(row?.img);
+      if (printImage) {
+        await db.update(recipes).set({ dishImagePrint: printImage }).where(eq(recipes.id, id));
+        generated++;
+      }
+    }
+    return generated;
   }
 
   async reorderCookbookRecipes(cookbookId: number, recipePositions: { recipeId: string; position: number }[]): Promise<void> {
@@ -2567,10 +2625,96 @@ export class PostgresStorage implements IStorage {
     return await db.insert(pantryItems).values(itemsWithNormalized).returning();
   }
   
+  async checkoutGroceryItems(userId: string, itemIds: string[], addToPantry: boolean): Promise<void> {
+    // Fetch the grocery list items and verify they belong to the user's active list
+    const items = await db.select({
+      groceryItem: groceryListItems,
+    })
+      .from(groceryListItems)
+      .innerJoin(groceryLists, eq(groceryListItems.listId, groceryLists.id))
+      .where(and(
+        inArray(groceryListItems.id, itemIds),
+        eq(groceryLists.userId, userId),
+        eq(groceryLists.status, 'active')
+      ));
+
+    if (items.length === 0) {
+      throw new Error('No matching grocery items found for this user');
+    }
+
+    if (addToPantry) {
+      // Aisle to pantry category mapping
+      const aisleToCategory = (aisle: string | null): string => {
+        if (!aisle) return 'other';
+        const lower = aisle.toLowerCase();
+        const mapping: Record<string, string> = {
+          produce: 'produce',
+          dairy: 'dairy',
+          meat: 'meat',
+          seafood: 'seafood',
+          bakery: 'bakery',
+          frozen: 'frozen',
+          canned: 'canned',
+          snacks: 'snacks',
+          beverages: 'beverages',
+          condiments: 'condiments',
+          spices: 'spices',
+          baking: 'baking',
+          deli: 'deli',
+          grains: 'grains',
+          pasta: 'pasta',
+          cereal: 'cereal',
+          'dry goods': 'dry goods',
+        };
+        return mapping[lower] || lower;
+      };
+
+      for (const { groceryItem } of items) {
+        const normalizedName = groceryItem.item.toLowerCase().trim();
+
+        // Check if a pantry item with matching normalizedName already exists
+        const [existing] = await db.select().from(pantryItems)
+          .where(and(
+            eq(pantryItems.userId, userId),
+            eq(pantryItems.normalizedName, normalizedName)
+          ));
+
+        if (existing) {
+          // Update quantity by adding the grocery item's quantity
+          const newQuantity = (existing.quantity || 0) + (groceryItem.quantity || 0);
+          await db.update(pantryItems)
+            .set({
+              quantity: newQuantity,
+              updatedAt: new Date(),
+            })
+            .where(eq(pantryItems.id, existing.id));
+        } else {
+          // Insert a new pantry item
+          await db.insert(pantryItems).values({
+            userId,
+            name: groceryItem.displayName || groceryItem.item,
+            normalizedName,
+            quantity: groceryItem.quantity || null,
+            unit: groceryItem.unit || null,
+            category: aisleToCategory(groceryItem.aisle),
+            emoji: groceryItem.emoji || null,
+            source: 'grocery' as any,
+          });
+        }
+      }
+    }
+
+    // Delete the grocery list items
+    await db.delete(groceryListItems)
+      .where(inArray(groceryListItems.id, itemIds.filter(id =>
+        items.some(i => i.groceryItem.id === id)
+      )));
+  }
+
   async clearPantry(userId: string): Promise<void> {
     await db.delete(pantryItems).where(eq(pantryItems.userId, userId));
   }
-  
+
   // ========== PANTRY SCAN SESSION OPERATIONS ==========
   
   async createPantryScanSession(session: InsertPantryScanSession): Promise<PantryScanSession> {
@@ -2599,9 +2743,56 @@ export class PostgresStorage implements IStorage {
       .returning();
     return updated;
   }
-  
+
+  // ========== PANTRY STAPLES OPERATIONS ==========
+
+  async getStaples(userId: string): Promise<PantryStaple[]> {
+    return await db
+      .select()
+      .from(pantryStaples)
+      .where(eq(pantryStaples.userId, userId))
+      .orderBy(pantryStaples.name);
+  }
+
+  async addStaple(staple: InsertPantryStaple): Promise<PantryStaple> {
+    const normalizedName = staple.name.toLowerCase().trim();
+    const [created] = await db.insert(pantryStaples).values({
+      ...staple,
+      normalizedName,
+    }).returning();
+    return created;
+  }
+
+  async deleteStaple(id: string, userId: string): Promise<boolean> {
+    const result = await db.delete(pantryStaples)
+      .where(and(eq(pantryStaples.id, id), eq(pantryStaples.userId, userId)));
+    return true;
+  }
+
+  async getRestockItems(userId: string): Promise<{ staple: PantryStaple; currentQuantity: number | null; needed: boolean }[]> {
+    const staples = await this.getStaples(userId);
+    const items = await this.getPantryItems(userId);
+
+    return staples.map(staple => {
+      const match = items.find(item =>
+        item.normalizedName === staple.normalizedName
+      );
+
+      const currentQuantity = match?.quantity ?? null;
+      let needed = false;
+
+      if (!match) {
+        needed = true;
+      } else if (staple.minQuantity != null && currentQuantity != null && currentQuantity < staple.minQuantity) {
+        needed = true;
+      }
+
+      return { staple, currentQuantity, needed };
+    });
+  }
+
   // ========== GROCERY LIST SHARING OPERATIONS ==========
-  
+
   async createGroceryListShare(share: InsertGroceryListShare): Promise<GroceryListShare> {
     const [created] = await db.insert(groceryListShares).values(share).returning();
     return created;
@@ -3344,5 +3535,55 @@ export class PostgresStorage implements IStorage {
       .where(eq(mealPlans.id, mealPlanId));
 
     return list;
+  }
+
+  // ========== CUSTOM TEMPLATES ==========
+
+  async getCustomTemplates(userId: string, includePublic = false): Promise<CustomTemplate[]> {
+    if (includePublic) {
+      return db.select().from(customTemplates)
+        .where(or(
+          eq(customTemplates.ownerUserId, userId),
+          eq(customTemplates.isPublic, true)
+        ))
+        .orderBy(desc(customTemplates.updatedAt));
+    }
+    return db.select().from(customTemplates)
+      .where(eq(customTemplates.ownerUserId, userId))
+      .orderBy(desc(customTemplates.updatedAt));
+  }
+
+  async getCustomTemplate(id: number): Promise<CustomTemplate | undefined> {
+    const [template] = await db.select().from(customTemplates)
+      .where(eq(customTemplates.id, id));
+    return template;
+  }
+
+  async createCustomTemplate(data: InsertCustomTemplate): Promise<CustomTemplate> {
+    const [template] = await db.insert(customTemplates).values(data).returning();
+    return template;
+  }
+
+  async updateCustomTemplate(id: number, updates: Partial<InsertCustomTemplate>, userId: string): Promise<CustomTemplate | undefined> {
+    const [template] = await db.update(customTemplates)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(and(eq(customTemplates.id, id), eq(customTemplates.ownerUserId, userId)))
+      .returning();
+    return template;
+  }
+
+  async deleteCustomTemplate(id: number, userId: string): Promise<boolean> {
+    const result = await db.delete(customTemplates)
+      .where(and(eq(customTemplates.id, id), eq(customTemplates.ownerUserId, userId)))
+      .returning();
+    return result.length > 0;
+  }
+
+  async countPrintProjectsUsingTemplate(templateId: number): Promise<number> {
+    const [row] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(cookbookPrintProjects)
+      .where(eq(cookbookPrintProjects.customTemplateId, templateId));
+    return row?.count ?? 0;
   }
 }

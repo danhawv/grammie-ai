@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link } from "wouter";
-import { Search, Upload, Menu, ShoppingCart, Settings, Link2, ChefHat, Mic } from "lucide-react";
+import { Search, Menu, ShoppingCart, Settings, ChefHat, Mic, CalendarDays } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { UserHeader } from "@/components/user-header";
@@ -13,8 +13,6 @@ import { cn } from "@/lib/utils";
 interface LiquidGlassToolbarProps {
   searchValue: string;
   onSearchChange: (value: string) => void;
-  onUploadClick: () => void;
-  onQuickPasteClick: () => void;
   onMenuClick?: () => void;
   showMenuButton?: boolean;
 }
@@ -22,8 +20,6 @@ interface LiquidGlassToolbarProps {
 export function LiquidGlassToolbar({
   searchValue,
   onSearchChange,
-  onUploadClick,
-  onQuickPasteClick,
   onMenuClick,
   showMenuButton = false,
 }: LiquidGlassToolbarProps) {
@@ -72,7 +68,7 @@ export function LiquidGlassToolbar({
           )}
           <Link href="/">
             <h1 className="font-serif text-xl md:text-2xl font-bold cursor-pointer hover-elevate transition-transform hover:scale-105">
-              Recipe Collection
+              Recipes
             </h1>
           </Link>
         </div>
@@ -97,25 +93,6 @@ export function LiquidGlassToolbar({
 
         {/* Trailing: Quick Paste, Upload, Grocery List, Settings, Theme, User */}
         <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            onClick={onQuickPasteClick}
-            className="hidden md:inline-flex items-center justify-center gap-1.5 px-3"
-            aria-label="Quick paste link"
-            data-testid="button-quick-paste-toolbar"
-          >
-            <Link2 className="w-4 h-4" strokeWidth={2} />
-            <span className="text-sm">Paste</span>
-          </Button>
-          <Button
-            variant="default"
-            onClick={onUploadClick}
-            className="hidden md:inline-flex items-center justify-center touch-target p-0"
-            aria-label="Upload recipe"
-            data-testid="button-upload-toolbar"
-          >
-            <Upload className="w-5 h-5" strokeWidth={2} />
-          </Button>
           {user && (
             <VoiceAssistant 
               mode="general"
@@ -155,6 +132,19 @@ export function LiquidGlassToolbar({
                 data-testid="button-grocery-list-toolbar"
               >
                 <ShoppingCart className="w-5 h-5" strokeWidth={2} />
+              </Button>
+            </Link>
+          )}
+          {user && (
+            <Link href="/meal-plans">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="inline-flex items-center justify-center"
+                aria-label="Meal plans"
+                data-testid="button-meal-plans-toolbar"
+              >
+                <CalendarDays className="w-5 h-5" strokeWidth={2} />
               </Button>
             </Link>
           )}

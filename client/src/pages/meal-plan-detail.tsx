@@ -56,6 +56,10 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
 import { RecipePicker } from "@/components/meal-plan/recipe-picker";
+import { useMealPlanWebSocket } from "@/hooks/use-meal-plan-websocket";
+import { useAuth } from "@/hooks/useAuth";
+import NutritionDashboard from "@/components/meal-plan/nutrition-dashboard";
+import { MealPlanCollaborators } from "@/components/meal-plan/collaborators";
 
 const MEAL_SLOTS = ["breakfast", "lunch", "dinner", "snack"] as const;
 const SLOT_LABELS: Record<string, string> = {
@@ -70,6 +74,26 @@ const SLOT_ICONS: Record<string, string> = {
   dinner: "\ud83c\udf7d\ufe0f",
   snack: "\ud83c\udf6a",
 };
+
+// Format "40 mins" → "40m", "1 hour 40 mins" → "1h40m", "2 hours" → "2h"
+function formatTime(timeStr: string): string {
+  const lower = timeStr.toLowerCase().trim();
+  let hours = 0;
+  let mins = 0;
+  const hMatch = lower.match(/(\d+)\s*h(?:ou)?r?s?/);
+  const mMatch = lower.match(/(\d+)\s*m(?:in(?:ute)?s?)?/);
+  if (hMatch) hours = parseInt(hMatch[1]);
+  if (mMatch) mins = parseInt(mMatch[1]);
+  if (hours === 0 && mins === 0) {
+    // Try plain number (assume minutes)
+    const plain = lower.match(/^(\d+)$/);
+    if (plain) mins = parseInt(plain[1]);
+    else return timeStr;
+  }
+  if (hours > 0 && mins > 0) return `${hours}h${mins}m`;
+  if (hours > 0) return `${hours}h`;
+  return `${mins}m`;
+}
 
 type MealPlanEntry = {
   id: string;
@@ -110,7 +134,7 @@ function DroppableCell({
   return (
     <div
       ref={setNodeRef}
-      className={`min-h-[60px] p-1 rounded transition-colors ${
+      className={`min-h-[60px] min-w-0 p-1 rounded transition-colors overflow-hidden ${
         isOver ? "bg-primary/10 ring-2 ring-primary/30" : ""
       }`}
     >
@@ -119,15 +143,21 @@ function DroppableCell({
   );
 }
 
-// Draggable entry card
+// Draggable entry card — image-forward, compact
 function DraggableEntry({
   entry,
   onRemove,
-  onAdjustServings,
+  onToggleLeftover,
+  collaborators,
+  onAssign,
+  onClick,
 }: {
   entry: MealPlanEntry;
   onRemove: () => void;
-  onAdjustServings: (delta: number) => void;
+  onToggleLeftover?: () => void;
+  collaborators?: { userId: string; displayName: string }[];
+  onAssign?: (userId: string | null) => void;
+  onClick?: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } =
     useDraggable({ id: entry.id });
@@ -139,70 +169,258 @@ function DraggableEntry({
 
   const title = entry.recipe?.title || entry.customMealName || "Custom Meal";
   const servings = entry.scaledServings || entry.recipe?.servings || 1;
+  const imageUrl =
+    entry.recipe?.dishImageThumbnail || entry.recipe?.dishImage || null;
 
   return (
     <div
       ref={setNodeRef}
       style={style}
-      className="group relative bg-card border rounded-md p-2 text-xs shadow-sm hover:shadow-md transition-shadow"
+      {...attributes}
+      {...listeners}
+      className="group relative rounded-lg overflow-hidden max-w-full shadow-sm hover:shadow-md transition-shadow cursor-grab active:cursor-grabbing bg-card border"
     >
-      <div className="flex items-start gap-1">
-        <div
-          {...attributes}
-          {...listeners}
-          className="cursor-grab active:cursor-grabbing mt-0.5 text-muted-foreground"
-        >
-          <GripVertical className="h-3 w-3" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="font-medium truncate leading-tight" title={title}>
-            {entry.isLeftover && (
-              <Recycle className="h-3 w-3 inline mr-1 text-green-600" />
+      {/* Context menu — top-right corner on hover */}
+      <div className="absolute top-1 right-1 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button className="bg-black/40 rounded p-0.5 hover:bg-black/60">
+              <X className="h-3 w-3 text-white" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-40">
+            {onToggleLeftover && (
+              <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onToggleLeftover(); }}>
+                <Recycle className="h-3.5 w-3.5 mr-2" />
+                {entry.isLeftover ? "Unmark Leftover" : "Mark as Leftover"}
+              </DropdownMenuItem>
             )}
-            {title}
-          </div>
-          {entry.recipe && (
-            <div className="flex items-center gap-2 mt-0.5 text-muted-foreground">
-              <span className="flex items-center gap-0.5">
-                <Users className="h-2.5 w-2.5" />
-                {servings}
-              </span>
-              {entry.recipe.totalTime && (
-                <span className="flex items-center gap-0.5">
-                  <Clock className="h-2.5 w-2.5" />
-                  {entry.recipe.totalTime}
-                </span>
-              )}
-            </div>
-          )}
-        </div>
-        <button
-          onClick={onRemove}
-          className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-opacity"
-        >
-          <X className="h-3 w-3" />
-        </button>
+            {onAssign && collaborators && collaborators.length > 0 && (
+              <>
+                {collaborators.map((c) => (
+                  <DropdownMenuItem
+                    key={c.userId}
+                    onClick={(e) => { e.stopPropagation(); onAssign(c.userId); }}
+                  >
+                    <Users className="h-3.5 w-3.5 mr-2" />
+                    Assign to {c.displayName.split(" ")[0]}
+                  </DropdownMenuItem>
+                ))}
+                {entry.assignedUser && (
+                  <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onAssign(null); }}>
+                    <X className="h-3.5 w-3.5 mr-2" />
+                    Unassign
+                  </DropdownMenuItem>
+                )}
+              </>
+            )}
+            <DropdownMenuItem
+              onClick={(e) => { e.stopPropagation(); onRemove(); }}
+              className="text-destructive focus:text-destructive"
+            >
+              <Trash2 className="h-3.5 w-3.5 mr-2" />
+              Remove
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
-      {/* Servings adjuster on hover */}
-      {entry.recipe && (
-        <div className="flex items-center gap-1 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
-          <button
-            onClick={() => onAdjustServings(-1)}
-            className="h-4 w-4 rounded bg-muted flex items-center justify-center hover:bg-muted-foreground/20"
-          >
-            <Minus className="h-2 w-2" />
-          </button>
-          <span className="text-[10px] w-12 text-center">
-            {servings} serv.
-          </span>
-          <button
-            onClick={() => onAdjustServings(1)}
-            className="h-4 w-4 rounded bg-muted flex items-center justify-center hover:bg-muted-foreground/20"
-          >
-            <Plus className="h-2 w-2" />
-          </button>
+      {/* Leftover badge */}
+      {entry.isLeftover && (
+        <div className="absolute top-1 left-1 z-10 bg-green-600 text-white rounded px-1 py-0.5 text-[9px] font-medium flex items-center gap-0.5 group-hover:left-7">
+          <Recycle className="h-2.5 w-2.5" /> Leftover
         </div>
       )}
+      {/* Main clickable area */}
+      <div onClick={onClick}>
+        {/* Image */}
+        {imageUrl ? (
+          <div className="aspect-[4/3] w-full overflow-hidden">
+            <img
+              src={imageUrl}
+              alt={title}
+              className="w-full h-full object-cover"
+            />
+          </div>
+        ) : (
+          <div className="aspect-[4/3] w-full bg-muted/50 flex items-center justify-center">
+            <Utensils className="h-5 w-5 text-muted-foreground/40" />
+          </div>
+        )}
+        {/* Info bar */}
+        <div className="px-1.5 py-1">
+          <div className="text-[10px] font-medium leading-tight truncate" title={title}>
+            {title}
+          </div>
+          <div className="flex items-center gap-1.5 mt-0.5 text-[9px] text-muted-foreground">
+            <span className="flex items-center gap-0.5">
+              <Users className="h-2 w-2" />
+              {servings}
+            </span>
+            {entry.recipe?.totalTime && (
+              <span className="flex items-center gap-0.5">
+                <Clock className="h-2 w-2" />
+                {formatTime(entry.recipe.totalTime)}
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Recipe sidebar panel
+function RecipeSidebar({
+  entry,
+  onClose,
+  onAdjustServings,
+  onRemove,
+}: {
+  entry: MealPlanEntry;
+  onClose: () => void;
+  onAdjustServings: (delta: number) => void;
+  onRemove: () => void;
+}) {
+  const recipe = entry.recipe;
+  if (!recipe) return null;
+
+  const servings = entry.scaledServings || recipe.servings || 1;
+  const imageUrl = recipe.dishImage || recipe.dishImageThumbnail || null;
+
+  return (
+    <div className="fixed inset-y-0 right-0 w-80 md:w-96 bg-background border-l shadow-xl z-50 flex flex-col animate-in slide-in-from-right-full duration-200">
+      {/* Header */}
+      <div className="flex items-center justify-between p-4 border-b">
+        <h3 className="font-semibold text-sm truncate flex-1 mr-2">{recipe.title}</h3>
+        <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+      {/* Scrollable content */}
+      <div className="flex-1 overflow-y-auto">
+        {/* Image */}
+        {imageUrl && (
+          <div className="aspect-video w-full overflow-hidden">
+            <img src={imageUrl} alt={recipe.title} className="w-full h-full object-cover" />
+          </div>
+        )}
+        {/* Quick stats */}
+        <div className="flex items-center gap-3 p-4 border-b text-sm">
+          {recipe.totalTime && (
+            <div className="flex items-center gap-1 text-muted-foreground">
+              <Clock className="h-4 w-4" />
+              <span>{formatTime(recipe.totalTime)}</span>
+            </div>
+          )}
+          <div className="flex items-center gap-1 text-muted-foreground">
+            <Users className="h-4 w-4" />
+            <span>{servings} servings</span>
+          </div>
+        </div>
+        {/* Servings adjuster */}
+        <div className="flex items-center justify-between p-4 border-b">
+          <span className="text-sm font-medium">Servings</span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => onAdjustServings(-1)}
+              className="h-7 w-7 rounded-full border flex items-center justify-center hover:bg-muted"
+            >
+              <Minus className="h-3 w-3" />
+            </button>
+            <span className="text-sm font-semibold w-6 text-center">{servings}</span>
+            <button
+              onClick={() => onAdjustServings(1)}
+              className="h-7 w-7 rounded-full border flex items-center justify-center hover:bg-muted"
+            >
+              <Plus className="h-3 w-3" />
+            </button>
+          </div>
+        </div>
+        {/* Description */}
+        {recipe.description && (
+          <div className="p-4 border-b">
+            <h4 className="text-xs font-semibold text-muted-foreground uppercase mb-1">Description</h4>
+            <p className="text-sm text-muted-foreground">{recipe.description}</p>
+          </div>
+        )}
+        {/* Ingredients */}
+        {recipe.ingredients && recipe.ingredients.length > 0 && (
+          <div className="p-4 border-b">
+            <h4 className="text-xs font-semibold text-muted-foreground uppercase mb-2">Ingredients</h4>
+            <ul className="space-y-1">
+              {recipe.ingredients.map((ing: any, i: number) => (
+                <li key={i} className="text-sm flex items-start gap-2">
+                  <span className="text-muted-foreground mt-1.5 h-1.5 w-1.5 rounded-full bg-current flex-shrink-0" />
+                  <span>
+                    {ing.quantity && <span className="font-medium">{ing.quantity}</span>}
+                    {ing.unit && <span> {ing.unit}</span>}
+                    {" "}{ing.name || ing.item || ing}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {/* Instructions */}
+        {recipe.instructions && recipe.instructions.length > 0 && (
+          <div className="p-4 border-b">
+            <h4 className="text-xs font-semibold text-muted-foreground uppercase mb-2">Instructions</h4>
+            <ol className="space-y-2">
+              {recipe.instructions.map((step: any, i: number) => (
+                <li key={i} className="text-sm flex gap-2">
+                  <span className="font-semibold text-muted-foreground text-xs mt-0.5 flex-shrink-0 w-5">{i + 1}.</span>
+                  <span>{typeof step === "string" ? step : step.text || step.step}</span>
+                </li>
+              ))}
+            </ol>
+          </div>
+        )}
+        {/* Nutrition */}
+        {(recipe.calories || recipe.protein || recipe.carbs || recipe.fat) && (
+          <div className="p-4 border-b">
+            <h4 className="text-xs font-semibold text-muted-foreground uppercase mb-2">Nutrition (per serving)</h4>
+            <div className="grid grid-cols-4 gap-2 text-center">
+              {recipe.calories && (
+                <div>
+                  <div className="text-sm font-semibold">{recipe.calories}</div>
+                  <div className="text-[10px] text-muted-foreground">cal</div>
+                </div>
+              )}
+              {recipe.protein && (
+                <div>
+                  <div className="text-sm font-semibold">{recipe.protein}g</div>
+                  <div className="text-[10px] text-muted-foreground">protein</div>
+                </div>
+              )}
+              {recipe.carbs && (
+                <div>
+                  <div className="text-sm font-semibold">{recipe.carbs}g</div>
+                  <div className="text-[10px] text-muted-foreground">carbs</div>
+                </div>
+              )}
+              {recipe.fat && (
+                <div>
+                  <div className="text-sm font-semibold">{recipe.fat}g</div>
+                  <div className="text-[10px] text-muted-foreground">fat</div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+      {/* Footer actions */}
+      <div className="p-4 border-t flex gap-2">
+        <Button variant="outline" size="sm" className="flex-1" asChild>
+          <Link href={`/recipes/${recipe.id}`}>View Full Recipe</Link>
+        </Button>
+        <Button
+          variant="destructive"
+          size="sm"
+          onClick={onRemove}
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </Button>
+      </div>
     </div>
   );
 }
@@ -230,6 +448,16 @@ export default function MealPlanDetailPage() {
   const [nutritionDialog, setNutritionDialog] = useState(false);
   const [templateDialog, setTemplateDialog] = useState(false);
   const [templateName, setTemplateName] = useState("");
+  const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
+
+  const { user } = useAuth();
+
+  // Real-time collaboration via WebSocket
+  const { onlineUsers } = useMealPlanWebSocket({
+    planId: planId || "",
+    userId: user?.id || "",
+    enabled: !!planId && !!user?.id,
+  });
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
@@ -243,16 +471,6 @@ export default function MealPlanDetailPage() {
       return res.json();
     },
     enabled: !!planId,
-  });
-
-  const { data: nutrition } = useQuery({
-    queryKey: ["/api/meal-plans", planId, "nutrition"],
-    queryFn: async () => {
-      const res = await fetch(`/api/meal-plans/${planId}/nutrition`);
-      if (!res.ok) throw new Error("Failed");
-      return res.json();
-    },
-    enabled: !!planId && nutritionDialog,
   });
 
   // Compute the days of the plan
@@ -366,7 +584,30 @@ export default function MealPlanDetailPage() {
       );
       if (!res.ok) throw new Error("Failed to move");
     },
-    onSuccess: () => {
+    onMutate: async ({ entryId, date, mealSlot }) => {
+      // Cancel outgoing refetches
+      await queryClient.cancelQueries({ queryKey: ["/api/meal-plans", planId] });
+      // Snapshot previous value
+      const previous = queryClient.getQueryData(["/api/meal-plans", planId]);
+      // Optimistically update the entry's date and mealSlot
+      queryClient.setQueryData(["/api/meal-plans", planId], (old: any) => {
+        if (!old?.entries) return old;
+        return {
+          ...old,
+          entries: old.entries.map((e: any) =>
+            e.id === entryId ? { ...e, date, mealSlot, position: 0 } : e
+          ),
+        };
+      });
+      return { previous };
+    },
+    onError: (_err, _vars, context) => {
+      // Roll back on error
+      if (context?.previous) {
+        queryClient.setQueryData(["/api/meal-plans", planId], context.previous);
+      }
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/meal-plans", planId] });
     },
   });
@@ -475,7 +716,45 @@ export default function MealPlanDetailPage() {
     });
   };
 
+  const handleToggleLeftover = (entryId: string, currentValue: boolean) => {
+    updateEntryMutation.mutate({
+      entryId,
+      updates: { isLeftover: !currentValue },
+    });
+  };
+
+  const handleAssign = (entryId: string, userId: string | null) => {
+    updateEntryMutation.mutate({
+      entryId,
+      updates: { assignedUserId: userId || undefined },
+    });
+  };
+
+  // Build collaborator list for assignment dropdown
+  const assignableUsers = useMemo(() => {
+    if (!plan) return [];
+    const users: { userId: string; displayName: string }[] = [];
+    // Add owner
+    if (user) {
+      const name = [user.firstName, user.lastName].filter(Boolean).join(" ") || user.email || "Me";
+      users.push({ userId: user.id, displayName: name });
+    }
+    // Add collaborators
+    if (plan.collaborators) {
+      plan.collaborators.forEach((c: any) => {
+        if (c.userId !== user?.id) {
+          users.push({
+            userId: c.userId,
+            displayName: c.user?.displayName || c.user?.email || "Collaborator",
+          });
+        }
+      });
+    }
+    return users;
+  }, [plan, user]);
+
   const activeEntry = plan?.entries.find((e) => e.id === activeEntryId);
+  const selectedEntry = plan?.entries.find((e) => e.id === selectedEntryId) || null;
 
   if (isLoading || !plan) {
     return (
@@ -490,38 +769,56 @@ export default function MealPlanDetailPage() {
   return (
     <div className="container max-w-full mx-auto px-4 py-4">
       {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-3">
+      <div className="mb-4 space-y-2">
+        {/* Title row */}
+        <div className="flex items-center gap-2">
           <Link href="/meal-plans">
-            <Button variant="ghost" size="icon">
-              <ArrowLeft className="h-5 w-5" />
+            <Button variant="ghost" size="icon" className="h-8 w-8">
+              <ArrowLeft className="h-4 w-4" />
             </Button>
           </Link>
-          <div>
-            <h1 className="font-serif text-xl font-bold">{plan.name}</h1>
-            <p className="text-xs text-muted-foreground">
-              {new Date(plan.startDate).toLocaleDateString(undefined, {
-                month: "long",
-                day: "numeric",
-              })}{" "}
-              –{" "}
-              {new Date(plan.endDate).toLocaleDateString(undefined, {
-                month: "long",
-                day: "numeric",
-                year: "numeric",
-              })}
-            </p>
-          </div>
+          <h1 className="font-serif text-lg font-bold">{plan.name}</h1>
+          <span className="text-sm text-muted-foreground">
+            {new Date(plan.startDate).toLocaleDateString(undefined, {
+              month: "short",
+              day: "numeric",
+            })}{" "}
+            –{" "}
+            {new Date(plan.endDate).toLocaleDateString(undefined, {
+              month: "short",
+              day: "numeric",
+              year: "numeric",
+            })}
+          </span>
+          {/* Online collaborators */}
+          {onlineUsers.length > 1 && (
+            <div className="flex -space-x-2 ml-2">
+              {onlineUsers.slice(0, 5).map((u) => (
+                <div
+                  key={u.userId}
+                  className="w-6 h-6 rounded-full bg-primary/10 border-2 border-background flex items-center justify-center text-[10px] font-medium"
+                  title={u.displayName}
+                >
+                  {u.displayName.charAt(0).toUpperCase()}
+                </div>
+              ))}
+              {onlineUsers.length > 5 && (
+                <div className="w-6 h-6 rounded-full bg-muted border-2 border-background flex items-center justify-center text-[10px]">
+                  +{onlineUsers.length - 5}
+                </div>
+              )}
+            </div>
+          )}
         </div>
-
-        <div className="flex items-center gap-2">
+        {/* Action buttons row */}
+        <div className="flex items-center gap-2 pl-10">
           <Button
             variant="outline"
             size="sm"
             onClick={() => setNutritionDialog(true)}
           >
             <BarChart3 className="h-4 w-4 mr-1" />
-            <span className="hidden sm:inline">Nutrition</span>
+            Nutrition
           </Button>
           <Button
             variant="outline"
@@ -529,12 +826,16 @@ export default function MealPlanDetailPage() {
             onClick={() => setTemplateDialog(true)}
           >
             <BookTemplate className="h-4 w-4 mr-1" />
-            <span className="hidden sm:inline">Save Template</span>
+            Save Template
           </Button>
           <Button size="sm" onClick={() => setGroceryDialog(true)}>
             <ShoppingCart className="h-4 w-4 mr-1" />
-            <span className="hidden sm:inline">Grocery List</span>
+            Grocery List
           </Button>
+          <MealPlanCollaborators
+            planId={planId!}
+            isOwner={plan?.ownerUserId === user?.id}
+          />
         </div>
       </div>
 
@@ -602,15 +903,14 @@ export default function MealPlanDetailPage() {
                             onRemove={() =>
                               removeEntryMutation.mutate(entry.id)
                             }
-                            onAdjustServings={(delta) =>
-                              handleAdjustServings(
-                                entry.id,
-                                delta,
-                                entry.scaledServings ||
-                                  entry.recipe?.servings ||
-                                  1
-                              )
+                            onToggleLeftover={() =>
+                              handleToggleLeftover(entry.id, entry.isLeftover)
                             }
+                            collaborators={assignableUsers}
+                            onAssign={(userId) =>
+                              handleAssign(entry.id, userId)
+                            }
+                            onClick={() => entry.recipe && setSelectedEntryId(entry.id)}
                           />
                         ))}
                         {/* Add buttons */}
@@ -763,94 +1063,12 @@ export default function MealPlanDetailPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Nutrition Summary Dialog */}
-      <Dialog open={nutritionDialog} onOpenChange={setNutritionDialog}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <BarChart3 className="h-5 w-5" />
-              Nutrition Summary
-            </DialogTitle>
-          </DialogHeader>
-          {nutrition ? (
-            <div className="space-y-4">
-              {/* Weekly Average */}
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm">Daily Average</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-5 gap-2 text-center">
-                    {[
-                      { label: "Calories", value: nutrition.weeklyAverage.calories, unit: "kcal" },
-                      { label: "Protein", value: nutrition.weeklyAverage.protein, unit: "g" },
-                      { label: "Carbs", value: nutrition.weeklyAverage.carbs, unit: "g" },
-                      { label: "Fat", value: nutrition.weeklyAverage.fat, unit: "g" },
-                      { label: "Fiber", value: nutrition.weeklyAverage.fiber, unit: "g" },
-                    ].map((stat) => (
-                      <div key={stat.label}>
-                        <div className="text-lg font-bold">{stat.value || 0}</div>
-                        <div className="text-xs text-muted-foreground">
-                          {stat.label}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Budget Estimate */}
-              {(nutrition.budgetEstimate.min > 0 || nutrition.budgetEstimate.max > 0) && (
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm">Estimated Budget</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-lg font-semibold">
-                      ${nutrition.budgetEstimate.min.toFixed(2)} – $
-                      {nutrition.budgetEstimate.max.toFixed(2)}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      For the full week
-                    </p>
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* Daily Breakdown */}
-              <div className="space-y-2">
-                <h4 className="text-sm font-medium">Daily Breakdown</h4>
-                {Object.entries(nutrition.daily).map(
-                  ([date, day]: [string, any]) => (
-                    <div
-                      key={date}
-                      className="flex items-center justify-between text-sm border-b pb-1"
-                    >
-                      <span className="text-muted-foreground">
-                        {new Date(date).toLocaleDateString(undefined, {
-                          weekday: "short",
-                          month: "short",
-                          day: "numeric",
-                        })}
-                      </span>
-                      <div className="flex gap-3 text-xs">
-                        <span>{day.calories} cal</span>
-                        <span>{day.protein}g P</span>
-                        <span>{day.carbs}g C</span>
-                        <span>{day.fat}g F</span>
-                      </div>
-                    </div>
-                  )
-                )}
-              </div>
-            </div>
-          ) : (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
+      {/* Nutrition Dashboard with Charts */}
+      <NutritionDashboard
+        planId={planId!}
+        open={nutritionDialog}
+        onOpenChange={setNutritionDialog}
+      />
 
       {/* Save as Template Dialog */}
       <Dialog open={templateDialog} onOpenChange={setTemplateDialog}>
@@ -891,6 +1109,33 @@ export default function MealPlanDetailPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Recipe sidebar */}
+      {selectedEntry && selectedEntry.recipe && (
+        <>
+          <div
+            className="fixed inset-0 bg-black/20 z-40"
+            onClick={() => setSelectedEntryId(null)}
+          />
+          <RecipeSidebar
+            entry={selectedEntry}
+            onClose={() => setSelectedEntryId(null)}
+            onAdjustServings={(delta) =>
+              handleAdjustServings(
+                selectedEntry.id,
+                delta,
+                selectedEntry.scaledServings ||
+                  selectedEntry.recipe?.servings ||
+                  1
+              )
+            }
+            onRemove={() => {
+              removeEntryMutation.mutate(selectedEntry.id);
+              setSelectedEntryId(null);
+            }}
+          />
+        </>
+      )}
     </div>
   );
 }

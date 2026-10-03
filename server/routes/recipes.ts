@@ -26,6 +26,8 @@ import { scrapeInstagramPost, extractRecipeFromInstagram, isInstagramUrl } from 
 import { detectPlatform, isValidSocialUrl, scrapePost } from "../social-import-service";
 import { extractRecipeFromSocialPostUnified } from "../ai-service";
 import { getUserId, upload } from "./route-utils";
+import { findPantryMatch } from "../../shared/pantry-matching";
+import { convertToBaseUnit } from "../unit-conversion";
 
 const router = Router();
 
@@ -134,6 +136,8 @@ router.get("/recipes/what-can-i-make", isAuthenticated, async (req: any, res) =>
     const userId = getUserId(req);
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
+    const sortParam = (req.query.sort as string) || 'match';
+
     // Get user's pantry items
     const pantryItems = await storage.getPantryItems(userId);
     if (pantryItems.length === 0) {
@@ -141,6 +145,7 @@ router.get("/recipes/what-can-i-make", isAuthenticated, async (req: any, res) =>
         readyToCook: [],
         almostReady: [],
         needMoreIngredients: [],
+        availableCuisines: [],
         message: "Add items to your pantry to see recipe suggestions"
       });
     }
@@ -150,10 +155,17 @@ router.get("/recipes/what-can-i-make", isAuthenticated, async (req: any, res) =>
     const dietaryRestrictions = user?.preferences?.dietaryRestrictions || [];
     const dislikedIngredients = user?.preferences?.dislikedIngredients || [];
 
-    // Normalize pantry items for matching
-    const pantryItemNames = pantryItems.map(item =>
-      (item.normalizedName || item.name).toLowerCase().trim()
-    );
+    // Build pantry items array for shared matching utility
+    const pantryItemsForMatching = pantryItems.map(item => ({
+      name: item.name,
+      normalizedName: item.normalizedName,
+      quantity: item.quantity != null ? Number(item.quantity) : undefined,
+      unit: item.unit,
+    }));
+
+    // Compute expiry threshold (3 days from now)
+    const now = new Date();
+    const expiryThreshold = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
 
     // Get all accessible recipes for this user (paginated, get first 500)
     const result = await storage.getAllRecipesPaginated(userId, 1, 500);
@@ -174,15 +186,25 @@ router.get("/recipes/what-can-i-make", isAuthenticated, async (req: any, res) =>
       recipe: any;
       matchedIngredients: string[];
       missingIngredients: string[];
+      insufficientIngredients: { ingredient: string; have: string; need: string }[];
       matchPercentage: number;
+      expiringItemsUsed: number;
+      totalCookTime: number | null;
       substitutions?: { ingredient: string; suggestions: string[] }[];
     }
 
     const readyToCook: RecipeMatch[] = [];
     const almostReady: RecipeMatch[] = [];
     const needMoreIngredients: RecipeMatch[] = [];
+    const cuisineSet = new Set<string>();
 
     for (const recipe of recipesList) {
+      // Collect cuisines
+      const recipeCuisines = (recipe as any).cuisines || [];
+      for (const c of recipeCuisines) {
+        if (c) cuisineSet.add(c);
+      }
+
       // Skip recipes with disliked ingredients
       const recipeIngredients = (recipe as any).normalizedIngredients || [];
       const ingredientNames = recipeIngredients.map((ing: any) =>
@@ -200,26 +222,55 @@ router.get("/recipes/what-can-i-make", isAuthenticated, async (req: any, res) =>
       // Match ingredients
       const matched: string[] = [];
       const missing: string[] = [];
+      const insufficient: { ingredient: string; have: string; need: string }[] = [];
+      let expiringItemsUsed = 0;
 
       for (const ing of recipeIngredients) {
         const ingredientName = (ing.item || ing.raw || '').toLowerCase().trim();
         if (!ingredientName || ing.isOptional || ing.isToolOrConsumable) continue;
 
-        // Check if user has this ingredient (fuzzy match)
-        const hasIngredient = pantryItemNames.some(pantryItem => {
-          // Exact match
-          if (pantryItem === ingredientName) return true;
-          // Partial match (e.g., "chicken breast" matches "chicken")
-          if (pantryItem.includes(ingredientName) || ingredientName.includes(pantryItem)) return true;
-          // Common variations (e.g., "eggs" matches "egg")
-          const pantryNormalized = pantryItem.replace(/s$/, '');
-          const ingNormalized = ingredientName.replace(/s$/, '');
-          if (pantryNormalized === ingNormalized) return true;
-          return false;
-        });
+        // Use shared pantry matching
+        const matchResult = findPantryMatch(ingredientName, pantryItemsForMatching);
 
-        if (hasIngredient) {
+        if (matchResult.match !== null) {
           matched.push(ing.item || ing.raw);
+
+          // Quantity-aware matching: check if pantry quantity is sufficient
+          const recipeQty = ing.quantity;
+          const recipeUnit = ing.unit;
+          const pantryQty = matchResult.match.quantity;
+          const pantryUnit = matchResult.match.unit;
+
+          if (
+            recipeQty != null && pantryQty != null &&
+            recipeUnit && pantryUnit
+          ) {
+            const recipeConverted = convertToBaseUnit(Number(recipeQty), recipeUnit);
+            const pantryConverted = convertToBaseUnit(Number(pantryQty), pantryUnit);
+
+            if (
+              recipeConverted.canConvert && pantryConverted.canConvert &&
+              recipeConverted.unit === pantryConverted.unit &&
+              pantryConverted.quantity < recipeConverted.quantity
+            ) {
+              insufficient.push({
+                ingredient: ing.item || ing.raw,
+                have: `${pantryQty} ${pantryUnit}`,
+                need: `${recipeQty} ${recipeUnit}`,
+              });
+            }
+          }
+
+          // Check if matched pantry item is expiring within 3 days
+          const matchedPantryItem = pantryItems.find(
+            p => p.name === matchResult.match!.name
+          );
+          if (matchedPantryItem?.expiresAt) {
+            const expiresAt = new Date(matchedPantryItem.expiresAt);
+            if (expiresAt <= expiryThreshold) {
+              expiringItemsUsed++;
+            }
+          }
         } else {
           missing.push(ing.item || ing.raw);
         }
@@ -230,6 +281,15 @@ router.get("/recipes/what-can-i-make", isAuthenticated, async (req: any, res) =>
 
       const matchPercentage = Math.round((matched.length / totalIngredients) * 100);
 
+      // Compute totalCookTime
+      const prepTimeMinutes = typeof recipe.prepTime === 'number'
+        ? recipe.prepTime
+        : (typeof recipe.prepTime === 'string' ? parseInt(recipe.prepTime, 10) || 0 : 0);
+      const cookTimeMinutes = recipe.cookTimeMinutes != null ? Number(recipe.cookTimeMinutes) : 0;
+      const totalCookTime = (prepTimeMinutes || cookTimeMinutes)
+        ? prepTimeMinutes + cookTimeMinutes
+        : null;
+
       const recipeMatch: RecipeMatch = {
         recipe: {
           id: recipe.id,
@@ -237,13 +297,17 @@ router.get("/recipes/what-can-i-make", isAuthenticated, async (req: any, res) =>
           dishImage: recipe.dishImageThumbnail,
           prepTime: recipe.prepTime,
           cookTime: recipe.cookTimeMinutes != null ? `${recipe.cookTimeMinutes} min` : undefined,
+          totalCookTime,
           servings: recipe.servings,
           cuisine: recipe.cuisines?.[0] ?? undefined,
           difficulty: recipe.skillLevel ?? undefined,
         },
         matchedIngredients: matched,
         missingIngredients: missing,
-        matchPercentage
+        insufficientIngredients: insufficient,
+        matchPercentage,
+        expiringItemsUsed,
+        totalCookTime,
       };
 
       if (missing.length === 0) {
@@ -255,16 +319,38 @@ router.get("/recipes/what-can-i-make", isAuthenticated, async (req: any, res) =>
       }
     }
 
-    // Sort by match percentage
-    const sortByMatch = (a: RecipeMatch, b: RecipeMatch) => b.matchPercentage - a.matchPercentage;
-    readyToCook.sort(sortByMatch);
-    almostReady.sort(sortByMatch);
-    needMoreIngredients.sort(sortByMatch);
+    // Sort based on query param
+    const getSortFn = (sort: string) => {
+      switch (sort) {
+        case 'cookTime':
+          return (a: RecipeMatch, b: RecipeMatch) => {
+            const aTime = a.recipe.totalCookTime ?? Infinity;
+            const bTime = b.recipe.totalCookTime ?? Infinity;
+            return aTime - bTime;
+          };
+        case 'expiring':
+          return (a: RecipeMatch, b: RecipeMatch) => {
+            if (b.expiringItemsUsed !== a.expiringItemsUsed) {
+              return b.expiringItemsUsed - a.expiringItemsUsed;
+            }
+            return b.matchPercentage - a.matchPercentage;
+          };
+        case 'match':
+        default:
+          return (a: RecipeMatch, b: RecipeMatch) => b.matchPercentage - a.matchPercentage;
+      }
+    };
+
+    const sortFn = getSortFn(sortParam);
+    readyToCook.sort(sortFn);
+    almostReady.sort(sortFn);
+    needMoreIngredients.sort(sortFn);
 
     res.json({
-      readyToCook: readyToCook.slice(0, 20),
-      almostReady: almostReady.slice(0, 20),
-      needMoreIngredients: needMoreIngredients.slice(0, 20),
+      readyToCook: readyToCook.slice(0, 30),
+      almostReady: almostReady.slice(0, 30),
+      needMoreIngredients: needMoreIngredients.slice(0, 30),
+      availableCuisines: Array.from(cuisineSet).sort(),
       pantryItemCount: pantryItems.length,
       appliedFilters: {
         dietaryRestrictions,
@@ -304,6 +390,247 @@ router.post("/recipes/substitutions", isAuthenticated, async (req: any, res) => 
   } catch (error) {
     console.error("Error getting substitution suggestions:", error);
     res.status(500).json({ error: "Failed to get substitution suggestions" });
+  }
+});
+
+// Add missing ingredients to grocery list
+router.post("/recipes/:recipeId/add-missing-to-grocery", isAuthenticated, async (req: any, res) => {
+  try {
+    const userId = getUserId(req);
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+    const { missingIngredients } = req.body;
+
+    if (!missingIngredients || !Array.isArray(missingIngredients) || missingIngredients.length === 0) {
+      return res.status(400).json({ error: "missingIngredients array is required" });
+    }
+
+    let added = 0;
+    for (const ingredientName of missingIngredients) {
+      if (typeof ingredientName !== 'string' || !ingredientName.trim()) continue;
+      const name = ingredientName.trim();
+      await storage.addManualItemToGroceryList(userId, {
+        item: name,
+        quantity: 1,
+        unit: 'count',
+        displayName: name,
+        aisle: 'Other',
+        category: 'Other',
+      } as any);
+      added++;
+    }
+
+    res.json({ added });
+  } catch (error) {
+    console.error("Error adding missing ingredients to grocery list:", error);
+    res.status(500).json({ error: "Failed to add missing ingredients to grocery list" });
+  }
+});
+
+// Step 1: Suggest recipe concepts from AI prompt
+router.post("/recipes/suggest-concepts", isAuthenticated, async (req: any, res) => {
+  try {
+    const userId = getUserId(req);
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+    const bodySchema = z.object({
+      prompt: z.string().min(1).max(500),
+      specifiedIngredients: z.array(z.string()).optional(),
+    });
+    const parsed = bodySchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: "Invalid request", details: parsed.error.flatten() });
+    }
+    const { prompt, specifiedIngredients } = parsed.data;
+
+    // Fetch pantry items
+    const pantryItems = await storage.getPantryItems(userId);
+    const pantryNames = pantryItems.map(item => item.name);
+
+    // Get user dietary prefs
+    const user = await storage.getUser(userId);
+    const prefs = (user as any)?.preferences || {};
+    const dietaryRestrictions: string[] = prefs.dietaryRestrictions || [];
+    const dislikedIngredients: string[] = prefs.dislikedIngredients || [];
+
+    // Generate concept suggestions via AI
+    const { suggestRecipeConceptsUnified } = await import('../ai-service');
+    const result = await suggestRecipeConceptsUnified({
+      prompt,
+      specifiedIngredients,
+      pantryItems: pantryNames,
+      dietaryRestrictions,
+      dislikedIngredients,
+    });
+
+    res.json({
+      concepts: result.concepts,
+      pantryItemCount: pantryItems.length,
+    });
+  } catch (error) {
+    console.error("Error suggesting recipe concepts:", error);
+    res.status(500).json({ error: "Failed to suggest recipe concepts" });
+  }
+});
+
+// Step 2: Generate full recipe from a selected concept
+router.post("/recipes/generate-full-recipe", isAuthenticated, async (req: any, res) => {
+  try {
+    const userId = getUserId(req);
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+    const bodySchema = z.object({
+      concept: z.object({
+        title: z.string(),
+        description: z.string(),
+        cuisine: z.string().optional(),
+        difficulty: z.string().optional(),
+        estimatedTimeMinutes: z.number(),
+        keyIngredients: z.array(z.string()),
+        whyItWorks: z.string(),
+      }),
+    });
+    const parsed = bodySchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: "Invalid request", details: parsed.error.flatten() });
+    }
+    const { concept } = parsed.data;
+
+    // Fetch pantry items
+    const pantryItems = await storage.getPantryItems(userId);
+    const pantryNames = pantryItems.map(item => item.name);
+
+    // Get user dietary prefs
+    const user = await storage.getUser(userId);
+    const prefs = (user as any)?.preferences || {};
+    const dietaryRestrictions: string[] = prefs.dietaryRestrictions || [];
+
+    // Generate full recipe via AI
+    const { generateFullRecipeUnified } = await import('../ai-service');
+    const recipe = await generateFullRecipeUnified(concept, pantryNames, dietaryRestrictions);
+
+    if (!recipe) {
+      return res.status(500).json({ error: "Failed to generate full recipe" });
+    }
+
+    // Cross-reference ingredients against pantry
+    const pantryItemsForMatching = pantryItems.map(p => ({
+      name: p.name,
+      normalizedName: p.normalizedName,
+      quantity: p.quantity,
+      unit: p.unit,
+    }));
+
+    const matched: string[] = [];
+    const missing: string[] = [];
+
+    for (const ing of recipe.ingredients) {
+      const ingredientName = ing.replace(/^[\d\s\/½¼¾⅓⅔⅛]+\s*(cups?|tablespoons?|tbsp|teaspoons?|tsp|ounces?|oz|pounds?|lbs?|cloves?|cans?|pieces?|slices?|bunch|head|stalks?|sprigs?|pinch|dash|to taste)?\s*/i, '').trim() || ing;
+      const matchResult = findPantryMatch(ingredientName, pantryItemsForMatching);
+      if (matchResult.match !== null) {
+        matched.push(ing);
+      } else {
+        missing.push(ing);
+      }
+    }
+
+    const total = recipe.ingredients.length;
+    const matchPercentage = total > 0 ? Math.round((matched.length / total) * 100) : 0;
+
+    res.json({
+      recipe,
+      matchedIngredients: matched,
+      missingIngredients: missing,
+      matchPercentage,
+      pantryItemCount: pantryItems.length,
+    });
+  } catch (error) {
+    console.error("Error generating full recipe:", error);
+    res.status(500).json({ error: "Failed to generate full recipe" });
+  }
+});
+
+// Save an AI-generated recipe to the user's collection
+router.post("/recipes/save-generated", isAuthenticated, async (req: any, res) => {
+  try {
+    const userId = getUserId(req);
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+    const { recipe } = req.body;
+    if (!recipe || !recipe.title || !recipe.ingredients || !recipe.instructions) {
+      return res.status(400).json({ error: "Invalid recipe data" });
+    }
+
+    const totalMinutes = (recipe.prepTimeMinutes || 0) + (recipe.cookTimeMinutes || 0);
+
+    const recipeData: any = {
+      title: recipe.title,
+      description: recipe.description || '',
+      prepTime: recipe.prepTimeMinutes ? `${recipe.prepTimeMinutes} mins` : '0 mins',
+      cookTime: recipe.cookTimeMinutes ? `${recipe.cookTimeMinutes} mins` : '0 mins',
+      totalTime: totalMinutes ? `${totalMinutes} mins` : '0 mins',
+      prepTimeMinutes: recipe.prepTimeMinutes || 0,
+      cookTimeMinutes: recipe.cookTimeMinutes || 0,
+      totalTimeMinutes: totalMinutes,
+      servings: recipe.servings || 4,
+      ingredients: recipe.ingredients,
+      instructions: recipe.instructions,
+      cuisine: recipe.cuisine || null,
+      skillLevel: recipe.difficulty || null,
+      ownerUserId: userId,
+      isPublic: true,
+      enrichmentStatus: 'extracting' as const,
+      aiEnriched: false,
+      variationNotes: 'AI-generated recipe from Recipe Creator',
+    };
+
+    const validated = insertRecipeSchema.parse(recipeData);
+    const savedRecipe = await storage.createRecipe(validated);
+
+    // Queue enrichment job
+    try {
+      jobQueue.addEnrichmentJob(savedRecipe.id);
+    } catch (jobError) {
+      console.error("Failed to queue enrichment job:", jobError);
+    }
+
+    res.status(201).json(savedRecipe);
+  } catch (error) {
+    console.error("Error saving generated recipe:", error);
+    res.status(500).json({ error: "Failed to save recipe" });
+  }
+});
+
+// Add arbitrary items to grocery list (for AI-generated recipe missing ingredients)
+router.post("/recipes/add-items-to-grocery", isAuthenticated, async (req: any, res) => {
+  try {
+    const userId = getUserId(req);
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+    const { items } = req.body;
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: "items array is required" });
+    }
+
+    let added = 0;
+    for (const itemName of items) {
+      if (typeof itemName !== 'string' || !itemName.trim()) continue;
+      const name = itemName.trim();
+      await storage.addManualItemToGroceryList(userId, {
+        item: name,
+        quantity: 1,
+        unit: 'count',
+        displayName: name,
+        aisle: 'Other',
+        category: 'Other',
+      } as any);
+      added++;
+    }
+
+    res.json({ added });
+  } catch (error) {
+    console.error("Error adding items to grocery list:", error);
+    res.status(500).json({ error: "Failed to add items to grocery list" });
   }
 });
 

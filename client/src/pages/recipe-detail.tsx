@@ -81,6 +81,8 @@ import { RecipeImageCarousel, RecipeImageManager } from "@/components/recipe-ima
 import { MakeYourOwnModal } from "@/components/make-your-own-modal";
 import { CookbookSelect } from "@/components/cookbook-select";
 import { VoiceAssistant } from "@/components/voice-assistant";
+import { CookingMode } from "@/components/cooking-mode";
+import { StepIngredients } from "@/components/step-ingredients";
 import { Mic } from "lucide-react";
 import grammieImage from "@assets/image_1763329917086.png";
 
@@ -334,6 +336,7 @@ export default function RecipeDetail() {
   
   // Instructions toggle state (AI-enhanced vs original)
   const [showOriginalInstructions, setShowOriginalInstructions] = useState(false);
+  const [cookingModeOpen, setCookingModeOpen] = useState(false);
 
   const { data: recipe, isLoading } = useQuery<Recipe>({
     queryKey: ["/api/recipes", recipeId],
@@ -1242,6 +1245,15 @@ export default function RecipeDetail() {
                   Instructions
                 </CardTitle>
                 <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    className="gap-1.5"
+                    onClick={() => setCookingModeOpen(true)}
+                    data-testid="button-start-cooking"
+                  >
+                    <ChefHat className="h-4 w-4" />
+                    Cook
+                  </Button>
                   {recipe.instructionsGenerated && (
                     <Badge variant="outline" className="gap-1 text-xs" data-testid="badge-instructions-generated">
                       <Sparkles className="h-3 w-3" />
@@ -1312,6 +1324,11 @@ export default function RecipeDetail() {
                           </Badge>
                         )}
                       </div>
+                      <StepIngredients
+                        stepIngredients={instruction.ingredients}
+                        recipeIngredients={displayIngredients}
+                        stepIndex={index}
+                      />
                       {instruction.donenessCue && (
                         <div className="text-sm text-muted-foreground mt-2 italic">
                           Doneness: {instruction.donenessCue}
@@ -2324,6 +2341,15 @@ export default function RecipeDetail() {
           recipeTitle={recipe.title}
         />
       )}
+
+      {/* Guided cooking mode */}
+      <CookingMode
+        open={cookingModeOpen}
+        onClose={() => setCookingModeOpen(false)}
+        title={recipe.title}
+        instructions={displayInstructions}
+        ingredients={displayIngredients}
+      />
 
       {/* Print-only view - hidden on screen, visible when printing */}
       <div className="hidden print:block print-recipe">

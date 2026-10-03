@@ -3,6 +3,7 @@ import { z } from "zod";
 import { isAuthenticated } from "../clerkAuth";
 import { storage } from "../storage";
 import { getUserId } from "./route-utils";
+import { mealPlanWsManager } from "../websocket";
 
 const router = Router();
 
@@ -171,6 +172,7 @@ router.post("/meal-plans/:id/entries", isAuthenticated, async (req: any, res) =>
       isLeftover: data.isLeftover ?? false,
     });
 
+    mealPlanWsManager.broadcastEntryChange(req.params.id, "entry_added", entry);
     res.status(201).json(entry);
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -203,6 +205,7 @@ router.patch("/meal-plans/:id/entries/:entryId", isAuthenticated, async (req: an
     const entry = await storage.updateMealPlanEntry(req.params.entryId, data);
     if (!entry) return res.status(404).json({ error: "Entry not found" });
 
+    mealPlanWsManager.broadcastEntryChange(req.params.id, "entry_updated", entry);
     res.json(entry);
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -232,6 +235,7 @@ router.patch("/meal-plans/:id/entries/:entryId/move", isAuthenticated, async (re
     const entry = await storage.moveMealPlanEntry(req.params.entryId, data.date, data.mealSlot, data.position);
     if (!entry) return res.status(404).json({ error: "Entry not found" });
 
+    mealPlanWsManager.broadcastEntryChange(req.params.id, "entry_moved", entry);
     res.json(entry);
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -254,6 +258,7 @@ router.delete("/meal-plans/:id/entries/:entryId", isAuthenticated, async (req: a
     const success = await storage.removeMealPlanEntry(req.params.entryId);
     if (!success) return res.status(404).json({ error: "Entry not found" });
 
+    mealPlanWsManager.broadcastEntryChange(req.params.id, "entry_removed", { id: req.params.entryId });
     res.json({ success: true });
   } catch (error) {
     console.error("Error removing entry:", error);
@@ -618,6 +623,8 @@ function calculateNutritionSummary(entries: any[]): any {
       carbs: Math.round(sumField('carbs') / dayCount),
       fat: Math.round(sumField('fat') / dayCount),
       fiber: Math.round(sumField('fiber') / dayCount),
+      sugar: Math.round(sumField('sugar') / dayCount),
+      sodium: Math.round(sumField('sodium') / dayCount),
     },
     budgetEstimate: {
       min: Math.round(budgetMin * 100) / 100,

@@ -1,9 +1,14 @@
 import type { BookSizeConfig, BindingType, PaperType, TrimSize } from '../lulu/types';
 import type { NormalizedRecipe } from './types';
+import type { CustomTemplateData } from '@shared/schema';
+import { buildThemeConfigFromTemplate, isColorDark, type ThemeConfig } from '@shared/template-theme';
 import { getBookSizeConfig } from '../lulu/book-sizes';
 import { calculateSpineWidth } from '../lulu/spine-calculator';
+import { inlineGoogleFonts } from './font-cache';
 import { execSync } from 'child_process';
 import fs from 'fs';
+
+export { buildThemeConfigFromTemplate, type ThemeConfig };
 
 export type ThemeId = 'classic' | 'modern' | 'rustic' | 'elegant';
 
@@ -11,6 +16,7 @@ export interface CookbookPrintData {
   title: string;
   subtitle?: string;
   authorName: string;
+  dedication?: string;
   templateId?: string;
   trimSize: string;
   bindingType: string;
@@ -33,6 +39,10 @@ export interface CookbookPrintData {
     showTips?: boolean;
     showVariations?: boolean;
   };
+  // Custom template support
+  customTemplateData?: CustomTemplateData;
+  customFonts?: { name: string; format: string; dataUrl: string }[];
+  backgroundImage?: string;
 }
 
 export interface CoverData {
@@ -48,27 +58,6 @@ interface GeneratedPdf {
 }
 
 // --- Theme configuration matching the preview component exactly ---
-
-interface ThemeConfig {
-  bg: string;
-  bgCover: string;
-  bgBack: string;
-  titleFont: string;
-  bodyFont: string;
-  accent: string;
-  accentLight: string;
-  accentBorder: string;
-  divider: string;
-  stepNum: string;
-  badgeBg: string;
-  badgeText: string;
-  tipsBg: string;
-  tipsBorder: string;
-  tipsTitle: string;
-  tipsText: string;
-  coverDark: boolean;
-  pageNum: string;
-}
 
 const THEMES: Record<string, ThemeConfig> = {
   classic: {
@@ -212,39 +201,98 @@ function findChromiumPath(): string {
   throw new Error('Chromium executable not found. Please set PUPPETEER_EXECUTABLE_PATH environment variable.');
 }
 
+// --- Shared browser instance + generation queue ---
+
+// Launching Chromium costs seconds per PDF; a single long-lived instance with
+// one page per job is dramatically faster. If Chromium crashes or disconnects,
+// the next job relaunches it.
+let browserPromise: Promise<import('puppeteer').Browser> | null = null;
+
+async function getSharedBrowser(): Promise<import('puppeteer').Browser> {
+  if (!browserPromise) {
+    browserPromise = (async () => {
+      const puppeteer = await import('puppeteer');
+      let executablePath: string | undefined;
+      try {
+        executablePath = findChromiumPath();
+      } catch (e) {
+        // Let puppeteer use its default
+      }
+      const browser = await puppeteer.default.launch({
+        headless: true,
+        ...(executablePath ? { executablePath } : {}),
+        args: ['--no-sandbox', '--disable-setuid-sandbox'],
+      });
+      browser.on('disconnected', () => {
+        browserPromise = null;
+      });
+      return browser;
+    })();
+    browserPromise.catch(() => {
+      browserPromise = null;
+    });
+  }
+  return browserPromise;
+}
+
+/** Shut down the shared Chromium instance (tests and graceful shutdown) */
+export async function closeSharedBrowser(): Promise<void> {
+  if (!browserPromise) return;
+  const browser = await browserPromise.catch(() => null);
+  browserPromise = null;
+  await browser?.close().catch(() => {});
+}
+
+// Cap concurrent PDF renders so a burst of requests can't spawn unbounded
+// Chromium tabs; excess jobs wait their turn.
+const MAX_CONCURRENT_PDF_JOBS = 2;
+let activePdfJobs = 0;
+const pdfJobWaiters: (() => void)[] = [];
+
+async function withPdfSlot<T>(job: () => Promise<T>): Promise<T> {
+  if (activePdfJobs >= MAX_CONCURRENT_PDF_JOBS) {
+    await new Promise<void>((resolve) => pdfJobWaiters.push(resolve));
+  }
+  activePdfJobs++;
+  try {
+    return await job();
+  } finally {
+    activePdfJobs--;
+    pdfJobWaiters.shift()?.();
+  }
+}
+
 // --- Public API ---
 
 /**
  * Generate the full interior PDF for a cookbook.
  */
-export async function generateInteriorPdf(
+export function generateInteriorPdf(
   cookbookData: CookbookPrintData
 ): Promise<GeneratedPdf> {
-  const puppeteer = await import('puppeteer');
+  return withPdfSlot(() => generateInteriorPdfInner(cookbookData));
+}
 
+async function generateInteriorPdfInner(
+  cookbookData: CookbookPrintData
+): Promise<GeneratedPdf> {
   const config = getBookSizeConfig(
     cookbookData.trimSize as TrimSize,
     cookbookData.bindingType as BindingType
   );
 
-  const html = buildInteriorHtml(config, cookbookData);
+  // Inline cached fonts so generation has no network dependency (falls back
+  // to the <link> tag if the cache can't be built)
+  const html = await inlineGoogleFonts(buildInteriorHtml(config, cookbookData));
 
-  let executablePath: string | undefined;
-  try {
-    executablePath = findChromiumPath();
-  } catch (e) {
-    // Let puppeteer use its default
-  }
-
-  const browser = await puppeteer.default.launch({
-    headless: true,
-    ...(executablePath ? { executablePath } : {}),
-    args: ['--no-sandbox', '--disable-setuid-sandbox'],
-  });
+  const browser = await getSharedBrowser();
+  const page = await browser.newPage();
 
   try {
-    const page = await browser.newPage();
     await page.setContent(html, { waitUntil: 'networkidle0' });
+    // networkidle0 doesn't guarantee webfonts have been applied; without this
+    // wait, text measures/prints with the fallback font (Times)
+    await page.evaluateHandle('document.fonts.ready');
 
     // Auto-fit: scale recipe content to fit within each page
     await page.evaluate(() => {
@@ -284,19 +332,24 @@ export async function generateInteriorPdf(
       pageCount,
     };
   } finally {
-    await browser.close();
+    await page.close();
   }
 }
 
 /**
  * Generate the cover PDF for a cookbook.
  */
-export async function generateCoverPdf(
+export function generateCoverPdf(
   cookbookData: CookbookPrintData,
   pageCount: number
 ): Promise<Buffer> {
-  const puppeteer = await import('puppeteer');
+  return withPdfSlot(() => generateCoverPdfInner(cookbookData, pageCount));
+}
 
+async function generateCoverPdfInner(
+  cookbookData: CookbookPrintData,
+  pageCount: number
+): Promise<Buffer> {
   const trimSize = cookbookData.trimSize as TrimSize;
   const bindingType = cookbookData.bindingType as BindingType;
   const paperType = cookbookData.paperType as PaperType;
@@ -312,7 +365,7 @@ export async function generateCoverPdf(
 
   const coverData: CoverData = cookbookData.coverData || {};
 
-  const html = buildCoverHtml(
+  const html = await inlineGoogleFonts(buildCoverHtml(
     coverWidth,
     coverHeight,
     config.trimWidthIn,
@@ -321,24 +374,14 @@ export async function generateCoverPdf(
     wrap,
     cookbookData,
     coverData
-  );
+  ));
 
-  let executablePath: string | undefined;
-  try {
-    executablePath = findChromiumPath();
-  } catch (e) {
-    // Let puppeteer use its default
-  }
-
-  const browser = await puppeteer.default.launch({
-    headless: true,
-    ...(executablePath ? { executablePath } : {}),
-    args: ['--no-sandbox', '--disable-setuid-sandbox'],
-  });
+  const browser = await getSharedBrowser();
+  const page = await browser.newPage();
 
   try {
-    const page = await browser.newPage();
     await page.setContent(html, { waitUntil: 'networkidle0' });
+    await page.evaluateHandle('document.fonts.ready');
 
     const pdfBuffer = await page.pdf({
       width: `${coverWidth}in`,
@@ -349,7 +392,7 @@ export async function generateCoverPdf(
 
     return Buffer.from(pdfBuffer);
   } finally {
-    await browser.close();
+    await page.close();
   }
 }
 
@@ -368,13 +411,21 @@ function hasRecipeExtras(recipe: NormalizedRecipe, customizations?: CookbookPrin
 
 // --- HTML builders ---
 
-function buildInteriorHtml(
+// Exported for tests: HTML-level assertions don't need Chromium
+export function buildInteriorHtml(
   config: BookSizeConfig,
   cookbook: CookbookPrintData
 ): string {
-  const pageCSS = generatePageCSS(config);
-  const themeId = (cookbook.templateId || 'classic') as ThemeId;
-  const theme = THEMES[themeId] || THEMES.classic;
+  // Resolve theme: custom template takes priority over built-in
+  let theme: ThemeConfig;
+  if (cookbook.customTemplateData) {
+    theme = buildThemeConfigFromTemplate(cookbook.customTemplateData);
+  } else {
+    const themeId = (cookbook.templateId || 'classic') as ThemeId;
+    theme = THEMES[themeId] || THEMES.classic;
+  }
+
+  const pageCSS = generatePageCSS(config, theme);
 
   // Convert page dimensions to pixels (96 DPI for Puppeteer)
   const pageWPx = config.pageWidthWithBleed * 96;
@@ -387,8 +438,12 @@ function buildInteriorHtml(
   pages.push(buildTitlePageHtml(config, cookbook, theme, pageWPx, pageHPx));
   currentPage++;
 
-  // 2. Blank verso
-  pages.push(buildBlankPageHtml(config));
+  // 2. Dedication (or blank verso) — mirrors the preview's page order
+  if (cookbook.dedication?.trim()) {
+    pages.push(buildDedicationPageHtml(config, cookbook.dedication.trim(), theme, pageWPx));
+  } else {
+    pages.push(buildBlankPageHtml(config));
+  }
   currentPage++;
 
   // 3. TOC placeholder
@@ -474,13 +529,60 @@ function buildInteriorHtml(
   // Build TOC
   pages[tocPlaceholderIndex] = buildTocPageHtml(config, 3, tocEntries, theme, pageWPx, pageHPx);
 
+  // Build Google Fonts URL — include custom template fonts if applicable
+  let googleFontsUrl = 'https://fonts.googleapis.com/css2?family=Merriweather:ital,wght@0,300;0,400;0,700;0,900;1,300;1,400&family=Inter:wght@300;400;500;600;700;800&family=Caveat:wght@400;500;600;700&family=Lora:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,400;1,700&family=Source+Serif+Pro:ital,wght@0,300;0,400;0,600;0,700;1,300;1,400&display=swap';
+
+  if (cookbook.customTemplateData) {
+    const td = cookbook.customTemplateData;
+    const customGoogleFamilies: string[] = [];
+    if (td.fonts.heading.source === 'google') {
+      customGoogleFamilies.push(`family=${encodeURIComponent(td.fonts.heading.family)}:wght@300;400;500;600;700;800;900`);
+    }
+    if (td.fonts.body.source === 'google' && td.fonts.body.family !== td.fonts.heading.family) {
+      customGoogleFamilies.push(`family=${encodeURIComponent(td.fonts.body.family)}:wght@300;400;500;600;700;800;900`);
+    }
+    if (customGoogleFamilies.length > 0) {
+      googleFontsUrl += '&' + customGoogleFamilies.join('&');
+    }
+  }
+
+  // Build @font-face CSS for custom uploaded fonts
+  let customFontFaces = '';
+  if (cookbook.customFonts && cookbook.customFonts.length > 0) {
+    customFontFaces = cookbook.customFonts.map(f =>
+      `@font-face { font-family: '${f.name}'; src: url('${f.dataUrl}') format('${f.format}'); font-weight: normal; font-style: normal; }`
+    ).join('\n');
+  }
+
+  // Build background image CSS for pages (if custom template uses an image background)
+  let backgroundOverlayCss = '';
+  if (cookbook.customTemplateData?.background?.type === 'image' && cookbook.backgroundImage) {
+    const opacity = cookbook.customTemplateData.background.opacity ?? 0.15;
+    backgroundOverlayCss = `
+      .page::before {
+        content: '';
+        position: absolute;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background-image: url('${cookbook.backgroundImage}');
+        background-size: cover;
+        background-position: center;
+        opacity: ${opacity};
+        pointer-events: none;
+        z-index: 0;
+      }
+      .page > * { position: relative; z-index: 1; }
+    `;
+  }
+
   return `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8">
-  <link href="https://fonts.googleapis.com/css2?family=Merriweather:ital,wght@0,300;0,400;0,700;0,900;1,300;1,400&family=Inter:wght@300;400;500;600;700;800&family=Caveat:wght@400;500;600;700&family=Lora:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,400;1,700&family=Source+Serif+Pro:ital,wght@0,300;0,400;0,600;0,700;1,300;1,400&display=swap" rel="stylesheet">
+  <link href="${googleFontsUrl}" rel="stylesheet">
   <style>
+    ${customFontFaces}
     ${pageCSS}
+    ${backgroundOverlayCss}
   </style>
 </head>
 <body>
@@ -501,12 +603,36 @@ function buildCoverHtml(
 ): string {
   const backWidth = bleed + wrap + trimWidth;
 
+  // Resolve cover styling from custom template or defaults
+  const customCover = cookbook.customTemplateData?.cover;
+  const customFonts = cookbook.customTemplateData?.fonts;
+  const coverBgColor = coverData.backgroundColor || customCover?.backgroundColor || '#2c1810';
+  const coverTextColor = customCover?.textColor || '#ffffff';
+  const coverIsDark = isColorDark(coverBgColor);
+  const titleFontFamily = customCover?.titleFont
+    || (customFonts?.heading ? `'${customFonts.heading.family}', serif` : "'Merriweather', serif");
+
+  // Build Google Fonts link for cover
+  let coverFontsUrl = 'https://fonts.googleapis.com/css2?family=Merriweather:wght@400;700;900&family=Inter:wght@400;700;800&family=Playfair+Display:wght@400;700;900&display=swap';
+  if (customFonts?.heading.source === 'google') {
+    coverFontsUrl += `&family=${encodeURIComponent(customFonts.heading.family)}:wght@300;400;500;600;700;800;900`;
+  }
+
+  // Custom font @font-face rules
+  let coverFontFaces = '';
+  if (cookbook.customFonts && cookbook.customFonts.length > 0) {
+    coverFontFaces = cookbook.customFonts.map(f =>
+      `@font-face { font-family: '${f.name}'; src: url('${f.dataUrl}') format('${f.format}'); font-weight: normal; font-style: normal; }`
+    ).join('\n');
+  }
+
   return `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8">
-  <link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@400;700;900&family=Inter:wght@400;700;800&family=Playfair+Display:wght@400;700;900&display=swap" rel="stylesheet">
+  <link href="${coverFontsUrl}" rel="stylesheet">
   <style>
+    ${coverFontFaces}
     @page { size: ${totalWidth}in ${totalHeight}in; margin: 0; }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { margin: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
@@ -514,7 +640,7 @@ function buildCoverHtml(
       width: ${totalWidth}in;
       height: ${totalHeight}in;
       position: relative;
-      background-color: ${coverData.backgroundColor || '#2c1810'};
+      background-color: ${coverBgColor};
       overflow: hidden;
     }
     .back-cover {
@@ -542,9 +668,9 @@ function buildCoverHtml(
     .spine-text {
       transform: rotate(-90deg);
       white-space: nowrap;
-      font-family: 'Merriweather', serif;
+      font-family: ${titleFontFamily};
       font-size: ${spineWidth > 0.5 ? '10pt' : '8pt'};
-      color: #fff;
+      color: ${coverTextColor};
       letter-spacing: 1pt;
     }
     .front-cover {
@@ -560,32 +686,32 @@ function buildCoverHtml(
       padding: 0.5in;
     }
     .front-title {
-      font-family: 'Merriweather', serif;
+      font-family: ${titleFontFamily};
       font-size: 32pt;
       font-weight: 900;
-      color: #fff;
+      color: ${coverTextColor};
       text-align: center;
       line-height: 1.2;
       margin-bottom: 0.2in;
     }
     .front-subtitle {
-      font-family: 'Merriweather', serif;
+      font-family: ${titleFontFamily};
       font-size: 14pt;
-      color: rgba(255,255,255,0.8);
+      color: ${coverIsDark ? 'rgba(255,255,255,0.8)' : 'rgba(0,0,0,0.6)'};
       text-align: center;
       font-style: italic;
       margin-bottom: 0.3in;
     }
     .front-author {
-      font-family: 'Merriweather', serif;
+      font-family: ${titleFontFamily};
       font-size: 12pt;
-      color: rgba(255,255,255,0.9);
+      color: ${coverIsDark ? 'rgba(255,255,255,0.9)' : 'rgba(0,0,0,0.7)'};
       text-align: center;
     }
     .back-text {
-      font-family: 'Merriweather', serif;
+      font-family: ${titleFontFamily};
       font-size: 10pt;
-      color: rgba(255,255,255,0.8);
+      color: ${coverIsDark ? 'rgba(255,255,255,0.8)' : 'rgba(0,0,0,0.6)'};
       text-align: center;
       line-height: 1.6;
       max-width: 80%;
@@ -594,10 +720,13 @@ function buildCoverHtml(
 </head>
 <body>
   <div class="cover-spread">
-    ${coverData.frontImageUrl
-      ? `<img src="${coverData.frontImageUrl}" style="position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;opacity:0.3;" />`
-      : ''
-    }
+    ${(() => {
+      const imgUrl = coverData.frontImageUrl || customCover?.coverImage;
+      return imgUrl
+        ? `<img src="${imgUrl}" style="position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;opacity:0.3;" />
+           <div style="position:absolute;top:0;left:0;width:100%;height:100%;background:linear-gradient(to top, rgba(0,0,0,0.6) 0%, transparent 50%);"></div>`
+        : '';
+    })()}
     <div class="back-cover">
       ${coverData.backText ? `<p class="back-text">${escapeHtml(coverData.backText)}</p>` : ''}
     </div>
@@ -620,7 +749,7 @@ function buildCoverHtml(
 
 // --- Page CSS ---
 
-function generatePageCSS(config: BookSizeConfig): string {
+function generatePageCSS(config: BookSizeConfig, theme: ThemeConfig): string {
   return `
     @page {
       size: ${config.pageWidthWithBleed}in ${config.pageHeightWithBleed}in;
@@ -630,8 +759,11 @@ function generatePageCSS(config: BookSizeConfig): string {
     body {
       margin: 0;
       padding: 0;
+      font-family: ${theme.bodyFont};
+      color: ${theme.textColor || '#44403c'};
       -webkit-print-color-adjust: exact;
       print-color-adjust: exact;
+      text-rendering: optimizeLegibility;
     }
     .page {
       width: ${config.pageWidthWithBleed}in;
@@ -666,36 +798,61 @@ function buildTitlePageHtml(
   pageHPx: number
 ): string {
   const isDark = theme.coverDark;
-  const titleSize = Math.min(36, pageWPx * 0.06);
-  const subSize = Math.min(16, pageWPx * 0.025);
+  const titleSize = theme.fontSizes?.title ?? Math.min(36, pageWPx * 0.06);
+  const subSize = theme.fontSizes?.subtitle ?? Math.min(16, pageWPx * 0.025);
   const authorSize = Math.min(14, pageWPx * 0.022);
   const countSize = Math.min(12, pageWPx * 0.018);
   const m = 0.5 * 96; // margin in px equivalent
 
-  const coverImageUrl = cookbook.coverData?.frontImageUrl;
+  const coverImageUrl = cookbook.coverData?.frontImageUrl || cookbook.customTemplateData?.cover?.coverImage;
+  const lightText = isDark ? '#fff' : '#292524';
+  const mutedText = isDark ? 'rgba(255,255,255,0.65)' : '#57534e';
+  const faintText = isDark ? 'rgba(255,255,255,0.45)' : '#78716c';
 
-  // BookOpen SVG icon for when there's no image
-  const bookOpenSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="${Math.min(48, pageWPx * 0.1)}" height="${Math.min(48, pageWPx * 0.1)}" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>`;
+  // Uploaded cover image becomes a full-bleed backdrop behind a color scrim,
+  // like a printed dust jacket — not an inset medallion.
+  const imageBackdrop = coverImageUrl
+    ? `<img src="${coverImageUrl}" style="position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;" />
+       <div style="position:absolute;top:0;left:0;right:0;bottom:0;background:${theme.bgCover};opacity:0.82;"></div>`
+    : '';
 
-  return `<div class="page" style="width:${config.pageWidthWithBleed}in;height:${config.pageHeightWithBleed}in;background:${theme.bgCover};display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:${m / 96}in;position:relative;overflow:hidden;page-break-after:always;">
+  // Title block sits on the upper-third line; author is anchored at the foot.
+  return `<div class="page" style="width:${config.pageWidthWithBleed}in;height:${config.pageHeightWithBleed}in;background:${theme.bgCover};display:flex;flex-direction:column;align-items:center;text-align:center;padding:${m / 96}in;position:relative;overflow:hidden;page-break-after:always;">
+    ${imageBackdrop}
     <!-- Accent bars -->
     <div style="position:absolute;top:0;left:0;right:0;height:6px;background:${theme.divider};"></div>
     <div style="position:absolute;bottom:0;left:0;right:0;height:6px;background:${theme.divider};"></div>
     <!-- Border frame -->
-    <div style="position:absolute;top:${m * 0.4 / 96}in;left:${m * 0.5 / 96}in;right:${m * 0.5 / 96}in;bottom:${m * 0.4 / 96}in;border:2px solid ${isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.08)'};border-radius:8px;pointer-events:none;"></div>
+    <div style="position:absolute;top:${m * 0.4 / 96}in;left:${m * 0.5 / 96}in;right:${m * 0.5 / 96}in;bottom:${m * 0.4 / 96}in;border:1px solid ${isDark ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.12)'};pointer-events:none;"></div>
 
-    ${coverImageUrl
-      ? `<img src="${coverImageUrl}" style="width:${Math.min(120, pageWPx * 0.25)}px;height:${Math.min(120, pageWPx * 0.25)}px;border-radius:50%;object-fit:cover;margin-bottom:16px;box-shadow:0 8px 24px rgba(0,0,0,0.2);border:3px solid ${isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.1)'};" />`
-      : `<div style="width:${Math.min(96, pageWPx * 0.2)}px;height:${Math.min(96, pageWPx * 0.2)}px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:${isDark ? 'rgba(255,255,255,0.1)' : theme.accent};margin-bottom:16px;box-shadow:0 8px 24px rgba(0,0,0,0.15);">${bookOpenSvg}</div>`
-    }
-
-    <h1 style="font-family:${theme.titleFont};font-weight:700;font-size:${titleSize}px;color:${isDark ? '#fff' : '#292524'};line-height:1.2;margin-bottom:8px;">${escapeHtml(cookbook.title)}</h1>
-    ${cookbook.subtitle ? `<p style="font-style:italic;font-size:${subSize}px;max-width:70%;color:${isDark ? 'rgba(255,255,255,0.7)' : '#57534e'};margin-bottom:16px;">${escapeHtml(cookbook.subtitle)}</p>` : ''}
-
-    <div style="margin-top:auto;">
-      <p style="font-size:${authorSize}px;font-weight:500;text-transform:uppercase;letter-spacing:0.1em;color:${isDark ? 'rgba(255,255,255,0.5)' : '#78716c'};">by ${escapeHtml(cookbook.authorName)}</p>
-      <p style="font-size:${countSize}px;margin-top:4px;color:${isDark ? 'rgba(255,255,255,0.3)' : '#a8a29e'};">${cookbook.recipes.length} recipe${cookbook.recipes.length !== 1 ? 's' : ''}</p>
+    <div style="position:relative;margin-top:${config.pageHeightWithBleed * 0.22}in;display:flex;flex-direction:column;align-items:center;">
+      <p style="font-size:${countSize}px;font-weight:500;text-transform:uppercase;letter-spacing:0.35em;color:${faintText};margin-bottom:18px;">A Cookbook</p>
+      <div style="width:36px;height:1px;background:${theme.divider};margin-bottom:22px;"></div>
+      <h1 style="font-family:${theme.titleFont};font-weight:700;font-size:${titleSize}px;color:${lightText};line-height:1.15;max-width:85%;margin:0 auto 14px;">${escapeHtml(cookbook.title)}</h1>
+      ${cookbook.subtitle ? `<p style="font-style:italic;font-size:${subSize}px;max-width:70%;line-height:1.5;color:${mutedText};">${escapeHtml(cookbook.subtitle)}</p>` : ''}
     </div>
+
+    <div style="position:relative;margin-top:auto;">
+      <div style="width:36px;height:1px;background:${theme.divider};margin:0 auto 14px;"></div>
+      <p style="font-size:${authorSize}px;font-weight:500;text-transform:uppercase;letter-spacing:0.18em;color:${mutedText};">${escapeHtml(cookbook.authorName)}</p>
+      <p style="font-size:${countSize}px;margin-top:6px;letter-spacing:0.08em;color:${faintText};">${cookbook.recipes.length} recipe${cookbook.recipes.length !== 1 ? 's' : ''}</p>
+    </div>
+  </div>`;
+}
+
+// --- Dedication page (matches preview DedicationPage) ---
+
+function buildDedicationPageHtml(
+  config: BookSizeConfig,
+  dedication: string,
+  theme: ThemeConfig,
+  pageWPx: number
+): string {
+  const textSize = Math.min(15, pageWPx * 0.024);
+  return `<div class="page" style="width:${config.pageWidthWithBleed}in;height:${config.pageHeightWithBleed}in;background:${theme.bg};display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:${config.bleed + config.safetyMargin + 0.5}in;page-break-after:always;">
+    <div style="width:28px;height:1px;background:${theme.divider};margin-bottom:22px;"></div>
+    <p style="font-family:${theme.titleFont};font-style:italic;font-size:${textSize}px;line-height:1.7;color:${theme.textColor || '#57534e'};max-width:34em;">${escapeHtml(dedication)}</p>
+    <div style="width:28px;height:1px;background:${theme.divider};margin-top:22px;"></div>
   </div>`;
 }
 
@@ -709,11 +866,11 @@ function buildSectionDividerHtml(
   pageWPx: number,
   _pageHPx: number
 ): string {
-  const titleSize = Math.min(30, pageWPx * 0.05);
+  const titleSize = theme.fontSizes?.sectionTitle ?? Math.min(30, pageWPx * 0.05);
 
   return `<div class="page section-divider" style="width:${config.pageWidthWithBleed}in;height:${config.pageHeightWithBleed}in;background:${theme.bg};display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;page-break-after:always;">
     <div style="width:60px;height:2px;background:${theme.divider};margin-bottom:16px;"></div>
-    <h2 style="font-family:${theme.titleFont};font-weight:700;font-size:${titleSize}px;color:#292524;">${escapeHtml(title)}</h2>
+    <h2 style="font-family:${theme.titleFont};font-weight:700;font-size:${titleSize}px;color:${theme.titleColor || '#292524'};">${escapeHtml(title)}</h2>
     ${description ? `<p style="font-size:12pt;color:#57534e;font-style:italic;max-width:80%;line-height:1.5;margin-top:8px;">${escapeHtml(description)}</p>` : ''}
     <div style="width:60px;height:2px;background:${theme.divider};margin-top:16px;"></div>
   </div>`;
@@ -737,18 +894,25 @@ function buildTocPageHtml(
   const itemSize = Math.min(13, pageWPx * 0.021);
   const numSize = Math.min(11, pageWPx * 0.017);
 
-  const entriesHtml = entries.map((e) => `
-    <div style="display:flex;width:100%;align-items:baseline;gap:6px;padding:3px 6px;${e.isSection ? 'margin-top:12px;' : ''}">
-      ${!e.isSection ? `<span style="font-size:${numSize}px;color:#a8a29e;font-family:monospace;width:2em;flex-shrink:0;">${e.pageNumber}</span>` : ''}
-      <span style="font-size:${e.isSection ? itemSize + 2 : itemSize}px;font-weight:${e.isSection ? '700' : '400'};color:${e.isSection ? '#292524' : '#44403c'};flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(e.title)}</span>
-      ${!e.isSection ? `<span style="font-size:${numSize}px;color:#a8a29e;flex-shrink:0;">p.${e.pageNumber}</span>` : ''}
-    </div>
-  `).join('');
+  const titleColor = theme.titleColor || '#292524';
+  const textColor = theme.textColor || '#44403c';
 
-  return `<div class="page" style="width:${config.pageWidthWithBleed}in;height:${config.pageHeightWithBleed}in;background:${theme.bg};padding-top:${config.bleed + config.safetyMargin}in;padding-bottom:${config.bleed + config.safetyMargin}in;padding-left:${config.bleed + pl}in;padding-right:${config.bleed + pr}in;page-break-after:always;">
-    <div style="text-align:center;margin-bottom:12px;">
-      <h2 style="font-family:${theme.titleFont};font-weight:700;font-size:${titleSize}px;color:#292524;margin-bottom:4px;">Table of Contents</h2>
-      <div style="width:48px;height:2px;background:${theme.divider};margin:0 auto;"></div>
+  const entriesHtml = entries.map((e) => e.isSection
+    ? `<div style="display:flex;width:100%;align-items:baseline;gap:8px;margin-top:18px;margin-bottom:4px;">
+        <span style="font-family:${theme.titleFont};font-size:${itemSize + 2}px;font-weight:700;color:${titleColor};flex-shrink:0;">${escapeHtml(e.title)}</span>
+        <span style="flex:1;border-bottom:1px solid ${theme.accentBorder};transform:translateY(-3px);"></span>
+      </div>`
+    : `<div style="display:flex;width:100%;align-items:baseline;gap:8px;padding:3px 0;">
+        <span style="font-size:${itemSize}px;color:${textColor};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(e.title)}</span>
+        <span style="flex:1;border-bottom:1px dotted #c7c0b4;transform:translateY(-3px);min-width:24px;"></span>
+        <span style="font-size:${numSize}px;color:#a8a29e;flex-shrink:0;">${e.pageNumber}</span>
+      </div>`
+  ).join('');
+
+  return `<div class="page" style="width:${config.pageWidthWithBleed}in;height:${config.pageHeightWithBleed}in;background:${theme.bg};padding-top:${config.bleed + config.safetyMargin + 0.35}in;padding-bottom:${config.bleed + config.safetyMargin}in;padding-left:${config.bleed + pl}in;padding-right:${config.bleed + pr}in;page-break-after:always;">
+    <div style="text-align:center;margin-bottom:28px;">
+      <h2 style="font-family:${theme.titleFont};font-weight:700;font-size:${titleSize}px;color:${titleColor};margin-bottom:8px;">Contents</h2>
+      <div style="width:36px;height:1px;background:${theme.divider};margin:0 auto;"></div>
     </div>
     ${entriesHtml}
   </div>`;
@@ -774,24 +938,30 @@ function buildRecipePageHtml(
   const showImage = layout !== 'text-only' && recipe.imageUrl;
   const imageHeightPct = showImage ? 30 : 0; // 30% of page height for image
 
-  // Dynamic font sizes based on page width
-  const titleSize = Math.min(20, pageWPx * 0.035);
-  const bodySize = Math.min(11.5, pageWPx * 0.019);
+  const titleColor = theme.titleColor || '#292524';
+  const textColor = theme.textColor || '#44403c';
+
+  // Dynamic font sizes based on page width, overridable by custom templates
+  const titleSize = theme.fontSizes?.recipeTitle ?? Math.min(20, pageWPx * 0.035);
+  const bodySize = theme.fontSizes?.body ?? Math.min(11.5, pageWPx * 0.019);
   const labelSize = Math.min(10, pageWPx * 0.016);
   const pageNumSize = Math.min(9, pageWPx * 0.014);
 
-  // Compute available content area in inches for auto-fit
-  const contentTopIn = showImage ? padTop + (config.pageHeightWithBleed * imageHeightPct / 100) * 0.3 : padTop;
+  // Compute available content area in inches for auto-fit; with an image the
+  // content block starts flush at the image's bottom edge (imageHeightPct of page)
+  const contentTopIn = showImage ? config.pageHeightWithBleed * imageHeightPct / 100 : padTop;
   const availHIn = config.pageHeightWithBleed - contentTopIn - padBottom;
   const availWIn = config.pageWidthWithBleed - padLeft - padRight;
   const availHPx = availHIn * 96;
   const availWPx = availWIn * 96;
 
-  // Build image header HTML
+  // Full-bleed image header; outer corners are trimmed at bleed, so a custom
+  // imageRadius only applies to the interior (bottom) corners
+  const imageRadiusCss = theme.imageRadius ? `border-radius:0 0 ${theme.imageRadius} ${theme.imageRadius};` : '';
   let imageHtml = '';
   if (showImage) {
     imageHtml = `
-      <div style="position:relative;width:100%;height:${imageHeightPct}%;overflow:hidden;">
+      <div style="position:relative;width:100%;height:${imageHeightPct}%;overflow:hidden;${imageRadiusCss}">
         <img src="${recipe.imageUrl}" style="width:100%;height:100%;object-fit:cover;display:block;" />
         <div style="position:absolute;top:0;left:0;right:0;bottom:0;background:linear-gradient(to top, rgba(0,0,0,0.65) 0%, transparent 60%);"></div>
         <div style="position:absolute;bottom:0;left:0;right:0;padding:12px ${padRight}in 10px ${padLeft}in;">
@@ -803,7 +973,7 @@ function buildRecipePageHtml(
   // Title (when no image)
   const titleHtml = !showImage ? `
     <div style="margin-bottom:6px;">
-      <h2 style="font-family:${theme.titleFont};font-weight:700;font-size:${titleSize}px;color:#292524;line-height:1.2;">${escapeHtml(recipe.title)}</h2>
+      <h2 style="font-family:${theme.titleFont};font-weight:700;font-size:${titleSize}px;color:${titleColor};line-height:1.2;">${escapeHtml(recipe.title)}</h2>
       <div style="width:40px;height:2px;background:${theme.divider};margin-top:4px;"></div>
     </div>` : '';
 
@@ -824,16 +994,16 @@ function buildRecipePageHtml(
 
   // Ingredients column
   const ingredientsItems = recipe.ingredients.map((g) => {
-    const headingHtml = g.heading ? `<p style="font-size:${bodySize}px;font-weight:600;color:#1c1917;margin-bottom:1px;margin-top:4px;">${escapeHtml(g.heading)}</p>` : '';
+    const headingHtml = g.heading ? `<p style="font-size:${bodySize}px;font-weight:600;color:${titleColor};margin-bottom:1px;margin-top:4px;">${escapeHtml(g.heading)}</p>` : '';
     const itemsHtml = g.items.map((item) =>
-      `<div style="font-size:${bodySize}px;color:#44403c;line-height:1.35;margin-bottom:1px;">${escapeHtml(item)}</div>`
+      `<div style="font-size:${bodySize}px;color:${textColor};line-height:1.35;margin-bottom:1px;">${escapeHtml(item)}</div>`
     ).join('');
     return headingHtml + itemsHtml;
   }).join('');
 
   // Instructions column with colored step numbers
   const instructionsHtml = recipe.instructions.map((s, idx) =>
-    `<div style="font-size:${bodySize}px;color:#44403c;display:flex;gap:5px;line-height:1.4;margin-bottom:3px;">
+    `<div style="font-size:${bodySize}px;color:${textColor};display:flex;gap:5px;line-height:1.4;margin-bottom:3px;">
       <span style="font-weight:700;color:${theme.stepNum};flex-shrink:0;">${idx + 1}.</span>
       <span>${escapeHtml(s.text)}</span>
     </div>`
@@ -852,11 +1022,11 @@ function buildRecipePageHtml(
       <!-- Two-column grid: ingredients + instructions -->
       <div style="display:grid;grid-template-columns:1fr 1.6fr;gap:12px;">
         <div>
-          <h3 style="font-size:${labelSize}px;font-weight:700;color:#292524;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px;">Ingredients</h3>
+          <h3 style="font-size:${labelSize}px;font-weight:700;color:${titleColor};text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px;">Ingredients</h3>
           ${ingredientsItems}
         </div>
         <div>
-          <h3 style="font-size:${labelSize}px;font-weight:700;color:#292524;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px;">Instructions</h3>
+          <h3 style="font-size:${labelSize}px;font-weight:700;color:${titleColor};text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px;">Instructions</h3>
           ${instructionsHtml}
         </div>
       </div>
@@ -897,7 +1067,7 @@ function buildRecipeExtrasPageHtml(
   const availHIn = config.pageHeightWithBleed - padTop - padBottom;
 
   const titleSize = Math.min(16, pageWPx * 0.028);
-  const bodySize = Math.min(12, pageWPx * 0.02);
+  const bodySize = theme.fontSizes?.body ?? Math.min(12, pageWPx * 0.02);
   const labelSize = Math.min(10, pageWPx * 0.016);
   const pageNumSize = Math.min(9, pageWPx * 0.014);
 
@@ -980,7 +1150,7 @@ function buildRecipeExtrasPageHtml(
       ${tipsHtml}
       ${variationsHtml}
       <!-- Page number -->
-      <div style="text-align:center;font-size:${pageNumSize}px;color:${theme.pageNum};margin-top:8px;padding-top:4px;">${pageNumber} (continued)</div>
+      <div style="text-align:center;font-size:${pageNumSize}px;color:${theme.pageNum};margin-top:8px;padding-top:4px;">${pageNumber}</div>
     </div>
   </div>`;
 }
@@ -994,7 +1164,9 @@ function buildBackPageHtml(
   pageWPx: number,
   _pageHPx: number
 ): string {
-  const isDark = theme.coverDark;
+  // Text contrast must follow the back page's own background — custom templates
+  // often pair a dark cover with a light back (built-in gradients fall back to coverDark)
+  const isDark = theme.bgBack.startsWith('#') ? isColorDark(theme.bgBack) : theme.coverDark;
   const m = 0.5; // margin in inches
 
   const bookOpenSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="${Math.min(64, pageWPx * 0.12)}" height="${Math.min(64, pageWPx * 0.12)}" viewBox="0 0 24 24" fill="none" stroke="${isDark ? 'rgba(255,255,255,0.15)' : '#d6d3d1'}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>`;

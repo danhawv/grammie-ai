@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, real, jsonb, boolean, timestamp, serial, unique, primaryKey, index } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, real, jsonb, boolean, timestamp, serial, unique, uniqueIndex, primaryKey, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { relations } from "drizzle-orm";
@@ -405,6 +405,7 @@ export const recipes = pgTable("recipes", {
   // Images
   dishImage: text("dish_image"),
   dishImageThumbnail: text("dish_image_thumbnail"), // 256x256 thumbnail (~150KB) for list views
+  dishImagePrint: text("dish_image_print"), // ~1800px JPEG (~300KB) derivative for 300-DPI print output
   dishImages: jsonb("dish_images").$type<Array<{
     id: string;
     url: string;
@@ -573,6 +574,92 @@ export const preflightWarningSchema = z.object({
 
 export type PreflightWarning = z.infer<typeof preflightWarningSchema>;
 
+// ============================================================================
+// CUSTOM TEMPLATES
+// ============================================================================
+
+const hexColorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Must be a hex color like #aabbcc');
+
+export const customTemplateDataSchema = z.object({
+  fonts: z.object({
+    heading: z.object({
+      family: z.string(),
+      weight: z.string().optional().default('700'),
+      source: z.enum(['google', 'custom']).default('google'),
+    }),
+    body: z.object({
+      family: z.string(),
+      weight: z.string().optional().default('400'),
+      source: z.enum(['google', 'custom']).default('google'),
+    }),
+  }),
+  colors: z.object({
+    titleColor: hexColorSchema,
+    subtitleColor: hexColorSchema,
+    textColor: hexColorSchema,
+    accentColor: hexColorSchema,
+    borderColor: hexColorSchema,
+    bgColor: hexColorSchema,
+    sectionBg: hexColorSchema,
+  }),
+  cover: z.object({
+    backgroundColor: z.string().optional(),
+    textColor: z.string().optional(),
+    titleFont: z.string().nullable().optional(),
+    // Base64 data URL; ~2.8M chars ≈ 2MB binary, matching the upload endpoint limit
+    coverImage: z.string().max(2_800_000, 'coverImage exceeds the 2MB limit').nullable().optional(),
+  }).optional(),
+  background: z.object({
+    type: z.enum(['solid', 'image']).default('solid'),
+    value: z.string(), // hex color or reference to background_image column
+    opacity: z.number().min(0).max(1).default(0.15),
+  }).optional(),
+  decorative: z.object({
+    imageRadius: z.string().optional().default('4px'),
+    dividerStyle: z.enum(['solid', 'dashed', 'dotted', 'double', 'none']).optional().default('solid'),
+    borderWidth: z.string().optional().default('2px'),
+  }).optional(),
+  fontSizes: z.object({
+    title: z.string().optional(),
+    subtitle: z.string().optional(),
+    sectionTitle: z.string().optional(),
+    recipeTitle: z.string().optional(),
+    body: z.string().optional(),
+  }).optional(),
+});
+
+export type CustomTemplateData = z.infer<typeof customTemplateDataSchema>;
+
+export const customTemplates = pgTable("custom_templates", {
+  id: serial("id").primaryKey(),
+  ownerUserId: varchar("owner_user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  name: text("name").notNull(),
+  description: text("description"),
+  thumbnail: text("thumbnail"), // auto-generated preview (base64 data URL)
+  isPublic: boolean("is_public").default(false),
+  templateData: jsonb("template_data").$type<CustomTemplateData>().notNull(),
+  customFonts: jsonb("custom_fonts").$type<{ name: string; format: string; dataUrl: string }[]>(),
+  backgroundImage: text("background_image"), // uploaded texture/pattern (base64 data URL)
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  ownerUserIdIdx: index("custom_templates_owner_user_id_idx").on(table.ownerUserId),
+  isPublicIdx: index("custom_templates_is_public_idx").on(table.isPublic),
+}));
+
+export const insertCustomTemplateSchema = createInsertSchema(customTemplates).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertCustomTemplate = z.infer<typeof insertCustomTemplateSchema>;
+export type CustomTemplate = typeof customTemplates.$inferSelect;
+
+// ============================================================================
+// COOKBOOK PRINT PROJECTS
+// ============================================================================
+
 export const cookbookPrintProjects = pgTable("cookbook_print_projects", {
   id: serial("id").primaryKey(),
   cookbookId: integer("cookbook_id").notNull().references(() => cookbooks.id, { onDelete: 'cascade' }),
@@ -583,6 +670,9 @@ export const cookbookPrintProjects = pgTable("cookbook_print_projects", {
   
   // Template style: 'classic' | 'modern' | 'rustic' | 'elegant'
   templateStyle: varchar("template_style", { length: 50 }).$type<'classic' | 'modern' | 'rustic' | 'elegant'>().notNull().default('classic'),
+
+  // Custom template (takes precedence over templateStyle when set)
+  customTemplateId: integer("custom_template_id").references(() => customTemplates.id, { onDelete: 'set null' }),
 
   // Print specifications (from Lulu POD config)
   trimSize: varchar("trim_size", { length: 20 }).notNull().default('0600X0900'),
@@ -804,7 +894,7 @@ export const pantryItems = pgTable("pantry_items", {
   unit: text("unit"), // Optional unit (e.g., "cups", "count", "lbs")
   
   // Source tracking
-  source: text("source").$type<'manual' | 'ai_vision'>().default('manual').notNull(),
+  source: text("source").$type<'manual' | 'ai_vision' | 'voice' | 'grocery'>().default('manual').notNull(),
   
   // Organization
   category: text("category"), // e.g., "Dairy", "Produce", "Pantry"
@@ -853,6 +943,24 @@ export const pantryScanSessions = pgTable("pantry_scan_sessions", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
   completedAt: timestamp("completed_at"),
 });
+
+// ============================================================================
+// PANTRY_STAPLES TABLE (items user always wants stocked)
+// ============================================================================
+export const pantryStaples = pgTable("pantry_staples", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  name: text("name").notNull(),
+  normalizedName: text("normalized_name").notNull(),
+  category: text("category"),
+  emoji: text("emoji"),
+  minQuantity: real("min_quantity"),
+  preferredUnit: text("preferred_unit"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  userIdIdx: index("pantry_staples_user_id_idx").on(table.userId),
+  uniqueUserItem: uniqueIndex("pantry_staples_user_item_idx").on(table.userId, table.normalizedName),
+}));
 
 // ============================================================================
 // GROCERY_LIST_SHARES TABLE (shareable links for grocery lists)
@@ -1169,6 +1277,13 @@ export const pantryItemsRelations = relations(pantryItems, ({ one }) => ({
 export const pantryScanSessionsRelations = relations(pantryScanSessions, ({ one }) => ({
   user: one(users, {
     fields: [pantryScanSessions.userId],
+    references: [users.id],
+  }),
+}));
+
+export const pantryStaplesRelations = relations(pantryStaples, ({ one }) => ({
+  user: one(users, {
+    fields: [pantryStaples.userId],
     references: [users.id],
   }),
 }));
@@ -1497,6 +1612,11 @@ export const insertPantryScanSessionSchema = createInsertSchema(pantryScanSessio
 });
 export type InsertPantryScanSession = z.infer<typeof insertPantryScanSessionSchema>;
 export type PantryScanSession = typeof pantryScanSessions.$inferSelect;
+
+// Pantry Staples
+export const insertPantryStapleSchema = createInsertSchema(pantryStaples);
+export type PantryStaple = typeof pantryStaples.$inferSelect;
+export type InsertPantryStaple = z.infer<typeof insertPantryStapleSchema>;
 
 // Grocery List Shares
 export const insertGroceryListShareSchema = createInsertSchema(groceryListShares).omit({

@@ -6,7 +6,9 @@ import {
   X, ChevronLeft, ChevronRight, ZoomIn, ZoomOut,
   Ruler, BookOpen, Info,
 } from "lucide-react";
-import type { PrintLayoutData } from "@shared/schema";
+import type { PrintLayoutData, CustomTemplateData } from "@shared/schema";
+import { buildThemeConfigFromTemplate, isColorDark, type ThemeConfig } from "@shared/template-theme";
+import { formatIngredientQuantity } from "@shared/print-format";
 import { BOOK_SIZES, type TrimSizeId } from "@/lib/print-constants";
 
 // --- Constants ---
@@ -48,6 +50,8 @@ interface CookbookPrintPreviewProps {
   templateStyle: 'classic' | 'modern' | 'rustic' | 'elegant';
   cookbookId: number;
   trimSize?: string;
+  customTemplateData?: CustomTemplateData | null;
+  customFonts?: { name: string; format: string; dataUrl: string }[] | null;
 }
 
 // --- Theme configurations ---
@@ -138,7 +142,6 @@ const THEMES = {
   },
 };
 
-type ThemeConfig = typeof THEMES['classic'];
 
 // --- Helpers ---
 function formatTime(minutes: number | null | undefined): string {
@@ -149,27 +152,6 @@ function formatTime(minutes: number | null | undefined): string {
   return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
 }
 
-function formatQuantity(quantity: number | undefined, unit: string | undefined): string {
-  if (!quantity) return "";
-  const fractionMap: Record<number, string> = {
-    0.25: "1/4", 0.33: "1/3", 0.5: "1/2", 0.66: "2/3", 0.75: "3/4",
-    0.125: "1/8", 0.375: "3/8", 0.625: "5/8", 0.875: "7/8",
-  };
-  const whole = Math.floor(quantity);
-  const decimal = quantity - whole;
-  let quantityStr = "";
-  if (whole > 0) quantityStr = whole.toString();
-  const closestFraction = Object.keys(fractionMap)
-    .map(Number)
-    .find(f => Math.abs(decimal - f) < 0.05);
-  if (closestFraction) {
-    quantityStr += (whole > 0 ? " " : "") + fractionMap[closestFraction];
-  } else if (decimal > 0) {
-    quantityStr = quantity.toFixed(1).replace(/\.0$/, "");
-  }
-  if (unit) quantityStr += ` ${unit}`;
-  return quantityStr.trim();
-}
 
 // --- Page types ---
 type PageContent =
@@ -189,12 +171,63 @@ export function CookbookPrintPreview({
   templateStyle,
   cookbookId,
   trimSize: trimSizeProp,
+  customTemplateData,
+  customFonts,
 }: CookbookPrintPreviewProps) {
   const [currentPage, setCurrentPage] = useState(0);
   const [zoom, setZoom] = useState(0.85);
   const [showGuides, setShowGuides] = useState(false);
 
-  const theme = THEMES[templateStyle] || THEMES.classic;
+  // Use custom template theme if provided, otherwise fall back to built-in
+  const theme: ThemeConfig = useMemo(() => {
+    if (customTemplateData) {
+      return buildThemeConfigFromTemplate(customTemplateData);
+    }
+    return THEMES[templateStyle] || THEMES.classic;
+  }, [customTemplateData, templateStyle]);
+
+  // Dynamically load Google Fonts for custom template
+  useEffect(() => {
+    if (!customTemplateData || !open) return;
+    const fonts = customTemplateData.fonts;
+    const families: string[] = [];
+    if (fonts.heading.source === 'google') families.push(fonts.heading.family);
+    if (fonts.body.source === 'google' && fonts.body.family !== fonts.heading.family) families.push(fonts.body.family);
+    if (families.length === 0) return;
+
+    const linkId = 'custom-template-preview-fonts';
+    let link = document.getElementById(linkId) as HTMLLinkElement | null;
+    const url = `https://fonts.googleapis.com/css2?${families.map(f => `family=${encodeURIComponent(f)}:wght@300;400;500;600;700;800;900`).join('&')}&display=swap`;
+
+    if (link) {
+      link.href = url;
+    } else {
+      link = document.createElement('link');
+      link.id = linkId;
+      link.rel = 'stylesheet';
+      link.href = url;
+      document.head.appendChild(link);
+    }
+  }, [customTemplateData, open]);
+
+  // Inject @font-face rules for uploaded custom fonts (mirrors the PDF generator)
+  useEffect(() => {
+    const styleId = 'custom-template-preview-font-faces';
+    const existing = document.getElementById(styleId);
+    if (!open || !customFonts?.length) {
+      existing?.remove();
+      return;
+    }
+    const style = existing instanceof HTMLStyleElement
+      ? existing
+      : document.createElement('style');
+    style.id = styleId;
+    style.textContent = customFonts.map(f =>
+      `@font-face { font-family: '${f.name}'; src: url('${f.dataUrl}') format('${f.format}'); font-weight: normal; font-style: normal; }`
+    ).join('\n');
+    if (!style.isConnected) document.head.appendChild(style);
+  }, [customFonts, open]);
+
   const sizeId = (trimSizeProp || '0600X0900') as TrimSizeId;
   const bookSize = BOOK_SIZES[sizeId] || BOOK_SIZES['0600X0900'];
 
@@ -280,6 +313,15 @@ export function CookbookPrintPreview({
   }, [orderedRecipes, layoutData, hasExtras]);
 
   const totalPages = pages.length;
+
+  // Preview page number for each recipe, so the TOC matches the printed book
+  const recipePageNumbers = useMemo(() => {
+    const map = new Map<number, number>();
+    pages.forEach((p, i) => {
+      if (p.type === 'recipe') map.set(p.index, i + 1);
+    });
+    return map;
+  }, [pages]);
 
   // Keyboard navigation
   useEffect(() => {
@@ -399,10 +441,12 @@ export function CookbookPrintPreview({
                   overflow: 'hidden',
                   boxShadow: '0 25px 60px -12px rgba(0,0,0,0.5), 0 0 0 1px rgba(0,0,0,0.15)',
                   background: '#fff',
+                  fontFamily: theme.bodyFont,
+                  color: theme.textColor || '#44403c',
                 }}
               >
                 {page?.type === "cover" && (
-                  <CoverPage layoutData={layoutData} theme={theme} recipes={orderedRecipes} w={pageW} h={pageH} />
+                  <CoverPage layoutData={layoutData} theme={theme} recipes={orderedRecipes} w={pageW} h={pageH} customTemplateData={customTemplateData} />
                 )}
                 {page?.type === "dedication" && (
                   <DedicationPage dedication={layoutData.dedication || ''} theme={theme} w={pageW} h={pageH} />
@@ -410,6 +454,7 @@ export function CookbookPrintPreview({
                 {page?.type === "toc" && (
                   <TocPage
                     recipes={orderedRecipes}
+                    pageNumbers={recipePageNumbers}
                     theme={theme}
                     onGoToRecipe={(i) => {
                       const idx = pages.findIndex(p => p.type === 'recipe' && (p as any).index === i);
@@ -578,14 +623,16 @@ function AutoFitPage({
 // Page Components
 // ============================================================================
 
-function CoverPage({ layoutData, theme, recipes, w, h }: {
+function CoverPage({ layoutData, theme, recipes, w, h, customTemplateData }: {
   layoutData: PrintLayoutData; theme: ThemeConfig; recipes: Recipe[];
-  w: number; h: number;
+  w: number; h: number; customTemplateData?: CustomTemplateData | null;
 }) {
   const m = MARGIN_OUTER * DPI;
   const isDark = theme.coverDark;
-  const titleSize = Math.min(36, w * 0.06);
-  const subSize = Math.min(16, w * 0.025);
+  const titleSize = theme.fontSizes?.title ?? Math.min(36, w * 0.06);
+  const subSize = theme.fontSizes?.subtitle ?? Math.min(16, w * 0.025);
+
+  const coverImageUrl = layoutData?.coverData?.frontImageUrl || layoutData?.coverImage || customTemplateData?.cover?.coverImage;
 
   return (
     <div style={{
@@ -593,14 +640,31 @@ function CoverPage({ layoutData, theme, recipes, w, h }: {
       display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
       textAlign: 'center', padding: m, position: 'relative', overflow: 'hidden',
     }}>
+      {/* Full-page cover image overlay (from custom template) */}
+      {customTemplateData?.cover?.coverImage && !layoutData?.coverData?.frontImageUrl && (
+        <>
+          <img
+            src={customTemplateData.cover.coverImage}
+            alt=""
+            style={{
+              position: 'absolute', inset: 0, width: '100%', height: '100%',
+              objectFit: 'cover', opacity: 0.3,
+            }}
+          />
+          <div style={{
+            position: 'absolute', inset: 0,
+            background: 'linear-gradient(to top, rgba(0,0,0,0.6) 0%, transparent 50%)',
+          }} />
+        </>
+      )}
       {/* Accent bars */}
-      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 6, background: theme.divider }} />
-      <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 6, background: theme.divider }} />
+      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 6, background: theme.divider, zIndex: 1 }} />
+      <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 6, background: theme.divider, zIndex: 1 }} />
       {/* Border frame */}
       <div style={{
         position: 'absolute', top: m * 0.4, left: m * 0.5, right: m * 0.5, bottom: m * 0.4,
         border: `2px solid ${isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.08)'}`,
-        borderRadius: 8, pointerEvents: 'none',
+        borderRadius: 8, pointerEvents: 'none', zIndex: 1,
       }} />
 
       {layoutData?.coverImage || layoutData?.coverData?.frontImageUrl ? (
@@ -612,6 +676,7 @@ function CoverPage({ layoutData, theme, recipes, w, h }: {
             borderRadius: '50%', objectFit: 'cover', marginBottom: 16,
             boxShadow: '0 8px 24px rgba(0,0,0,0.2)',
             border: `3px solid ${isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.1)'}`,
+            position: 'relative', zIndex: 2,
           }}
         />
       ) : (
@@ -680,8 +745,8 @@ function DedicationPage({ dedication, theme, w, h }: {
   );
 }
 
-function TocPage({ recipes, theme, onGoToRecipe, w, h }: {
-  recipes: Recipe[]; theme: ThemeConfig;
+function TocPage({ recipes, pageNumbers, theme, onGoToRecipe, w, h }: {
+  recipes: Recipe[]; pageNumbers: Map<number, number>; theme: ThemeConfig;
   onGoToRecipe: (i: number) => void; w: number; h: number;
 }) {
   const titleSize = Math.min(22, w * 0.038);
@@ -690,14 +755,14 @@ function TocPage({ recipes, theme, onGoToRecipe, w, h }: {
 
   return (
     <AutoFitPage w={w} h={h} bg={theme.bg}>
-      <div style={{ textAlign: 'center', marginBottom: 12 }}>
+      <div style={{ textAlign: 'center', marginTop: 24, marginBottom: 28 }}>
         <h2 style={{
           fontFamily: theme.titleFont, fontWeight: 700,
-          fontSize: titleSize, color: '#292524', marginBottom: 4,
+          fontSize: titleSize, color: theme.titleColor || '#292524', marginBottom: 8,
         }}>
-          Table of Contents
+          Contents
         </h2>
-        <div style={{ width: 48, height: 2, background: theme.divider, margin: '0 auto' }} />
+        <div style={{ width: 36, height: 1, background: theme.divider, margin: '0 auto' }} />
       </div>
 
       {recipes.map((recipe, idx) => (
@@ -705,21 +770,19 @@ function TocPage({ recipes, theme, onGoToRecipe, w, h }: {
           key={String(recipe.id)}
           onClick={() => onGoToRecipe(idx)}
           style={{
-            display: 'flex', width: '100%', alignItems: 'baseline', gap: 6,
-            padding: '3px 6px', borderRadius: 4, border: 'none', background: 'transparent',
-            cursor: 'pointer', textAlign: 'left',
+            display: 'flex', width: '100%', alignItems: 'baseline', gap: 8,
+            padding: '3px 0', border: 'none', background: 'transparent',
+            cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit',
           }}
           onMouseEnter={(e) => e.currentTarget.style.background = theme.accentLight}
           onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
         >
-          <span style={{ fontSize: numSize, color: '#a8a29e', fontFamily: 'monospace', width: '2em', flexShrink: 0 }}>
-            {idx + 1}
-          </span>
-          <span style={{ fontSize: itemSize, color: '#44403c', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <span style={{ fontSize: itemSize, color: theme.textColor || '#44403c', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {recipe.title}
           </span>
+          <span style={{ flex: 1, borderBottom: '1px dotted #c7c0b4', transform: 'translateY(-3px)', minWidth: 24 }} />
           <span style={{ fontSize: numSize, color: '#a8a29e', flexShrink: 0 }}>
-            {formatTime(recipe.totalTimeMinutes || recipe.cookTimeMinutes)}
+            {pageNumbers.get(idx) ?? ''}
           </span>
         </button>
       ))}
@@ -739,7 +802,7 @@ function SectionDividerPage({ title, theme, w, h }: {
       <div style={{ width: 60, height: 2, background: theme.divider, marginBottom: 16 }} />
       <h2 style={{
         fontFamily: theme.titleFont, fontWeight: 700,
-        fontSize: Math.min(30, w * 0.05), color: '#292524',
+        fontSize: theme.fontSizes?.sectionTitle ?? Math.min(30, w * 0.05), color: theme.titleColor || '#292524',
       }}>
         {title}
       </h2>
@@ -776,9 +839,9 @@ function RecipePage({ recipe, index, theme, w, h, includePhoto }: {
       typeof text === 'string' ? { stepNumber: i + 1, text } : text
     );
 
-  // Dynamic font sizes based on page width
-  const titleSize = Math.min(20, w * 0.035);
-  const bodySize = Math.min(11.5, w * 0.019);
+  // Dynamic font sizes based on page width, overridable by custom templates
+  const titleSize = theme.fontSizes?.recipeTitle ?? Math.min(20, w * 0.035);
+  const bodySize = theme.fontSizes?.body ?? Math.min(11.5, w * 0.019);
   const labelSize = Math.min(10, w * 0.016);
   const pageNumSize = Math.min(9, w * 0.014);
 
@@ -793,9 +856,12 @@ function RecipePage({ recipe, index, theme, w, h, includePhoto }: {
 
   return (
     <div style={{ width: w, height: h, background: theme.bg, overflow: 'hidden', position: 'relative' }}>
-      {/* Image header */}
+      {/* Image header — full-bleed, so a custom imageRadius only applies to the interior (bottom) corners */}
       {hasImage && (
-        <div style={{ position: 'relative', width: w, height: imageH, overflow: 'hidden' }}>
+        <div style={{
+          position: 'relative', width: w, height: imageH, overflow: 'hidden',
+          borderRadius: theme.imageRadius ? `0 0 ${theme.imageRadius} ${theme.imageRadius}` : undefined,
+        }}>
           <img
             src={imageUrl}
             alt={recipe.title}
@@ -888,7 +954,7 @@ function RecipePage({ recipe, index, theme, w, h, includePhoto }: {
               Ingredients
             </h3>
             {ingredients.map((ing: any, idx: number) => {
-              const qty = formatQuantity(ing.quantity, ing.unit);
+              const qty = formatIngredientQuantity(ing.quantity, ing.unit);
               return (
                 <div key={idx} style={{
                   fontSize: bodySize, color: '#44403c', display: 'flex', gap: 3,
@@ -946,7 +1012,7 @@ function RecipeExtrasPage({ recipe, index, theme, w, h, showNutrition, showTips,
   showNutrition: boolean; showTips: boolean; showVariations: boolean;
 }) {
   const titleSize = Math.min(16, w * 0.028);
-  const bodySize = Math.min(12, w * 0.02);
+  const bodySize = theme.fontSizes?.body ?? Math.min(12, w * 0.02);
   const labelSize = Math.min(10, w * 0.016);
   const sectionGap = 16;
 
@@ -1062,7 +1128,7 @@ function RecipeExtrasPage({ recipe, index, theme, w, h, showNutrition, showTips,
         textAlign: 'center', fontSize: Math.min(9, w * 0.014), color: theme.pageNum,
         marginTop: 'auto', paddingTop: 8,
       }}>
-        {index + 1} (continued)
+        {index + 1}
       </div>
     </AutoFitPage>
   );
@@ -1072,7 +1138,8 @@ function BackPage({ layoutData, theme, w, h }: {
   layoutData: PrintLayoutData; theme: ThemeConfig; w: number; h: number;
 }) {
   const m = MARGIN_OUTER * DPI;
-  const isDark = theme.coverDark;
+  // Contrast follows the back page's own background, not the cover's
+  const isDark = theme.bgBack.startsWith('#') ? isColorDark(theme.bgBack) : theme.coverDark;
 
   return (
     <div style={{

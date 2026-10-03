@@ -168,6 +168,34 @@ router.delete("/grocery-list/items/:itemId", isAuthenticated, async (req: any, r
   }
 });
 
+// Checkout grocery items (remove from list, optionally add to pantry)
+router.post("/grocery-list/items/checkout", isAuthenticated, async (req: any, res) => {
+  try {
+    const userId = getUserId(req);
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+    const checkoutSchema = z.object({
+      itemIds: z.array(z.string()).min(1, "At least one item ID is required"),
+      addToPantry: z.boolean(),
+    });
+
+    const { itemIds, addToPantry } = checkoutSchema.parse(req.body);
+
+    await storage.checkoutGroceryItems(userId, itemIds, addToPantry);
+    res.json({
+      message: `${itemIds.length} item${itemIds.length !== 1 ? 's' : ''} checked out${addToPantry ? ' and added to pantry' : ''}`,
+      checkedOut: itemIds.length,
+      addedToPantry: addToPantry,
+    });
+  } catch (error) {
+    console.error("Error checking out grocery items:", error);
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: "Invalid request data", details: error.errors });
+    }
+    res.status(400).json({ error: (error as Error).message || "Failed to checkout items" });
+  }
+});
+
 // Clear all items from the grocery list
 router.delete("/grocery-list", isAuthenticated, async (req: any, res) => {
   try {

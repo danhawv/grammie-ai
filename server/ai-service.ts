@@ -1424,5 +1424,219 @@ Only return the JSON array, no other text.`;
   }));
 }
 
+// ============ AI Recipe Generation (Recipe Creator) ============
+
+export interface RecipeConceptRequest {
+  prompt: string;
+  specifiedIngredients?: string[];
+  pantryItems: string[];
+  dietaryRestrictions?: string[];
+  dislikedIngredients?: string[];
+}
+
+export interface RecipeConcept {
+  title: string;
+  description: string;
+  cuisine?: string;
+  difficulty?: string;
+  estimatedTimeMinutes: number;
+  keyIngredients: string[];
+  whyItWorks: string;
+}
+
+export interface GeneratedRecipeSuggestion {
+  title: string;
+  description: string;
+  cuisine?: string;
+  difficulty?: string;
+  servings: number;
+  prepTimeMinutes: number;
+  cookTimeMinutes: number;
+  ingredients: string[];
+  instructions: string[];
+}
+
+// Step 1: Suggest 3 recipe concepts (fast, with Google Search grounding)
+export async function suggestRecipeConceptsUnified(
+  request: RecipeConceptRequest
+): Promise<{ concepts: RecipeConcept[] }> {
+  const provider = getCurrentProvider();
+  console.log(`[AI Service] Suggesting recipe concepts using: ${provider.toUpperCase()}`);
+
+  const dietarySection = request.dietaryRestrictions?.length
+    ? `\nDIETARY RESTRICTIONS (must follow):\n${request.dietaryRestrictions.join(', ')}`
+    : '';
+
+  const dislikedSection = request.dislikedIngredients?.length
+    ? `\nINGREDIENTS TO AVOID:\n${request.dislikedIngredients.join(', ')}`
+    : '';
+
+  const specifiedSection = request.specifiedIngredients?.length
+    ? `\nINGREDIENTS THE USER SPECIFICALLY WANTS TO USE:\n${request.specifiedIngredients.join(', ')}`
+    : '';
+
+  const prompt = `You are an expert home cook. A user wants to cook something and has specific ingredients available. Search for popular, well-reviewed recipes online and combine that with your culinary knowledge to suggest 3 distinct recipe options.
+
+USER'S REQUEST: "${request.prompt}"
+${specifiedSection}
+
+AVAILABLE PANTRY ITEMS:
+${request.pantryItems.join(', ')}
+${dietarySection}
+${dislikedSection}
+
+INSTRUCTIONS:
+- Suggest 3 distinct recipe concepts that match the user's request
+- Base suggestions on real, well-known recipes from popular cooking sites (AllRecipes, Serious Eats, Bon Appétit, Food Network, etc.) and classic culinary traditions
+- Maximize usage of their available pantry items
+- Include a range: one classic/traditional version, one creative twist, and one quick/easy option
+- For each concept, list the key ingredients (just names, no quantities) and explain briefly why this recipe works well with their pantry
+
+Return a JSON object:
+{
+  "concepts": [
+    {
+      "title": "Recipe Name",
+      "description": "2-3 sentence description of the dish and what makes it special",
+      "cuisine": "Italian",
+      "difficulty": "Easy",
+      "estimatedTimeMinutes": 45,
+      "keyIngredients": ["broccoli", "cheddar cheese", "butter", "flour", "chicken broth"],
+      "whyItWorks": "You already have 3 of the 5 key ingredients in your pantry"
+    }
+  ]
+}
+
+Only return the JSON object, no other text.`;
+
+  try {
+    if (provider === 'gemini' && isGeminiAvailable()) {
+      const { GoogleGenerativeAI } = await import("@google/generative-ai");
+      const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
+      const model = genAI.getGenerativeModel({
+        model: "gemini-3-flash-preview",
+        tools: [{ google_search: {} } as any],
+        generationConfig: {
+          responseMimeType: "application/json",
+        },
+      });
+
+      const result = await model.generateContent(prompt);
+      const text = result.response.text();
+      const parsed = JSON.parse(text);
+      if (parsed.concepts && Array.isArray(parsed.concepts)) {
+        return { concepts: parsed.concepts };
+      }
+      if (Array.isArray(parsed)) {
+        return { concepts: parsed };
+      }
+    } else {
+      const { default: OpenAI } = await import("openai");
+      const openai = new OpenAI();
+
+      const response = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [{ role: "user", content: prompt }],
+        response_format: { type: "json_object" }
+      });
+
+      const content = response.choices[0]?.message?.content || '{}';
+      const parsed = JSON.parse(content);
+      if (parsed.concepts && Array.isArray(parsed.concepts)) {
+        return { concepts: parsed.concepts };
+      }
+      if (Array.isArray(parsed)) {
+        return { concepts: parsed };
+      }
+    }
+  } catch (error) {
+    console.error("[AI Service] Error suggesting recipe concepts:", error);
+  }
+
+  return { concepts: [] };
+}
+
+// Step 2: Generate full detailed recipe from a selected concept
+export async function generateFullRecipeUnified(
+  concept: RecipeConcept,
+  pantryItems: string[],
+  dietaryRestrictions?: string[],
+): Promise<GeneratedRecipeSuggestion | null> {
+  const provider = getCurrentProvider();
+  console.log(`[AI Service] Generating full recipe for "${concept.title}" using: ${provider.toUpperCase()}`);
+
+  const dietarySection = dietaryRestrictions?.length
+    ? `\nDIETARY RESTRICTIONS (must follow):\n${dietaryRestrictions.join(', ')}`
+    : '';
+
+  const prompt = `You are an expert home cook. Generate a complete, detailed recipe based on this concept. Search for the best version of this recipe from popular cooking sites and culinary sources, then adapt it to maximize use of the available pantry items.
+
+RECIPE CONCEPT:
+Title: ${concept.title}
+Description: ${concept.description}
+Cuisine: ${concept.cuisine || 'Any'}
+Key Ingredients: ${concept.keyIngredients.join(', ')}
+
+AVAILABLE PANTRY ITEMS:
+${pantryItems.join(', ')}
+${dietarySection}
+
+INSTRUCTIONS:
+- Create a complete, cookable recipe with precise measurements
+- Base it on proven, well-reviewed versions of this dish
+- Use pantry items where possible, but don't compromise the recipe quality
+- Include all steps needed from start to finish
+- Ingredient strings must include quantities and units (e.g., "2 cups broccoli florets")
+
+Return a JSON object:
+{
+  "title": "${concept.title}",
+  "description": "Brief 1-2 sentence description",
+  "cuisine": "${concept.cuisine || ''}",
+  "difficulty": "${concept.difficulty || 'Medium'}",
+  "servings": 4,
+  "prepTimeMinutes": 15,
+  "cookTimeMinutes": 30,
+  "ingredients": ["2 cups broccoli florets", "1 cup shredded cheddar cheese"],
+  "instructions": ["Step 1 text.", "Step 2 text."]
+}
+
+Only return the JSON object, no other text.`;
+
+  try {
+    if (provider === 'gemini' && isGeminiAvailable()) {
+      const { GoogleGenerativeAI } = await import("@google/generative-ai");
+      const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
+      const model = genAI.getGenerativeModel({
+        model: "gemini-3-flash-preview",
+        tools: [{ google_search: {} } as any],
+        generationConfig: {
+          responseMimeType: "application/json",
+        },
+      });
+
+      const result = await model.generateContent(prompt);
+      const text = result.response.text();
+      return JSON.parse(text);
+    } else {
+      const { default: OpenAI } = await import("openai");
+      const openai = new OpenAI();
+
+      const response = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [{ role: "user", content: prompt }],
+        response_format: { type: "json_object" }
+      });
+
+      const content = response.choices[0]?.message?.content || '{}';
+      return JSON.parse(content);
+    }
+  } catch (error) {
+    console.error("[AI Service] Error generating full recipe:", error);
+  }
+
+  return null;
+}
+
 // Re-export types for convenience
 export type { ExtractedRecipeRaw, EnrichedRecipeData, RecipeVariationRequest, RecipeVariationResult };

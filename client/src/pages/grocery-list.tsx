@@ -4,8 +4,10 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Trash2, ShoppingCart, Scale, Plus, Share2, Copy, Check, Package, Home, Undo2 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import type { GroceryListItemsByAisle, PantryItem } from "@shared/schema";
+import { findPantryMatch } from "@shared/pantry-matching";
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { Link } from "wouter";
 
@@ -29,6 +31,12 @@ export default function GroceryListPage() {
   // Undo functionality - track recently checked items
   const [undoStack, setUndoStack] = useState<UndoItem[]>([]);
   const undoTimeoutRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
+
+  // Add-to-pantry toggle (persisted in localStorage)
+  const [addToPantry, setAddToPantry] = useState(() => {
+    const stored = localStorage.getItem('grocery-add-to-pantry');
+    return stored !== null ? stored === 'true' : true; // default ON
+  });
 
   const { data: authStatus } = useQuery<{ user: { preferences?: { unitSystem?: 'metric' | 'us' } } }>({
     queryKey: ['/api/auth/status'],
@@ -88,26 +96,11 @@ export default function GroceryListPage() {
     return { quantity: formatQuantity(qty), unit: unit || '' };
   };
 
-  // Function to find matching pantry item with quantity info
+  // Function to find matching pantry item with quantity info (uses smart matching)
   const getPantryMatch = (itemName: string): PantryItem | null => {
     if (!itemName || !pantryItems) return null;
-    const normalizedName = itemName.toLowerCase().trim();
-    
-    // Direct match first
-    const directMatch = pantryItems.find(item => 
-      item.name.toLowerCase().trim() === normalizedName
-    );
-    if (directMatch) return directMatch;
-    
-    // Partial match
-    for (let i = 0; i < pantryItems.length; i++) {
-      const pantryItem = pantryItems[i];
-      const pantryName = pantryItem.name.toLowerCase().trim();
-      if (pantryName.includes(normalizedName) || normalizedName.includes(pantryName)) {
-        return pantryItem;
-      }
-    }
-    return null;
+    const result = findPantryMatch(itemName, pantryItems);
+    return result.match as PantryItem | null;
   };
 
   // Clear undo item after timeout (10 seconds)
@@ -181,8 +174,8 @@ export default function GroceryListPage() {
             })).filter(aisle => aisle.items.length > 0);
           });
           
-          // Then remove from server
-          removeItemMutation.mutate(itemId);
+          // Move to pantry (if enabled) and remove from grocery list
+          checkoutItemMutation.mutate(itemId);
           
           setFadingItems(prev => {
             const next = new Set(prev);
@@ -214,6 +207,25 @@ export default function GroceryListPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/grocery-list/by-aisle'] });
       queryClient.invalidateQueries({ queryKey: ['/api/grocery-list'] });
+    },
+  });
+
+  // Checkout mutation — moves items to pantry then deletes from grocery list
+  const checkoutItemMutation = useMutation({
+    mutationFn: async (itemId: string) => {
+      return apiRequest('POST', '/api/grocery-list/items/checkout', {
+        itemIds: [itemId],
+        addToPantry,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/grocery-list/by-aisle'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/grocery-list'] });
+      if (addToPantry) {
+        queryClient.invalidateQueries({ queryKey: ['/api/pantry/items'] });
+        queryClient.invalidateQueries({ queryKey: ['/api/pantry'] });
+        queryClient.invalidateQueries({ queryKey: ['/api/pantry/restock'] });
+      }
     },
   });
 
@@ -343,6 +355,18 @@ export default function GroceryListPage() {
                 Pantry
               </Button>
             </Link>
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground border rounded-md px-2 py-1.5">
+              <Home className="w-3 h-3" />
+              <span>Pantry</span>
+              <Switch
+                checked={addToPantry}
+                onCheckedChange={(v) => {
+                  setAddToPantry(v);
+                  localStorage.setItem('grocery-add-to-pantry', String(v));
+                }}
+                className="scale-75"
+              />
+            </div>
             <Button
               variant="outline"
               size="sm"
