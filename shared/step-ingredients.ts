@@ -1,4 +1,4 @@
-import { formatNormalizedIngredient } from './print-format';
+import { formatIngredientInSystem, type UnitSystem } from './units';
 
 // Matches a step's ingredient names (from AI-normalized instructions, e.g.
 // ["dried chickpeas", "salt"]) back to the recipe's full ingredient entries so
@@ -27,7 +27,8 @@ function ingredientMatches(stepName: string, item: string): boolean {
 
 export function matchStepIngredients(
   stepIngredients: string[] | null | undefined,
-  recipeIngredients: { quantity?: number; unit?: string; item?: string; name?: string; raw?: string; preparation?: string | null }[] | null | undefined
+  recipeIngredients: { quantity?: number; unit?: string; item?: string; name?: string; raw?: string; preparation?: string | null }[] | null | undefined,
+  system: UnitSystem = 'original'
 ): StepIngredientMatch[] {
   if (!Array.isArray(stepIngredients) || stepIngredients.length === 0) return [];
   const entries = Array.isArray(recipeIngredients) ? recipeIngredients : [];
@@ -35,7 +36,7 @@ export function matchStepIngredients(
   return stepIngredients.map((name) => {
     const entry = entries.find((ing) => ingredientMatches(name, ing.item || ing.name || ''));
     return entry
-      ? { name, display: formatNormalizedIngredient(entry), matched: true }
+      ? { name, display: formatIngredientInSystem(entry, system), matched: true }
       : { name, display: name, matched: false };
   });
 }

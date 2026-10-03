@@ -83,6 +83,8 @@ import { CookbookSelect } from "@/components/cookbook-select";
 import { VoiceAssistant } from "@/components/voice-assistant";
 import { CookingMode } from "@/components/cooking-mode";
 import { StepIngredients } from "@/components/step-ingredients";
+import { useUnitSystem } from "@/hooks/use-unit-system";
+import { convertAmount } from "@shared/units";
 import { Mic } from "lucide-react";
 import grammieImage from "@assets/image_1763329917086.png";
 
@@ -337,6 +339,7 @@ export default function RecipeDetail() {
   // Instructions toggle state (AI-enhanced vs original)
   const [showOriginalInstructions, setShowOriginalInstructions] = useState(false);
   const [cookingModeOpen, setCookingModeOpen] = useState(false);
+  const [unitSystem, setUnitSystem] = useUnitSystem();
 
   const { data: recipe, isLoading } = useQuery<Recipe>({
     queryKey: ["/api/recipes", recipeId],
@@ -1160,14 +1163,29 @@ export default function RecipeDetail() {
           {/* Ingredients Card */}
           <Card>
             <CardHeader className="gap-2">
-              <CardTitle className="font-serif text-2xl">
-                Ingredients
-              </CardTitle>
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <CardTitle className="font-serif text-2xl">
+                  Ingredients
+                </CardTitle>
+                <div className="flex rounded-md border overflow-hidden text-xs" data-testid="unit-system-toggle">
+                  {([['original', 'As written'], ['us', 'US'], ['metric', 'Metric']] as const).map(([value, label]) => (
+                    <button
+                      key={value}
+                      onClick={() => setUnitSystem(value)}
+                      className={`px-2.5 py-1.5 transition-colors ${unitSystem === value ? 'bg-primary text-primary-foreground' : 'hover:bg-accent text-muted-foreground'}`}
+                      data-testid={`unit-system-${value}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </CardHeader>
             <CardContent>
               <div className="space-y-0">
                 {displayIngredients.map((ingredient: any, index: number) => {
-                  const quantityStr = formatQuantity(ingredient.quantity, ingredient.unit);
+                  const converted = ingredient.quantity != null ? convertAmount(ingredient.quantity, ingredient.unit, unitSystem) : null;
+                  const quantityStr = formatQuantity(converted?.quantity ?? ingredient.quantity, converted?.unit ?? ingredient.unit);
                   const isChecked = checkedIngredients.has(index);
                   
                   return (

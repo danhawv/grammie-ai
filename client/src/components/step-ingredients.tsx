@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { ChevronDown } from "lucide-react";
 import { matchStepIngredients } from "@shared/step-ingredients";
+import { useUnitSystem } from "@/hooks/use-unit-system";
 
 // Collapsible "ingredients used in this step" list shown under each
 // instruction, with quantities pulled from the recipe's full ingredient list.
@@ -11,9 +12,10 @@ export function StepIngredients({ stepIngredients, recipeIngredients, stepIndex 
   stepIndex: number;
 }) {
   const [open, setOpen] = useState(false);
+  const [unitSystem] = useUnitSystem();
   const matches = useMemo(
-    () => matchStepIngredients(stepIngredients, recipeIngredients),
-    [stepIngredients, recipeIngredients]
+    () => matchStepIngredients(stepIngredients, recipeIngredients, unitSystem),
+    [stepIngredients, recipeIngredients, unitSystem]
   );
 
   if (matches.length === 0) return null;

@@ -8,7 +8,8 @@ import {
   ListChecks, Eye, BellRing, Square, Sun,
 } from "lucide-react";
 import { matchStepIngredients } from "@shared/step-ingredients";
-import { formatNormalizedIngredient } from "@shared/print-format";
+import { formatIngredientInSystem } from "@shared/units";
+import { useUnitSystem } from "@/hooks/use-unit-system";
 
 // Full-screen guided cooking: one step at a time in large type, screen kept
 // awake, per-step ingredients with quantities, tappable timers with a HUD,
@@ -109,6 +110,7 @@ export function CookingMode({ open, onClose, title, instructions, ingredients }:
   const [checkedIngredients, setCheckedIngredients] = useState<Set<number>>(new Set());
   const timerIdRef = useRef(1);
   const wakeLockHeld = useWakeLock(open);
+  const [unitSystem] = useUnitSystem();
 
   const step = instructions[stepIdx];
   const total = instructions.length;
@@ -160,8 +162,8 @@ export function CookingMode({ open, onClose, title, instructions, ingredients }:
   }, [open, goNext, goPrev, onClose]);
 
   const stepIngredients = useMemo(
-    () => matchStepIngredients(step?.ingredients, ingredients),
-    [step, ingredients]
+    () => matchStepIngredients(step?.ingredients, ingredients, unitSystem),
+    [step, ingredients, unitSystem]
   );
 
   if (!open || !step) return null;
@@ -339,7 +341,7 @@ export function CookingMode({ open, onClose, title, instructions, ingredients }:
           </SheetHeader>
           <div className="mt-4 space-y-3 overflow-y-auto">
             {ingredients.map((ing: any, i: number) => ({
-              display: typeof ing === 'string' ? ing : formatNormalizedIngredient(ing),
+              display: typeof ing === 'string' ? ing : formatIngredientInSystem(ing, unitSystem),
             })).map((ing, i) => (
               <label key={i} className="flex items-start gap-3 cursor-pointer">
                 <Checkbox
