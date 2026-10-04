@@ -45,6 +45,20 @@ describe('planFamilyPhotos', () => {
     expect(out[1].placement).toMatchObject({ type: 'unplaced', reason: 'Not enough room under "TINY"' });
   });
 
+  it('keeps already-placed photos where they are on a re-run', () => {
+    const gaps = [gap('a', 3), gap('b', 3), gap('c', 3)];
+    const first = planFamilyPhotos([photo('p1', 4, 3), photo('p2', 4, 3)], gaps);
+    const again = planFamilyPhotos([...first, photo('p3', 4, 3)], gaps);
+    expect(again[0].placement).toEqual(first[0].placement);
+    expect(again[1].placement).toEqual(first[1].placement);
+    expect(again[2].placement?.type).toBe('recipe');
+  });
+
+  it('moves a placed photo off a recipe that lost its room', () => {
+    const out = planFamilyPhotos([photo('p1', 4, 3, { placement: { type: 'recipe', recipeId: 'a' } })], [gap('a', 0.3), gap('b', 3)]);
+    expect(out[0].placement).toEqual({ type: 'recipe', recipeId: 'b' });
+  });
+
   it('leaves album photos in the album', () => {
     const out = planFamilyPhotos([photo('p1', 4, 3, { placement: { type: 'album' } })], [gap('a', 4)]);
     expect(out[0].placement).toEqual({ type: 'album' });

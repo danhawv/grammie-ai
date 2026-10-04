@@ -69,7 +69,19 @@ export function planFamilyPhotos(photos: FamilyPhotoEntry[], gaps: RecipeGap[]):
     }
   }
 
-  const pool = result.filter((p) => p.placement?.type !== 'album' && !p.pinnedRecipeId);
+  // Re-running keeps photos where they are if their recipe still has room,
+  // so placing one new photo doesn't reshuffle the rest
+  for (const p of result) {
+    if (p.pinnedRecipeId || p.placement?.type !== 'recipe' || !p.placement.recipeId) continue;
+    const gap = byId.get(p.placement.recipeId);
+    if (gap && !taken.has(gap.recipeId) && fitPhotoInGap(p.width / p.height, gap)) {
+      taken.add(gap.recipeId);
+    } else {
+      p.placement = undefined;
+    }
+  }
+
+  const pool = result.filter((p) => p.placement?.type !== 'album' && p.placement?.type !== 'recipe' && !p.pinnedRecipeId);
   const eligible = gaps.filter((g) => !taken.has(g.recipeId) && pool.some((p) => fitPhotoInGap(p.width / p.height, g)));
 
   // Spread photos evenly when there are more gaps than photos
@@ -175,9 +187,18 @@ export function buildAlbumPageHtml(photos: AlbumPhoto[], theme: ThemeConfig, geo
     : photos.length === 2 ? (sideBySide ? [`'a b'`, '1fr 1fr', '1fr'] : [`'a' 'b'`, '1fr', '1fr 1fr'])
     : photos.length === 3 ? [`'a a' 'b c'`, '1fr 1fr', '1.2fr 1fr']
     : [`'a b' 'c d'`, '1fr 1fr', '1fr 1fr'];
-  const cells = photos.map((p, i) => `<div style="grid-area:${'abcd'[i]};min-height:0;min-width:0;box-sizing:border-box;padding:7px;background:#fff;border:1px solid ${theme.accentBorder};border-radius:${radius};box-shadow:0 1px 4px rgba(0,0,0,0.12);">
-      <img src="${p.src}" style="display:block;width:100%;height:100%;object-fit:cover;object-position:center 35%;border-radius:${radius};" />
-    </div>`).join('');
+  // Each frame keeps the photo's own shape (centered in its cell) so faces
+  // aren't cropped off; landscape frames fill the width, portrait the height
+  const cells = photos.map((p, i) => {
+    const size = p.aspect >= 1
+      ? 'width:100%;height:auto;max-height:100%;'
+      : 'height:100%;width:auto;max-width:100%;';
+    return `<div style="grid-area:${'abcd'[i]};min-height:0;min-width:0;display:flex;align-items:center;justify-content:center;">
+      <div style="${size}aspect-ratio:${p.aspect.toFixed(4)};box-sizing:border-box;padding:7px;background:#fff;border:1px solid ${theme.accentBorder};border-radius:${radius};box-shadow:0 1px 4px rgba(0,0,0,0.12);">
+        <img src="${p.src}" style="display:block;width:100%;height:100%;object-fit:cover;object-position:center 35%;border-radius:${radius};" />
+      </div>
+    </div>`;
+  }).join('');
   const numH = geo.pageNumber != null ? 0.3 : 0;
   return `<div style="position:relative;width:${geo.widthIn}in;height:${geo.heightIn}in;background:${theme.bg};overflow:hidden;">
     <div style="position:absolute;top:${geo.padTopIn}in;left:${geo.padLeftIn}in;right:${geo.padRightIn}in;bottom:${geo.padBottomIn + numH}in;display:grid;grid-template-areas:${areas};grid-template-columns:${cols};grid-template-rows:${rows};gap:0.18in;">${cells}</div>

@@ -1132,7 +1132,7 @@ function RecipePage({ recipe, index, theme, w, h, includePhoto, unitSystem = "or
 
         {/* Time/servings badges */}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
-          {recipe.prepTimeMinutes && (
+          {!!recipe.prepTimeMinutes && (
             <span style={{
               fontSize: labelSize, background: theme.badgeBg, color: theme.badgeText,
               padding: '2px 8px', borderRadius: 12,
@@ -1140,7 +1140,7 @@ function RecipePage({ recipe, index, theme, w, h, includePhoto, unitSystem = "or
               Prep: {formatTime(recipe.prepTimeMinutes)}
             </span>
           )}
-          {recipe.cookTimeMinutes && (
+          {!!recipe.cookTimeMinutes && (
             <span style={{
               fontSize: labelSize, background: theme.badgeBg, color: theme.badgeText,
               padding: '2px 8px', borderRadius: 12,
