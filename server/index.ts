@@ -174,6 +174,11 @@ app.use((req, res, next) => {
     // Start periodic watchdog for stuck jobs (every 5 minutes)
     jobQueue.startStuckJobWatchdog();
 
+    // Download print fonts now so the first PDF after a deploy is fast
+    import("./lib/pdf/generator")
+      .then((m) => m.warmPdfFonts())
+      .catch((err) => console.error("[font-cache] warm-up failed:", err));
+
     // Defer job recovery with retries to handle intermittent neon driver issues
     const attemptRecovery = async (attempt: number, maxAttempts: number) => {
       try {

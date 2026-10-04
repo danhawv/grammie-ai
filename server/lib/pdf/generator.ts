@@ -10,11 +10,22 @@ import type { CustomTemplateData } from '@shared/schema';
 import { buildThemeConfigFromTemplate, isColorDark, type ThemeConfig } from '@shared/template-theme';
 import { getBookSizeConfig } from '../lulu/book-sizes';
 import { calculateSpineWidth } from '../lulu/spine-calculator';
-import { inlineGoogleFonts } from './font-cache';
+import { inlineGoogleFonts, buildEmbeddedFontCss } from './font-cache';
 import { execSync } from 'child_process';
 import fs from 'fs';
 
 export { buildThemeConfigFromTemplate, type ThemeConfig };
+
+const INTERIOR_FONTS_URL = 'https://fonts.googleapis.com/css2?family=Merriweather:ital,wght@0,300;0,400;0,700;0,900;1,300;1,400&family=Inter:wght@300;400;500;600;700;800&family=Caveat:wght@400;500;600;700&family=Lora:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,400;1,700&family=Source+Serif+Pro:ital,wght@0,300;0,400;0,600;0,700;1,300;1,400&display=swap';
+const COVER_FONTS_URL = 'https://fonts.googleapis.com/css2?family=Merriweather:wght@400;700;900&family=Inter:wght@400;700;800&family=Playfair+Display:wght@400;700;900&display=swap';
+
+/** Fill the font cache at startup so the first book after a deploy isn't waiting on Google */
+export async function warmPdfFonts(): Promise<void> {
+  for (const url of [INTERIOR_FONTS_URL, COVER_FONTS_URL]) {
+    const ok = await buildEmbeddedFontCss(url);
+    console.log(`[font-cache] ${ok ? 'warmed' : 'could not warm'} ${url.slice(0, 60)}…`);
+  }
+}
 
 export type ThemeId = 'classic' | 'modern' | 'rustic' | 'elegant' | 'card';
 
@@ -377,11 +388,12 @@ async function loadAndFitInterior(
   // to the <link> tag if the cache can't be built)
   const html = await inlineGoogleFonts(buildInteriorHtml(config, cookbookData));
   {
-    // Large books with many embedded photos can take well over the default 30s
-    await page.setContent(html, { waitUntil: 'networkidle0', timeout: 180_000 });
+    // 'load' covers the embedded images; waiting for network quiet could hang
+    // forever on a slow font server. Fonts get their own capped wait below.
+    await page.setContent(html, { waitUntil: 'load', timeout: 180_000 });
     // networkidle0 doesn't guarantee webfonts have been applied; without this
     // wait, text measures/prints with the fallback font (Times)
-    await page.evaluateHandle('document.fonts.ready');
+    await page.evaluate(`Promise.race([document.fonts.ready, new Promise((r) => setTimeout(r, 20000))])`);
 
     // Auto-fit: shrink recipe content that's taller than its page. Uses CSS
     // zoom on an inner wrapper rather than transform: print pagination works
@@ -462,9 +474,10 @@ async function generateCoverPdfInner(
   const page = await browser.newPage();
 
   try {
-    // Large books with many embedded photos can take well over the default 30s
-    await page.setContent(html, { waitUntil: 'networkidle0', timeout: 180_000 });
-    await page.evaluateHandle('document.fonts.ready');
+    // 'load' covers the embedded images; waiting for network quiet could hang
+    // forever on a slow font server. Fonts get their own capped wait below.
+    await page.setContent(html, { waitUntil: 'load', timeout: 180_000 });
+    await page.evaluate(`Promise.race([document.fonts.ready, new Promise((r) => setTimeout(r, 20000))])`);
 
     const pdfBuffer = await page.pdf({
       width: `${coverWidth}in`,
@@ -674,7 +687,7 @@ export function buildInteriorHtml(
   }
 
   // Build Google Fonts URL — include custom template fonts if applicable
-  let googleFontsUrl = 'https://fonts.googleapis.com/css2?family=Merriweather:ital,wght@0,300;0,400;0,700;0,900;1,300;1,400&family=Inter:wght@300;400;500;600;700;800&family=Caveat:wght@400;500;600;700&family=Lora:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,400;1,700&family=Source+Serif+Pro:ital,wght@0,300;0,400;0,600;0,700;1,300;1,400&display=swap';
+  let googleFontsUrl = INTERIOR_FONTS_URL;
 
   if (cookbook.customTemplateData) {
     const td = cookbook.customTemplateData;
@@ -757,7 +770,7 @@ function buildCoverHtml(
     || (customFonts?.heading ? `'${customFonts.heading.family}', serif` : "'Merriweather', serif");
 
   // Build Google Fonts link for cover
-  let coverFontsUrl = 'https://fonts.googleapis.com/css2?family=Merriweather:wght@400;700;900&family=Inter:wght@400;700;800&family=Playfair+Display:wght@400;700;900&display=swap';
+  let coverFontsUrl = COVER_FONTS_URL;
   if (customFonts?.heading.source === 'google') {
     coverFontsUrl += `&family=${encodeURIComponent(customFonts.heading.family)}:wght@300;400;500;600;700;800;900`;
   }

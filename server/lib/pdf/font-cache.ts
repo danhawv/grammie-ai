@@ -23,6 +23,11 @@ function cacheKey(input: string): string {
  * Returns null on failure — callers should fall back to a plain <link> tag.
  */
 export async function buildEmbeddedFontCss(cssUrl: string): Promise<string | null> {
+  // One retry: a fresh server's first fetch to Google occasionally fails
+  return (await buildEmbeddedFontCssOnce(cssUrl)) ?? (await buildEmbeddedFontCssOnce(cssUrl));
+}
+
+async function buildEmbeddedFontCssOnce(cssUrl: string): Promise<string | null> {
   const cssCachePath = path.join(CACHE_DIR, `${cacheKey(cssUrl)}.css`);
   try {
     return await fs.readFile(cssCachePath, 'utf8');
@@ -31,8 +36,11 @@ export async function buildEmbeddedFontCss(cssUrl: string): Promise<string | nul
   }
 
   try {
-    const cssRes = await fetch(cssUrl, { headers: { 'User-Agent': CHROME_UA } });
-    if (!cssRes.ok) return null;
+    const cssRes = await fetch(cssUrl, { headers: { 'User-Agent': CHROME_UA }, signal: AbortSignal.timeout(15_000) });
+    if (!cssRes.ok) {
+      console.error(`[font-cache] Google Fonts CSS returned ${cssRes.status}`);
+      return null;
+    }
     let css = await cssRes.text();
 
     const fontUrls = Array.from(new Set(
@@ -47,8 +55,11 @@ export async function buildEmbeddedFontCss(cssUrl: string): Promise<string | nul
       try {
         buf = await fs.readFile(fontCachePath);
       } catch {
-        const fontRes = await fetch(fontUrl);
-        if (!fontRes.ok) return null;
+        const fontRes = await fetch(fontUrl, { signal: AbortSignal.timeout(15_000) });
+        if (!fontRes.ok) {
+          console.error(`[font-cache] font file returned ${fontRes.status}`);
+          return null;
+        }
         buf = Buffer.from(await fontRes.arrayBuffer());
         await fs.writeFile(fontCachePath, buf);
       }
