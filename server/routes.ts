@@ -2,7 +2,6 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import voiceRoutes from "./voice-routes";
 import { setupAuth } from "./clerkAuth";
-import { setupLocalAuth } from "./localAuth";
 
 // Import route modules
 import authRoutes from "./routes/auth";
@@ -22,7 +21,6 @@ import templateRoutes from "./routes/templates";
 export async function registerRoutes(app: Express): Promise<Server> {
   // Setup authentication
   await setupAuth(app);
-  setupLocalAuth(app);
 
   // Register voice assistant routes
   app.use("/api/voice", voiceRoutes);

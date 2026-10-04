@@ -169,9 +169,7 @@ router.get("/cookbook/:id", async (req, res, next) => {
       return next();
     }
 
-    const baseUrl = process.env.REPLIT_DEV_DOMAIN
-      ? `https://${process.env.REPLIT_DEV_DOMAIN}`
-      : (process.env.REPLIT_DEPLOYMENT_URL || 'https://grammie.ai');
+    const baseUrl = process.env.PUBLIC_URL || 'https://grammie.ai';
 
     const ogTitle = `${cookbook.name} | Grammie`;
     const ogDescription = cookbook.description ||
@@ -226,9 +224,7 @@ router.get("/recipe/:id", async (req, res, next) => {
       return next();
     }
 
-    const baseUrl = process.env.REPLIT_DEV_DOMAIN
-      ? `https://${process.env.REPLIT_DEV_DOMAIN}`
-      : (process.env.REPLIT_DEPLOYMENT_URL || 'https://grammie.ai');
+    const baseUrl = process.env.PUBLIC_URL || 'https://grammie.ai';
 
     const ogTitle = `${recipe.title} | Grammie`;
     const ogDescription = recipe.description ||

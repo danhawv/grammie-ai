@@ -36,26 +36,6 @@ export function useAuth() {
     },
   });
 
-  const localLoginMutation = useMutation({
-    mutationFn: async (credentials: { username: string; password: string }) => {
-      const response = await apiRequest("POST", "/api/auth/login", credentials);
-      return response;
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["/api/user"] });
-    },
-  });
-
-  const registerMutation = useMutation({
-    mutationFn: async (data: { username: string; email: string; password: string }) => {
-      const response = await apiRequest("POST", "/api/auth/register", data);
-      return response;
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["/api/user"] });
-    },
-  });
-
   const logoutMutation = useMutation({
     mutationFn: async () => {
       if (!hasClerk) {
@@ -70,13 +50,7 @@ export function useAuth() {
     isAuthenticated: !!user,
     hasClerk,
     login: loginMutation.mutate,
-    localLogin: localLoginMutation.mutate,
-    register: registerMutation.mutate,
     logout: logoutMutation.mutate,
     error,
-    loginError: localLoginMutation.error,
-    registerError: registerMutation.error,
-    isLoggingIn: localLoginMutation.isPending,
-    isRegistering: registerMutation.isPending,
   };
 }
