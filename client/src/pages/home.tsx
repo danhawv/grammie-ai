@@ -5,8 +5,9 @@ import { RecipeCardData, PaginatedRecipes } from "@shared/schema";
 import { 
   Search, Upload, Clock, Users, ChefHat, Loader2, AlertTriangle, Trash2, BookOpen, X, 
   LayoutGrid, Folder, Share2, Bookmark, BookmarkCheck, MoreVertical, Heart, HeartOff, Eye, Globe, ShoppingCart, Printer,
-  ArrowUpDown, ArrowUpAZ, ArrowDownAZ, CalendarArrowUp, CalendarArrowDown
+  ArrowUpDown, ArrowUpAZ, ArrowDownAZ, CalendarArrowUp, CalendarArrowDown, Copy as CopyIcon
 } from "lucide-react";
+import { DuplicateRecipesDialog } from "@/components/duplicate-recipes-dialog";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Input } from "@/components/ui/input";
@@ -173,6 +174,7 @@ export default function Home() {
   const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false);
   const [bulkCookbookId, setBulkCookbookId] = useState<string | undefined>();
   const [advancedFiltersOpen, setAdvancedFiltersOpen] = useState(false);
+  const [duplicatesOpen, setDuplicatesOpen] = useState(false);
   const [sortBy, setSortBy] = useState<string>(savedState.sortBy || 'newest');
 
   // Persist browsing state so it survives navigating into a recipe and back
@@ -884,6 +886,20 @@ export default function Home() {
           {/* Sort dropdown - only in recipes view */}
           {viewMode === 'recipes' && (
             <SortPopover sortBy={sortBy} onSortChange={setSortBy} />
+          )}
+
+          {/* Duplicate cleanup - signed-in users browsing their own recipes */}
+          {user && viewMode === 'recipes' && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              onClick={() => setDuplicatesOpen(true)}
+              data-testid="button-find-duplicates"
+            >
+              <CopyIcon className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Duplicates</span>
+            </Button>
           )}
           
           {/* Active Filter Indicators - on same row when space allows */}
@@ -1629,6 +1645,8 @@ export default function Home() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <DuplicateRecipesDialog open={duplicatesOpen} onClose={() => setDuplicatesOpen(false)} />
     </div>
   );
 }

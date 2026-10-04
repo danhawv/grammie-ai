@@ -3579,6 +3579,90 @@ export class PostgresStorage implements IStorage {
     return result.length > 0;
   }
 
+  async findDuplicateRecipes(userId: string): Promise<{
+    title: string;
+    recipes: { id: string; title: string; createdAt: Date; dishImageThumbnail: string | null; hasNormalized: boolean; cookbooks: string[] }[];
+  }[]> {
+    // Group the user's recipes by normalized title (case/whitespace-insensitive)
+    const rows = await db.execute(sql`
+      select r.id, r.title, r.created_at,
+             r.dish_image_thumbnail is not null as has_thumb,
+             r.normalized_ingredients is not null as has_normalized,
+             lower(regexp_replace(trim(r.title), '\\s+', ' ', 'g')) as norm_title,
+             coalesce(array_agg(c.name) filter (where c.name is not null), '{}') as cookbook_names
+      from recipes r
+      left join cookbook_recipes cr on cr.recipe_id = r.id
+      left join cookbooks c on c.id = cr.cookbook_id
+      where r.owner_user_id = ${userId}
+      group by r.id
+    `);
+
+    const groups = new Map<string, any[]>();
+    for (const row of rows.rows as any[]) {
+      const key = row.norm_title;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(row);
+    }
+
+    const result: any[] = [];
+    for (const members of Array.from(groups.values())) {
+      if (members.length < 2) continue;
+      // Fetch thumbnails only for actual duplicates (rows above skip the blob)
+      const ids = members.map((m: any) => m.id);
+      const thumbs = await db
+        .select({ id: recipes.id, thumb: recipes.dishImageThumbnail })
+        .from(recipes)
+        .where(inArray(recipes.id, ids));
+      const thumbById = new Map(thumbs.map((t) => [t.id, t.thumb]));
+      result.push({
+        title: members[0].title,
+        recipes: members.map((m: any) => ({
+          id: m.id,
+          title: m.title,
+          createdAt: m.created_at,
+          dishImageThumbnail: thumbById.get(m.id) ?? null,
+          hasNormalized: m.has_normalized,
+          cookbooks: m.cookbook_names || [],
+        })),
+      });
+    }
+    return result;
+  }
+
+  async mergeDuplicateRecipes(userId: string, keepId: string, removeIds: string[]): Promise<{ merged: number }> {
+    // Ownership check: every involved recipe must belong to the user
+    const involved = await db
+      .select({ id: recipes.id, ownerUserId: recipes.ownerUserId })
+      .from(recipes)
+      .where(inArray(recipes.id, [keepId, ...removeIds]));
+    if (involved.length !== removeIds.length + 1 || involved.some((r) => r.ownerUserId !== userId)) {
+      throw new Error('Recipes not found or not owned by user');
+    }
+
+    await db.transaction(async (tx) => {
+      for (const rm of removeIds) {
+        // Repoint cookbook memberships, skipping cookbooks that already have the keeper
+        await tx.execute(sql`
+          update cookbook_recipes set recipe_id = ${keepId}
+          where recipe_id = ${rm}
+            and cookbook_id not in (select cookbook_id from cookbook_recipes where recipe_id = ${keepId})
+        `);
+        // Repoint meal plan entries and grocery references
+        await tx.execute(sql`update meal_plan_entries set recipe_id = ${keepId} where recipe_id = ${rm}`);
+        await tx.execute(sql`update grocery_list_items set recipe_id = ${keepId} where recipe_id = ${rm}`);
+        // Repoint bookmarks unless the user already bookmarked the keeper
+        await tx.execute(sql`
+          update bookmarks b set recipe_id = ${keepId}
+          where b.recipe_id = ${rm}
+            and not exists (select 1 from bookmarks b2 where b2.user_id = b.user_id and b2.recipe_id = ${keepId})
+        `);
+        // Remaining references cascade away with the delete
+        await tx.execute(sql`delete from recipes where id = ${rm} and owner_user_id = ${userId}`);
+      }
+    });
+    return { merged: removeIds.length };
+  }
+
   async countPrintProjectsUsingTemplate(templateId: number): Promise<number> {
     const [row] = await db
       .select({ count: sql<number>`count(*)::int` })

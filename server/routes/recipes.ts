@@ -634,6 +634,44 @@ router.post("/recipes/add-items-to-grocery", isAuthenticated, async (req: any, r
   }
 });
 
+// Find the user's duplicate recipes, grouped by normalized title.
+// MUST register before /recipes/:id or "duplicates" is parsed as an id.
+router.get("/recipes/duplicates", isAuthenticated, async (req: any, res) => {
+  try {
+    const userId = getUserId(req);
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    const groups = await storage.findDuplicateRecipes(userId);
+    res.json({ groups });
+  } catch (error) {
+    console.error("Error finding duplicate recipes:", error);
+    res.status(500).json({ error: "Failed to find duplicates" });
+  }
+});
+
+// Merge duplicates: keep one recipe, repoint cookbook/meal-plan/bookmark
+// references from the others to it, then delete the others.
+router.post("/recipes/merge-duplicates", isAuthenticated, async (req: any, res) => {
+  try {
+    const userId = getUserId(req);
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+    const schema = z.object({
+      keepId: z.string().min(1),
+      removeIds: z.array(z.string().min(1)).min(1).max(20),
+    }).refine((d) => !d.removeIds.includes(d.keepId), { message: "keepId cannot be in removeIds" });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: "Invalid request", details: parsed.error.flatten() });
+    }
+
+    const result = await storage.mergeDuplicateRecipes(userId, parsed.data.keepId, parsed.data.removeIds);
+    res.json(result);
+  } catch (error: any) {
+    console.error("Error merging duplicate recipes:", error);
+    res.status(error.message?.includes('not found') ? 404 : 500).json({ error: error.message || "Failed to merge duplicates" });
+  }
+});
+
 // Get single recipe by ID
 router.get("/recipes/:id", optionalAuth, async (req: any, res) => {
   try {
