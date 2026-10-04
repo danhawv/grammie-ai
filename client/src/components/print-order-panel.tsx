@@ -60,7 +60,6 @@ interface PriceResponse {
   printCost: number;
   shippingCost: number;
   currency: string;
-  estimatedDeliveryDays: { min: number; max: number };
 }
 
 interface LuluStatus {
@@ -111,6 +110,11 @@ export function PrintOrderPanel({
     email: "",
   });
   const [pricing, setPricing] = useState<PriceResponse | null>(null);
+
+  // A quote is only valid for the address, shipping and quantity it was made for
+  useEffect(() => {
+    setPricing(null);
+  }, [address, shippingLevel, quantity, colorOption]);
 
   const { data: luluStatus } = useQuery<LuluStatus>({
     queryKey: ["/api/print/lulu/status"],
@@ -511,7 +515,7 @@ export function PrintOrderPanel({
                       <span className="text-primary">${pricing.totalCost.toFixed(2)} {pricing.currency}</span>
                     </div>
                     <div className="text-xs text-muted-foreground">
-                      Estimated delivery: {pricing.estimatedDeliveryDays.min}-{pricing.estimatedDeliveryDays.max} business days
+                      Shipping time: {SHIPPING_OPTIONS.find((o) => o.id === shippingLevel)?.description ?? "varies"}, plus a few days to print
                     </div>
                   </div>
                 )}

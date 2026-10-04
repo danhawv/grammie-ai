@@ -1265,8 +1265,14 @@ router.post("/cookbooks/:id/print-order", isAuthenticated, async (req: any, res)
 
     const externalId = `cookbook-${cookbookId}-${Date.now()}`;
 
+    // Lulu requires a contact email; fall back to the account's email when the form field is blank
+    const contactEmail = shippingAddress.email?.trim() || (await storage.getUser(userId))?.email || '';
+    if (!contactEmail) {
+      return res.status(400).json({ error: "Please enter an email address for order updates." });
+    }
+
     const orderRequest: LuluPrintJobRequest = {
-      contact_email: shippingAddress.email || '',
+      contact_email: contactEmail,
       line_items: [{
         title: cookbook.name,
         cover: coverUrl,
