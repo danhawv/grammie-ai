@@ -17,6 +17,8 @@ export interface CookbookPrintData {
   subtitle?: string;
   authorName: string;
   dedication?: string;
+  /** Pad with Notes pages up to this many pages (the binding's print minimum) */
+  minPages?: number;
   templateId?: string;
   trimSize: string;
   bindingType: string;
@@ -518,6 +520,18 @@ export function buildInteriorHtml(
     }
   }
 
+  // Short books are padded with lined Notes pages up to the binding's minimum
+  // page count (Lulu rejects a paperback under 32 pages), keeping the back
+  // page last and the total even
+  if (cookbook.minPages) {
+    let target = Math.max(cookbook.minPages, pages.length + 1);
+    if (target % 2 !== 0) target++;
+    while (pages.length + 1 < target) {
+      pages.push(buildNotesPageHtml(config, currentPage, theme, pageWPx));
+      currentPage++;
+    }
+  }
+
   // Back page
   pages.push(buildBackPageHtml(config, cookbook, theme, pageWPx, pageHPx));
   currentPage++;
@@ -838,6 +852,29 @@ function buildTitlePageHtml(
       <p style="font-size:${authorSize}px;font-weight:500;text-transform:uppercase;letter-spacing:0.18em;color:${mutedText};">${escapeHtml(cookbook.authorName)}</p>
       <p style="font-size:${countSize}px;margin-top:6px;letter-spacing:0.08em;color:${faintText};">${cookbook.recipes.length} recipe${cookbook.recipes.length !== 1 ? 's' : ''}</p>
     </div>
+  </div>`;
+}
+
+// --- Notes page (pads short books to the binding minimum) ---
+
+function buildNotesPageHtml(
+  config: BookSizeConfig,
+  pageNumber: number,
+  theme: ThemeConfig,
+  pageWPx: number
+): string {
+  const isRecto = pageNumber % 2 === 1;
+  const padLeft = (isRecto ? config.gutterMargin + config.safetyMargin : config.safetyMargin) + config.bleed;
+  const padRight = (isRecto ? config.safetyMargin : config.gutterMargin + config.safetyMargin) + config.bleed;
+  const pad = config.bleed + config.safetyMargin;
+  const titleSize = Math.min(18, pageWPx * 0.03);
+  const lineColor = theme.accentBorder;
+  const lines = Array.from({ length: 22 }, () =>
+    `<div style="height:0.32in;border-bottom:1px solid ${lineColor};"></div>`
+  ).join('');
+  return `<div class="page" style="width:${config.pageWidthWithBleed}in;height:${config.pageHeightWithBleed}in;background:${theme.bg};padding:${pad}in ${padRight}in ${pad}in ${padLeft}in;page-break-after:always;">
+    <h2 style="font-family:${theme.titleFont};font-weight:700;font-size:${titleSize}px;color:${theme.titleColor || '#292524'};margin-bottom:8px;">Notes</h2>
+    ${lines}
   </div>`;
 }
 

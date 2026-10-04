@@ -1044,6 +1044,7 @@ router.post("/cookbooks/:id/generate-pdf", isAuthenticated, async (req: any, res
       subtitle: validatedLayout.data.subtitle,
       authorName: validatedLayout.data.authorName || 'Unknown',
       dedication: validatedLayout.data.dedication,
+      minPages: (BINDING_PAGE_LIMITS[bindingType] || { min: 32 }).min,
       templateId,
       trimSize,
       bindingType,
@@ -1177,6 +1178,7 @@ router.post("/cookbooks/:id/print-order", isAuthenticated, async (req: any, res)
       subtitle: validatedLayout.data.subtitle,
       authorName: validatedLayout.data.authorName || 'Unknown',
       dedication: validatedLayout.data.dedication,
+      minPages: (BINDING_PAGE_LIMITS[bindingType] || { min: 32 }).min,
       templateId,
       trimSize,
       bindingType,
@@ -1223,7 +1225,8 @@ router.post("/cookbooks/:id/print-order", isAuthenticated, async (req: any, res)
       });
     }
 
-    const pageCount = Math.max(limits.min, pdfResult.pageCount);
+    // The interior is padded to the binding minimum, so this is the true count
+    const pageCount = pdfResult.pageCount;
     console.log(`[Print Order] Interior PDF generated with ${pageCount} pages`);
 
     const safeTitle = (validatedLayout.data.title || 'cookbook').replace(/[^a-zA-Z0-9]/g, '_');
@@ -1235,8 +1238,7 @@ router.post("/cookbooks/:id/print-order", isAuthenticated, async (req: any, res)
     const coverPdfId = storePdf(coverBuffer, `${safeTitle}_cover.pdf`);
     console.log(`[Print Order] Cover PDF generated successfully`);
 
-    const protocol = req.protocol === 'http' && req.get('host')?.includes('repl') ? 'https' : req.protocol;
-    const baseUrl = `${protocol}://${req.get('host')}`;
+    const baseUrl = process.env.PUBLIC_URL || `https://${req.get('host')}`;
     const interiorUrl = `${baseUrl}/lulu/pdfs/${interiorPdfId}`;
     const coverUrl = `${baseUrl}/lulu/pdfs/${coverPdfId}`;
 
