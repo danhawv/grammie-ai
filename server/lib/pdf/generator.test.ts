@@ -3,6 +3,8 @@ import { getBookSizeConfig } from '../lulu/book-sizes';
 import {
   buildInteriorHtml,
   generateInteriorPdf,
+  getTocMetrics,
+  paginateToc,
   closeSharedBrowser,
   type CookbookPrintData,
 } from './generator';
@@ -114,6 +116,59 @@ describe('buildInteriorHtml', () => {
     expect(html).toContain('#c1502e'); // accent
     expect(html).toContain('#22382c'); // cover background
   });
+});
+
+describe('multi-page Contents', () => {
+  const config = getBookSizeConfig('0600X0900' as any, 'PB' as any);
+  const many = (n: number, sectionId: string | undefined, prefix: string) =>
+    Array.from({ length: n }, (_, i) => ({
+      sectionId: sectionId as string,
+      sortOrder: i,
+      data: { ...fixture.recipes[0].data, id: `${prefix}${i}`, title: `${prefix} Recipe ${i + 1}` },
+    }));
+  const big: CookbookPrintData = {
+    ...fixture,
+    sections: [
+      { id: 'a', title: 'Mains', sortOrder: 0 },
+      { id: 'b', title: 'Desserts', sortOrder: 1 },
+    ],
+    recipes: [...many(40, 'a', 'Main'), ...many(25, 'b', 'Dessert')],
+  };
+
+  it('splits a long list across pages and never ends a page on a heading', () => {
+    const m = getTocMetrics(config, config.pageWidthWithBleed * 96);
+    const entries = [{ isSection: true }, ...Array(40).fill({ isSection: false }),
+      { isSection: true }, ...Array(25).fill({ isSection: false })];
+    const pages = paginateToc(entries, m);
+    expect(pages.length).toBeGreaterThan(1);
+    expect(pages.flat().length).toBe(entries.length);
+    for (const p of pages) expect(p[p.length - 1].isSection).toBe(false);
+  });
+
+  it('lists every recipe and points each at its real page', async () => {
+    const result = await generateInteriorPdf(big);
+    if (process.env.TOC_PDF_OUT) (await import('node:fs')).writeFileSync(process.env.TOC_PDF_OUT, result.buffer);
+    const { execFileSync } = await import('node:child_process');
+    const { writeFileSync, mkdtempSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const { tmpdir } = await import('node:os');
+    let text: string;
+    try {
+      const f = join(mkdtempSync(join(tmpdir(), 'toc-')), 'book.pdf');
+      writeFileSync(f, result.buffer);
+      text = execFileSync('pdftotext', ['-layout', f, '-'], { encoding: 'utf8' });
+    } catch {
+      return; // pdftotext not installed; the pagination unit test still covers the split
+    }
+    const pageTexts = text.split('\f');
+    const contents = pageTexts.filter((t, i) => i >= 2 && i < 6 && /Recipe \d/.test(t) && !/INGREDIENTS/i.test(t)).join('\n');
+    for (const title of ['Main Recipe 1', 'Main Recipe 40', 'Dessert Recipe 25']) {
+      const m = contents.match(new RegExp(title + '\\b[ .]*?(\\d+)\\s*$', 'm'));
+      expect(m, `${title} missing from Contents`).toBeTruthy();
+      const page = Number(m![1]);
+      expect(pageTexts[page - 1]).toContain(title);
+    }
+  }, 120_000);
 });
 
 describe('generateInteriorPdf (Chromium)', () => {

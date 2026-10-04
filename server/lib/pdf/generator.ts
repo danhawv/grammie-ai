@@ -1,3 +1,4 @@
+import { paginateToc, tocMetrics, type TocMetrics } from "@shared/toc-layout";
 import type { BookSizeConfig, BindingType, PaperType, TrimSize } from '../lulu/types';
 import type { NormalizedRecipe } from './types';
 import type { CustomTemplateData } from '@shared/schema';
@@ -448,10 +449,27 @@ export function buildInteriorHtml(
   }
   currentPage++;
 
-  // 3. TOC placeholder
+  // 3. TOC placeholders. A long cookbook needs more than one Contents page,
+  // and every later page number depends on how many, so count them up front
+  // from the same entry order the layout loop below produces.
+  const sortedSections = [...cookbook.sections].sort((a, b) => a.sortOrder - b.sortOrder);
+  const tocShape: { isSection: boolean }[] = [];
+  for (const section of sortedSections) {
+    const count = cookbook.recipes.filter((r) => r.sectionId === section.id).length;
+    if (count === 0) continue;
+    tocShape.push({ isSection: true });
+    for (let i = 0; i < count; i++) tocShape.push({ isSection: false });
+  }
+  for (const r of cookbook.recipes) if (!r.sectionId) tocShape.push({ isSection: false });
+
+  const tocMetrics = getTocMetrics(config, pageWPx);
+  const tocPageCount = Math.max(1, paginateToc(tocShape, tocMetrics).length);
   const tocPlaceholderIndex = pages.length;
-  pages.push('');
-  currentPage++;
+  const tocFirstPageNumber = currentPage;
+  for (let i = 0; i < tocPageCount; i++) {
+    pages.push('');
+    currentPage++;
+  }
 
   // Content flows continuously from here: one-page recipes don't need the
   // trade-book convention of starting every section on a right-hand page,
@@ -460,8 +478,6 @@ export function buildInteriorHtml(
   // 4. Recipe pages by section
   interface TocEntry { title: string; pageNumber: number; isSection: boolean }
   const tocEntries: TocEntry[] = [];
-
-  const sortedSections = [...cookbook.sections].sort((a, b) => a.sortOrder - b.sortOrder);
 
   for (const section of sortedSections) {
     const sectionRecipes = cookbook.recipes
@@ -541,8 +557,13 @@ export function buildInteriorHtml(
     pages.push(buildBlankPageHtml(config));
   }
 
-  // Build TOC
-  pages[tocPlaceholderIndex] = buildTocPageHtml(config, 3, tocEntries, theme, pageWPx, pageHPx);
+  // Build TOC across as many pages as were reserved
+  const tocChunks = paginateToc(tocEntries, tocMetrics);
+  for (let i = 0; i < tocPageCount; i++) {
+    pages[tocPlaceholderIndex + i] = buildTocPageHtml(
+      config, tocFirstPageNumber + i, tocChunks[i] ?? [], theme, pageWPx, i === 0,
+    );
+  }
 
   // Build Google Fonts URL — include custom template fonts if applicable
   let googleFontsUrl = 'https://fonts.googleapis.com/css2?family=Merriweather:ital,wght@0,300;0,400;0,700;0,900;1,300;1,400&family=Inter:wght@300;400;500;600;700;800&family=Caveat:wght@400;500;600;700&family=Lora:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,400;1,700&family=Source+Serif+Pro:ital,wght@0,300;0,400;0,600;0,700;1,300;1,400&display=swap';
@@ -935,7 +956,17 @@ function buildSectionDividerHtml(
   </div>`;
 }
 
-// --- TOC page (matches preview TocPage) ---
+// --- TOC pages (matches preview TocPage) ---
+
+const TOC_TOP_EXTRA_IN = 0.35;
+
+export { paginateToc };
+
+export function getTocMetrics(config: BookSizeConfig, pageWPx: number): TocMetrics {
+  const padTopIn = config.bleed + config.safetyMargin + TOC_TOP_EXTRA_IN;
+  const padBottomIn = config.bleed + config.safetyMargin;
+  return tocMetrics((config.pageHeightWithBleed - padTopIn - padBottomIn) * 96, pageWPx);
+}
 
 function buildTocPageHtml(
   config: BookSizeConfig,
@@ -943,7 +974,7 @@ function buildTocPageHtml(
   entries: { title: string; pageNumber: number; isSection: boolean }[],
   theme: ThemeConfig,
   pageWPx: number,
-  _pageHPx: number
+  showHeading: boolean
 ): string {
   const isRecto = pageNumber % 2 === 1;
   const pl = isRecto ? config.gutterMargin + config.safetyMargin : config.safetyMargin;
@@ -968,12 +999,15 @@ function buildTocPageHtml(
       </div>`
   ).join('');
 
-  return `<div class="page" style="width:${config.pageWidthWithBleed}in;height:${config.pageHeightWithBleed}in;background:${theme.bg};padding-top:${config.bleed + config.safetyMargin + 0.35}in;padding-bottom:${config.bleed + config.safetyMargin}in;padding-left:${config.bleed + pl}in;padding-right:${config.bleed + pr}in;page-break-after:always;">
-    <div style="text-align:center;margin-bottom:28px;">
-      <h2 style="font-family:${theme.titleFont};font-weight:700;font-size:${titleSize}px;color:${titleColor};margin-bottom:8px;">Contents</h2>
+  // A continuation page shouldn't open with a section heading's top margin
+  const body = entriesHtml.replace(/^<div style="display:flex;width:100%;align-items:baseline;gap:8px;margin-top:18px;/, '<div style="display:flex;width:100%;align-items:baseline;gap:8px;margin-top:0;');
+
+  return `<div class="page" style="width:${config.pageWidthWithBleed}in;height:${config.pageHeightWithBleed}in;background:${theme.bg};padding-top:${config.bleed + config.safetyMargin + TOC_TOP_EXTRA_IN}in;padding-bottom:${config.bleed + config.safetyMargin}in;padding-left:${config.bleed + pl}in;padding-right:${config.bleed + pr}in;page-break-after:always;overflow:hidden;">
+    ${showHeading ? `<div style="text-align:center;margin-bottom:28px;">
+      <h2 style="font-family:${theme.titleFont};font-weight:700;font-size:${titleSize}px;color:${titleColor};margin-bottom:8px;line-height:1.3;">Contents</h2>
       <div style="width:36px;height:1px;background:${theme.divider};margin:0 auto;"></div>
-    </div>
-    ${entriesHtml}
+    </div>` : ''}
+    ${showHeading ? entriesHtml : body}
   </div>`;
 }
 

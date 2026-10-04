@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useRef, useLayoutEffect, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { paginateToc, tocFontSizes, tocMetrics } from "@shared/toc-layout";
 import { Button } from "@/components/ui/button";
 import {
   X, ChevronLeft, ChevronRight, ZoomIn, ZoomOut,
@@ -19,6 +20,7 @@ const MARGIN_OUTER = 0.5;
 const MARGIN_INNER = 0.75;
 const MARGIN_TOP = 0.5;
 const MARGIN_BOTTOM = 0.5;
+const TOC_TOP_GAP = 24;
 
 interface Recipe {
   id: string | number;
@@ -155,11 +157,15 @@ function formatTime(minutes: number | null | undefined): string {
 
 
 // --- Page types ---
+type TocEntry =
+  | { isSection: true; title: string }
+  | { isSection: false; title: string; index: number };
+
 type PageContent =
   | { type: "cover" }
   | { type: "dedication" }
   | { type: "colophon" }
-  | { type: "toc" }
+  | { type: "toc"; entries: TocEntry[]; first: boolean }
   | { type: "section-divider"; title: string }
   | { type: "recipe"; recipe: Recipe; index: number }
   | { type: "recipe-extras"; recipe: Recipe; index: number }
@@ -283,7 +289,26 @@ export function CookbookPrintPreview({
     p.push({ type: "cover" });
     p.push(layoutData?.dedication ? { type: "dedication" } : { type: "colophon" });
     if (orderedRecipes.length > 0) {
-      p.push({ type: "toc" });
+      // Contents entries in reading order, split across as many pages as the
+      // printed book uses (shared with the PDF generator)
+      const entries: TocEntry[] = [];
+      if (layoutData?.sections?.length) {
+        let i = 0;
+        for (const section of layoutData.sections) {
+          const inSection = section.recipeIds.filter(rid => orderedRecipes.some(r => String(r.id) === String(rid)));
+          if (inSection.length === 0) continue;
+          if (section.title) entries.push({ isSection: true, title: section.title });
+          for (const rid of inSection) {
+            const recipe = orderedRecipes.find(r => String(r.id) === String(rid))!;
+            entries.push({ isSection: false, title: recipe.title, index: i++ });
+          }
+        }
+      } else {
+        orderedRecipes.forEach((r, index) => entries.push({ isSection: false, title: r.title, index }));
+      }
+      const contentPx = pageH - (MARGIN_TOP + MARGIN_BOTTOM) * DPI - TOC_TOP_GAP;
+      const chunks = paginateToc(entries, tocMetrics(contentPx, pageW));
+      chunks.forEach((chunk, i) => p.push({ type: "toc", entries: chunk, first: i === 0 }));
       if (layoutData?.sections?.length) {
         let recipeIndex = 0;
         for (const section of layoutData.sections) {
@@ -312,7 +337,7 @@ export function CookbookPrintPreview({
     }
     p.push({ type: "back" });
     return p;
-  }, [orderedRecipes, layoutData, hasExtras]);
+  }, [orderedRecipes, layoutData, hasExtras, pageW, pageH]);
 
   const totalPages = pages.length;
 
@@ -343,10 +368,17 @@ export function CookbookPrintPreview({
     return () => window.removeEventListener("keydown", handleKey);
   }, [open, totalPages, onClose]);
 
-  // Reset page on open
+  // Reset page on open and fit the page to the window (toolbar, thumbnail
+  // strip and arrows take ~150px vertically and ~140px horizontally)
   useEffect(() => {
-    if (open) setCurrentPage(0);
-  }, [open]);
+    if (!open) return;
+    setCurrentPage(0);
+    const fit = Math.min(
+      (window.innerHeight * 0.95 - 150) / pageH,
+      (window.innerWidth * 0.95 - 140) / pageW,
+    );
+    setZoom(Math.max(0.3, Math.min(1, Math.floor(fit * 20) / 20)));
+  }, [open, pageW, pageH]);
 
   // Clamp currentPage when pages change
   useEffect(() => {
@@ -360,16 +392,17 @@ export function CookbookPrintPreview({
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent
-        className="max-w-[95vw] max-h-[95vh] p-0 border-0 bg-stone-900/95 overflow-hidden [&>button]:hidden"
-        style={{ width: 'fit-content', height: '95vh' }}
+        className="max-w-[95vw] max-h-[95vh] p-0 border-0 bg-stone-900 overflow-hidden [&>button]:hidden"
+        style={{ width: '95vw', height: '95vh' }}
+        aria-describedby={undefined}
       >
         <div className="flex flex-col h-full">
           {/* Top toolbar */}
           <div className="flex items-center justify-between px-4 py-2 bg-stone-800 text-white border-b border-stone-700 shrink-0">
             <div className="flex items-center gap-3">
-              <span className="text-sm font-medium">
+              <DialogTitle className="text-sm font-medium">
                 {layoutData?.title || 'Cookbook'} — Preview
-              </span>
+              </DialogTitle>
               <span className="text-xs text-stone-400">
                 Page {currentPage + 1} / {totalPages} &bull; {bookSize.description}
               </span>
@@ -458,7 +491,8 @@ export function CookbookPrintPreview({
                 )}
                 {page?.type === "toc" && (
                   <TocPage
-                    recipes={orderedRecipes}
+                    entries={page.entries}
+                    first={page.first}
                     pageNumbers={recipePageNumbers}
                     theme={theme}
                     onGoToRecipe={(i) => {
@@ -520,7 +554,7 @@ export function CookbookPrintPreview({
               const thumbH = thumbW * aspect;
               const label = p.type === 'cover' ? 'C' :
                 p.type === 'back' ? 'B' :
-                p.type === 'toc' ? 'ToC' :
+                p.type === 'toc' ? 'TOC' :
                 p.type === 'section-divider' ? 'S' :
                 p.type === 'dedication' ? 'D' :
                 p.type === 'recipe-extras' ? `${(p as any).index + 1}+` :
@@ -772,47 +806,63 @@ function DedicationPage({ dedication, theme, w, h }: {
   );
 }
 
-function TocPage({ recipes, pageNumbers, theme, onGoToRecipe, w, h }: {
-  recipes: Recipe[]; pageNumbers: Map<number, number>; theme: ThemeConfig;
+function TocPage({ entries, first, pageNumbers, theme, onGoToRecipe, w, h }: {
+  entries: TocEntry[]; first: boolean; pageNumbers: Map<number, number>; theme: ThemeConfig;
   onGoToRecipe: (i: number) => void; w: number; h: number;
 }) {
-  const titleSize = Math.min(22, w * 0.038);
-  const itemSize = Math.min(13, w * 0.021);
-  const numSize = Math.min(11, w * 0.017);
+  const { titleSize, itemSize, numSize } = tocFontSizes(w);
+  const titleColor = theme.titleColor || '#292524';
 
   return (
     <AutoFitPage w={w} h={h} bg={theme.bg}>
-      <div style={{ textAlign: 'center', marginTop: 24, marginBottom: 28 }}>
-        <h2 style={{
-          fontFamily: theme.titleFont, fontWeight: 700,
-          fontSize: titleSize, color: theme.titleColor || '#292524', marginBottom: 8,
-        }}>
-          Contents
-        </h2>
-        <div style={{ width: 36, height: 1, background: theme.divider, margin: '0 auto' }} />
-      </div>
+      <div style={{ paddingTop: TOC_TOP_GAP }}>
+        {first && (
+          <div style={{ textAlign: 'center', marginBottom: 28 }}>
+            <h2 style={{
+              fontFamily: theme.titleFont, fontWeight: 700, lineHeight: 1.3,
+              fontSize: titleSize, color: titleColor, marginBottom: 8,
+            }}>
+              Contents
+            </h2>
+            <div style={{ width: 36, height: 1, background: theme.divider, margin: '0 auto' }} />
+          </div>
+        )}
 
-      {recipes.map((recipe, idx) => (
-        <button
-          key={String(recipe.id)}
-          onClick={() => onGoToRecipe(idx)}
-          style={{
-            display: 'flex', width: '100%', alignItems: 'baseline', gap: 8,
-            padding: '3px 0', border: 'none', background: 'transparent',
-            cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit',
-          }}
-          onMouseEnter={(e) => e.currentTarget.style.background = theme.accentLight}
-          onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-        >
-          <span style={{ fontSize: itemSize, color: theme.textColor || '#44403c', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {recipe.title}
-          </span>
-          <span style={{ flex: 1, borderBottom: '1px dotted #c7c0b4', transform: 'translateY(-3px)', minWidth: 24 }} />
-          <span style={{ fontSize: numSize, color: '#a8a29e', flexShrink: 0 }}>
-            {pageNumbers.get(idx) ?? ''}
-          </span>
-        </button>
-      ))}
+        {entries.map((entry, i) => entry.isSection ? (
+          <div
+            key={`s-${i}`}
+            style={{
+              display: 'flex', width: '100%', alignItems: 'baseline', gap: 8,
+              marginTop: i === 0 && !first ? 0 : 18, marginBottom: 4,
+            }}
+          >
+            <span style={{ fontFamily: theme.titleFont, fontSize: itemSize + 2, fontWeight: 700, color: titleColor, flexShrink: 0 }}>
+              {entry.title}
+            </span>
+            <span style={{ flex: 1, borderBottom: `1px solid ${theme.accentBorder}`, transform: 'translateY(-3px)' }} />
+          </div>
+        ) : (
+          <button
+            key={`r-${entry.index}`}
+            onClick={() => onGoToRecipe(entry.index)}
+            style={{
+              display: 'flex', width: '100%', alignItems: 'baseline', gap: 8,
+              padding: '3px 0', border: 'none', background: 'transparent',
+              cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit',
+            }}
+            onMouseEnter={(e) => e.currentTarget.style.background = theme.accentLight}
+            onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+          >
+            <span style={{ fontSize: itemSize, color: theme.textColor || '#44403c', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {entry.title}
+            </span>
+            <span style={{ flex: 1, borderBottom: '1px dotted #c7c0b4', transform: 'translateY(-3px)', minWidth: 24 }} />
+            <span style={{ fontSize: numSize, color: '#a8a29e', flexShrink: 0 }}>
+              {pageNumbers.get(entry.index) ?? ''}
+            </span>
+          </button>
+        ))}
+      </div>
     </AutoFitPage>
   );
 }
