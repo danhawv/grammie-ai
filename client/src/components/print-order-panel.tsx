@@ -34,7 +34,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import type { PrintLayoutData } from "@shared/schema";
-import { normalizeUsState } from "@shared/us-states";
+import { normalizeUsState, US_STATE_OPTIONS } from "@shared/us-states";
 
 interface PrintOrderPanelProps {
   cookbookId: number;
@@ -297,13 +297,20 @@ export function PrintOrderPanel({
             </DialogHeader>
 
             <div className="space-y-4 py-4 max-h-[60vh] overflow-y-auto">
-              <div className="space-y-3">
+              {/* A real <form> with autocomplete tokens lets the browser autofill the address */}
+              <form
+                className="space-y-3"
+                autoComplete="on"
+                onSubmit={(e) => { e.preventDefault(); handleCalculatePrice(); }}
+              >
                 <h4 className="font-medium text-sm">Shipping Address</h4>
                 
                 <div className="space-y-1.5">
                   <Label htmlFor="name" className="text-xs">Full Name *</Label>
                   <Input
                     id="name"
+                    name="name"
+                    autoComplete="shipping name"
                     value={address.name}
                     onChange={(e) => setAddress({ ...address, name: e.target.value })}
                     placeholder="John Doe"
@@ -315,6 +322,8 @@ export function PrintOrderPanel({
                   <Label htmlFor="street1" className="text-xs">Street Address *</Label>
                   <Input
                     id="street1"
+                    name="address-line1"
+                    autoComplete="shipping address-line1"
                     value={address.street1}
                     onChange={(e) => setAddress({ ...address, street1: e.target.value })}
                     placeholder="123 Main Street"
@@ -326,6 +335,8 @@ export function PrintOrderPanel({
                   <Label htmlFor="street2" className="text-xs">Apt/Suite (optional)</Label>
                   <Input
                     id="street2"
+                    name="address-line2"
+                    autoComplete="shipping address-line2"
                     value={address.street2}
                     onChange={(e) => setAddress({ ...address, street2: e.target.value })}
                     placeholder="Apt 4B"
@@ -338,6 +349,8 @@ export function PrintOrderPanel({
                     <Label htmlFor="city" className="text-xs">City *</Label>
                     <Input
                       id="city"
+                      name="city"
+                      autoComplete="shipping address-level2"
                       value={address.city}
                       onChange={(e) => setAddress({ ...address, city: e.target.value })}
                       placeholder="New York"
@@ -345,18 +358,34 @@ export function PrintOrderPanel({
                     />
                   </div>
                   <div className="space-y-1.5">
-                    <Label htmlFor="state" className="text-xs">State/Province</Label>
-                    <Input
-                      id="state"
-                      value={address.state_code}
-                      onChange={(e) => setAddress({ ...address, state_code: e.target.value })}
-                      onBlur={() => {
-                        const state = address.country_code === "US" ? normalizeUsState(address.state_code) : null;
-                        if (state) setAddress({ ...address, state_code: state });
-                      }}
-                      placeholder="NY"
-                      data-testid="input-shipping-state"
-                    />
+                    <Label htmlFor="state" className="text-xs">{address.country_code === "US" ? "State *" : "State/Province"}</Label>
+                    {address.country_code === "US" ? (
+                      // Native select so browser autofill can choose the state
+                      <select
+                        id="state"
+                        name="state"
+                        autoComplete="shipping address-level1"
+                        value={address.state_code}
+                        onChange={(e) => setAddress({ ...address, state_code: e.target.value })}
+                        className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-base ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 md:text-sm"
+                        data-testid="select-shipping-state"
+                      >
+                        <option value="">Select state</option>
+                        {US_STATE_OPTIONS.map((s) => (
+                          <option key={s.code} value={s.code}>{s.name}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <Input
+                        id="state"
+                        name="state"
+                        autoComplete="shipping address-level1"
+                        value={address.state_code}
+                        onChange={(e) => setAddress({ ...address, state_code: e.target.value })}
+                        placeholder="Province / region"
+                        data-testid="input-shipping-state"
+                      />
+                    )}
                   </div>
                 </div>
 
@@ -365,6 +394,8 @@ export function PrintOrderPanel({
                     <Label htmlFor="postcode" className="text-xs">ZIP/Postal Code *</Label>
                     <Input
                       id="postcode"
+                      name="postal-code"
+                      autoComplete="shipping postal-code"
                       value={address.postcode}
                       onChange={(e) => setAddress({ ...address, postcode: e.target.value })}
                       placeholder="10001"
@@ -395,6 +426,9 @@ export function PrintOrderPanel({
                   <Label htmlFor="phone" className="text-xs">Phone Number *</Label>
                   <Input
                     id="phone"
+                    name="tel"
+                    type="tel"
+                    autoComplete="shipping tel"
                     value={address.phone_number}
                     onChange={(e) => setAddress({ ...address, phone_number: e.target.value })}
                     placeholder="+1 555 123 4567"
@@ -406,6 +440,8 @@ export function PrintOrderPanel({
                   <Label htmlFor="email" className="text-xs">Email (optional)</Label>
                   <Input
                     id="email"
+                    name="email"
+                    autoComplete="email"
                     type="email"
                     value={address.email}
                     onChange={(e) => setAddress({ ...address, email: e.target.value })}
@@ -413,7 +449,7 @@ export function PrintOrderPanel({
                     data-testid="input-shipping-email"
                   />
                 </div>
-              </div>
+              </form>
 
               <Separator />
 

@@ -18,6 +18,24 @@ const US_STATES: Record<string, string> = {
   "northern mariana islands": "MP",
 };
 
+const TITLE_EXCEPTIONS: Record<string, string> = {
+  DC: "District of Columbia",
+  VI: "U.S. Virgin Islands",
+};
+
+/** States and territories for a pick list, sorted by name. */
+export const US_STATE_OPTIONS: { code: string; name: string }[] = Array.from(
+  new Map(
+    Object.entries(US_STATES)
+      .filter(([name]) => !["washington dc", "virgin islands"].includes(name))
+      .map(([name, code]) => [
+        code,
+        TITLE_EXCEPTIONS[code] ?? name.replace(/\b\w/g, (c) => c.toUpperCase()),
+      ] as const),
+  ),
+  ([code, name]) => ({ code, name }),
+).sort((a, b) => a.name.localeCompare(b.name));
+
 const US_CODES = new Set(Object.values(US_STATES).concat(["AA", "AE", "AP", "FM", "MH", "PW"]));
 
 /** Returns the two-letter code for a US state, or null if it isn't recognized. */
