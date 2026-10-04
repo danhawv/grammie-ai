@@ -392,11 +392,13 @@ export function CookbookPrintPreview({
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent
-        className="max-w-[95vw] max-h-[95vh] p-0 border-0 bg-stone-900 overflow-hidden [&>button]:hidden"
+        className="max-w-[95vw] max-h-[95vh] p-0 border-0 bg-stone-900 overflow-hidden grid-cols-[minmax(0,1fr)] [&>button]:hidden"
         style={{ width: '95vw', height: '95vh' }}
         aria-describedby={undefined}
       >
-        <div className="flex flex-col h-full">
+        {/* min-w-0 keeps the thumbnail strip from widening the dialog's grid
+            column (it scrolls instead), which pushed the page off-screen */}
+        <div className="flex flex-col h-full min-w-0 min-h-0">
           {/* Top toolbar */}
           <div className="flex items-center justify-between px-4 py-2 bg-stone-800 text-white border-b border-stone-700 shrink-0">
             <div className="flex items-center gap-3">
