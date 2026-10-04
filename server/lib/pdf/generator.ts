@@ -332,7 +332,14 @@ export function measureRecipeGaps(cookbookData: CookbookPrintData): Promise<Reci
     const browser = await getSharedBrowser();
     const page = await browser.newPage();
     try {
-      await loadAndFitInterior(page, config, { ...cookbookData, familyPhotos: undefined });
+      // Photo sizes come from the template, not the image, so a 1px
+      // placeholder gives the same layout and loads far faster
+      const PIXEL = 'data:image/gif;base64,R0lGODlhAQABAAAAACw=';
+      await loadAndFitInterior(page, config, {
+        ...cookbookData,
+        familyPhotos: undefined,
+        recipes: cookbookData.recipes.map((r) => ({ ...r, data: { ...r.data, imageUrl: r.data.imageUrl ? PIXEL : undefined } })),
+      });
       const raw = await page.evaluate(`(() => {
         const out = [];
         document.querySelectorAll('.page[data-recipe-id]').forEach((pg) => {
@@ -370,7 +377,8 @@ async function loadAndFitInterior(
   // to the <link> tag if the cache can't be built)
   const html = await inlineGoogleFonts(buildInteriorHtml(config, cookbookData));
   {
-    await page.setContent(html, { waitUntil: 'networkidle0' });
+    // Large books with many embedded photos can take well over the default 30s
+    await page.setContent(html, { waitUntil: 'networkidle0', timeout: 180_000 });
     // networkidle0 doesn't guarantee webfonts have been applied; without this
     // wait, text measures/prints with the fallback font (Times)
     await page.evaluateHandle('document.fonts.ready');
@@ -454,7 +462,8 @@ async function generateCoverPdfInner(
   const page = await browser.newPage();
 
   try {
-    await page.setContent(html, { waitUntil: 'networkidle0' });
+    // Large books with many embedded photos can take well over the default 30s
+    await page.setContent(html, { waitUntil: 'networkidle0', timeout: 180_000 });
     await page.evaluateHandle('document.fonts.ready');
 
     const pdfBuffer = await page.pdf({

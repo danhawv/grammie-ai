@@ -1,5 +1,5 @@
-import { useMemo, useRef, useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -7,7 +7,7 @@ import {
   DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { AlertTriangle, BookImage, ImagePlus, Loader2, MoreVertical, Wand2 } from "lucide-react";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { FamilyPhotoEntry, PrintLayoutData } from "@shared/schema";
 
@@ -48,6 +48,19 @@ export function FamilyPhotosPanel({ cookbookId, layoutData, onChange, templateSt
   const [uploading, setUploading] = useState<{ done: number; total: number } | null>(null);
   const photos = layoutData.familyPhotos ?? [];
 
+  // Photos uploaded but never saved into the layout (e.g. left without saving)
+  // still belong to the book; show them as not placed yet
+  const storedKey = [`/api/cookbooks/${cookbookId}/photos`];
+  const { data: stored } = useQuery<{ id: string; width: number; height: number }[]>({ queryKey: storedKey });
+  useEffect(() => {
+    if (!stored) return;
+    const known = new Set(photos.map((p) => p.id));
+    const missing = stored.filter((p) => !known.has(p.id));
+    if (missing.length) onChange([...photos, ...missing]);
+    // Re-run when the saved layout loads, too, so it can't drop these
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stored, layoutData.familyPhotos]);
+
   const inBook = useMemo(() => new Set(layoutData.sections.flatMap((s) => s.recipeIds)), [layoutData.sections]);
   const placed = photos.filter((p) => p.placement?.type === "recipe" && p.placement.recipeId && inBook.has(p.placement.recipeId));
   const album = photos.filter((p) => p.placement?.type === "album");
@@ -77,7 +90,10 @@ export function FamilyPhotosPanel({ cookbookId, layoutData, onChange, templateSt
       setUploading({ done: Math.min(list.length, i + BATCH), total: list.length });
     }
     setUploading(null);
-    if (added.length) onChange([...photos, ...added]);
+    if (added.length) {
+      queryClient.setQueryData(storedKey, (old: any[] | undefined) => [...(old ?? []), ...added]);
+      onChange([...photos, ...added]);
+    }
     toast({
       title: `Added ${added.length} photo${added.length === 1 ? "" : "s"}`,
       description: failed.length
@@ -112,6 +128,7 @@ export function FamilyPhotosPanel({ cookbookId, layoutData, onChange, templateSt
     } catch {
       // Already gone on the server; still drop it from the book
     }
+    queryClient.setQueryData(storedKey, (old: any[] | undefined) => (old ?? []).filter((x) => x.id !== p.id));
     onChange(photos.filter((x) => x.id !== p.id));
   };
 

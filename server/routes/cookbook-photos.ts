@@ -70,6 +70,26 @@ router.post("/cookbooks/:id/photos", isAuthenticated, upload.array("photos", 10)
   }
 });
 
+// Lists a cookbook's photos (shape only) so the editor can show any that
+// aren't in the saved layout yet
+router.get("/cookbooks/:id/photos", isAuthenticated, async (req: any, res) => {
+  try {
+    const userId = getUserId(req);
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    const cookbookId = parseInt(req.params.id);
+    if (!(await ownedCookbook(cookbookId, userId))) return res.status(403).json({ error: "Not authorized" });
+    const rows = await db
+      .select({ id: cookbookPhotos.id, width: cookbookPhotos.width, height: cookbookPhotos.height })
+      .from(cookbookPhotos)
+      .where(eq(cookbookPhotos.cookbookId, cookbookId))
+      .orderBy(cookbookPhotos.createdAt);
+    res.json(rows);
+  } catch (error) {
+    console.error("Error listing cookbook photos:", error);
+    res.status(500).json({ error: "Failed to list photos" });
+  }
+});
+
 // Serves a photo as an image (thumbnail by default, ?size=full for print copy)
 router.get("/cookbook-photos/:photoId", isAuthenticated, async (req: any, res) => {
   try {
