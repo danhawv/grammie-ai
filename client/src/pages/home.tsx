@@ -48,6 +48,7 @@ import { CookbookSelect } from "@/components/cookbook-select";
 import { CookbookMultiSelect } from "@/components/cookbook-multi-select";
 import { QuickLinkImport } from "@/components/quick-link-import";
 import { filtersReducer, defaultFilters, countActiveFilters, type FiltersState } from "@/lib/filters";
+import { loadHomeState, saveHomeState, restoreFilters } from "@/lib/list-state";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -146,27 +147,45 @@ function SortPopover({ sortBy, onSortChange }: { sortBy: string; onSortChange: (
 }
 
 export default function Home() {
-  const [filters, dispatch] = useReducer(filtersReducer, defaultFilters);
+  // Restore browsing state persisted across navigation (filters survive
+  // clicking into a recipe and coming back)
+  const savedState = useRef(loadHomeState()).current;
+
+  const [filters, dispatch] = useReducer(filtersReducer, defaultFilters, () => restoreFilters(savedState.filters));
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
   const [uploadInitialMode, setUploadInitialMode] = useState<"image" | "link" | "text">("image");
   const { user } = useAuth();
   const [, navigate] = useLocation();
-  
+
   // View mode toggle between recipes and cookbooks
-  const [viewMode, setViewMode] = useState<ViewMode>('recipes');
+  const [viewMode, setViewMode] = useState<ViewMode>((savedState.viewMode as ViewMode) || 'recipes');
   const [cookbookViewMode, setCookbookViewMode] = useState<CookbookViewMode>('mine');
-  
+
   // Default to 'public' for guests, 'all' for authenticated users
-  const [collectionFilter, setCollectionFilter] = useState<CollectionFilter>(user ? 'all' : 'public');
+  const [collectionFilter, setCollectionFilter] = useState<CollectionFilter>(
+    (savedState.collectionFilter as CollectionFilter) || (user ? 'all' : 'public')
+  );
   const [deleteDialogRecipeId, setDeleteDialogRecipeId] = useState<string | null>(null);
   const [selectedRecipeIds, setSelectedRecipeIds] = useState<Set<string>>(new Set());
-  const [selectedCookbookIds, setSelectedCookbookIds] = useState<number[]>([]);
-  const [selectedCreatorId, setSelectedCreatorId] = useState<string | undefined>();
+  const [selectedCookbookIds, setSelectedCookbookIds] = useState<number[]>(savedState.selectedCookbookIds || []);
+  const [selectedCreatorId, setSelectedCreatorId] = useState<string | undefined>(savedState.selectedCreatorId);
   const [bulkAddDialogOpen, setBulkAddDialogOpen] = useState(false);
   const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false);
   const [bulkCookbookId, setBulkCookbookId] = useState<string | undefined>();
   const [advancedFiltersOpen, setAdvancedFiltersOpen] = useState(false);
-  const [sortBy, setSortBy] = useState<string>('newest');
+  const [sortBy, setSortBy] = useState<string>(savedState.sortBy || 'newest');
+
+  // Persist browsing state so it survives navigating into a recipe and back
+  useEffect(() => {
+    saveHomeState({
+      filters,
+      sortBy,
+      collectionFilter,
+      viewMode,
+      selectedCookbookIds,
+      selectedCreatorId,
+    });
+  }, [filters, sortBy, collectionFilter, viewMode, selectedCookbookIds, selectedCreatorId]);
   
   const { toast } = useToast();
 
