@@ -1430,6 +1430,23 @@ function CookbookPrintEditorInner() {
                 </div>
               </div>
 
+              <div>
+                <Label className="text-sm font-medium">Ingredient Units</Label>
+                <p className="text-xs text-muted-foreground mb-2">
+                  Print every recipe's measurements in one system, regardless of how it was written.
+                </p>
+                <select
+                  value={layoutData.customizations?.unitSystem || 'original'}
+                  onChange={(e) => updateCustomization("unitSystem", e.target.value)}
+                  className="w-full h-9 rounded-md border bg-background px-3 text-sm"
+                  data-testid="select-unit-system"
+                >
+                  <option value="original">As written (keep each recipe's units)</option>
+                  <option value="us">US (oz, lb, cups)</option>
+                  <option value="metric">Metric (g, kg, ml)</option>
+                </select>
+              </div>
+
               <div className="text-xs text-muted-foreground p-2 bg-muted rounded">
                 Page limits: {pageLimits.min}–{pageLimits.max} pages for {BINDING_TYPES[bindingType].name}
               </div>

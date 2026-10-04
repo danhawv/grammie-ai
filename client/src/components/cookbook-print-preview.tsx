@@ -9,6 +9,7 @@ import {
 import type { PrintLayoutData, CustomTemplateData } from "@shared/schema";
 import { buildThemeConfigFromTemplate, isColorDark, type ThemeConfig } from "@shared/template-theme";
 import { formatIngredientQuantity } from "@shared/print-format";
+import { convertAmount, type UnitSystem } from "@shared/units";
 import { BOOK_SIZES, type TrimSizeId } from "@/lib/print-constants";
 
 // --- Constants ---
@@ -471,6 +472,7 @@ export function CookbookPrintPreview({
                     recipe={page.recipe}
                     index={page.index}
                     theme={theme}
+                    unitSystem={(layoutData?.customizations?.unitSystem as UnitSystem) || "original"}
                     w={pageW} h={pageH}
                     includePhoto={
                       layoutData?.recipePrintSettings?.[String(page.recipe.id)]?.includePhoto !== false
@@ -815,9 +817,9 @@ function SectionDividerPage({ title, theme, w, h }: {
 // Recipe Page — ONE recipe per page, content auto-scales to fit
 // ============================================================================
 
-function RecipePage({ recipe, index, theme, w, h, includePhoto }: {
+function RecipePage({ recipe, index, theme, w, h, includePhoto, unitSystem = "original" }: {
   recipe: Recipe; index: number; theme: ThemeConfig;
-  w: number; h: number; includePhoto: boolean;
+  w: number; h: number; includePhoto: boolean; unitSystem?: UnitSystem;
 }) {
   const padTop = MARGIN_TOP * DPI;
   const padBottom = MARGIN_BOTTOM * DPI;
@@ -954,7 +956,8 @@ function RecipePage({ recipe, index, theme, w, h, includePhoto }: {
               Ingredients
             </h3>
             {ingredients.map((ing: any, idx: number) => {
-              const qty = formatIngredientQuantity(ing.quantity, ing.unit);
+              const conv = ing.quantity != null ? convertAmount(ing.quantity, ing.unit, unitSystem) : null;
+              const qty = formatIngredientQuantity(conv?.quantity ?? ing.quantity, conv?.unit ?? ing.unit);
               return (
                 <div key={idx} style={{
                   fontSize: bodySize, color: '#44403c', display: 'flex', gap: 3,

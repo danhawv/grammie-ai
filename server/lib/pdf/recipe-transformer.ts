@@ -1,11 +1,11 @@
 import type { Recipe } from '@shared/schema';
-import { formatNormalizedIngredient } from '@shared/print-format';
+import { formatIngredientInSystem, type UnitSystem } from '@shared/units';
 import type { NormalizedRecipe, IngredientGroup, InstructionStep } from './types';
 
 /**
  * Transforms a grammie-ai Recipe into a NormalizedRecipe for PDF rendering.
  */
-export function transformRecipe(recipe: Recipe): NormalizedRecipe {
+export function transformRecipe(recipe: Recipe, unitSystem: UnitSystem = 'original'): NormalizedRecipe {
   return {
     id: recipe.id,
     title: recipe.title,
@@ -18,7 +18,7 @@ export function transformRecipe(recipe: Recipe): NormalizedRecipe {
     difficulty: recipe.skillLevel ?? undefined,
     cuisine: recipe.cuisine ?? (recipe.cuisines?.[0] ?? undefined),
     category: recipe.mealType?.[0] ?? undefined,
-    ingredients: transformIngredients(recipe),
+    ingredients: transformIngredients(recipe, unitSystem),
     instructions: transformInstructions(recipe),
     notes: recipe.tips?.map((t: any) => t.text) ?? undefined,
     tags: [
@@ -40,14 +40,14 @@ export function transformRecipe(recipe: Recipe): NormalizedRecipe {
   };
 }
 
-function transformIngredients(recipe: Recipe): IngredientGroup[] {
+function transformIngredients(recipe: Recipe, unitSystem: UnitSystem): IngredientGroup[] {
   // If normalized ingredients with categories exist, group them
   if (recipe.normalizedIngredients && recipe.normalizedIngredients.length > 0) {
     const groups = new Map<string, string[]>();
 
     for (const ing of recipe.normalizedIngredients) {
       const category = (ing as any).category || '';
-      const display = formatNormalizedIngredient(ing);
+      const display = formatIngredientInSystem(ing, unitSystem);
       if (!groups.has(category)) {
         groups.set(category, []);
       }

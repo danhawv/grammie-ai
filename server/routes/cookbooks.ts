@@ -990,7 +990,7 @@ router.post("/cookbooks/:id/generate-pdf", isAuthenticated, async (req: any, res
             sectionId: section.id,
             sortOrder: rIdx,
             layoutOverride: settings?.layoutOverride,
-            data: transformRecipe(recipeData),
+            data: transformRecipe(recipeData, validatedLayout.data.customizations?.unitSystem || 'original'),
           };
         }).filter(Boolean)
       ) as CookbookPrintData['recipes'],
@@ -1123,7 +1123,7 @@ router.post("/cookbooks/:id/print-order", isAuthenticated, async (req: any, res)
             sectionId: section.id,
             sortOrder: rIdx,
             layoutOverride: settings?.layoutOverride,
-            data: transformRecipe(recipeData),
+            data: transformRecipe(recipeData, validatedLayout.data.customizations?.unitSystem || 'original'),
           };
         }).filter(Boolean)
       ) as CookbookPrintData['recipes'],

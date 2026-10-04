@@ -546,6 +546,8 @@ export const printLayoutDataSchema = z.object({
     showVariations: z.boolean().optional().default(false),
     showPageNumbers: z.boolean().default(true),
     pageSize: z.enum(['6x9', '8.5x11', 'a4']).default('6x9'),
+    // Print every ingredient in one measurement system (see shared/units.ts)
+    unitSystem: z.enum(['original', 'us', 'metric']).optional(),
   }).optional(),
   // Per-recipe print settings
   recipePrintSettings: z.record(z.string(), z.object({
