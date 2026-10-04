@@ -1269,7 +1269,7 @@ router.post("/cookbooks/:id/print-order", isAuthenticated, async (req: any, res)
         quantity: quantity || 1,
       }],
       shipping_address: shippingAddress,
-      shipping_level: (shippingLevel || 'GROUND') as ShippingLevel,
+      shipping_level: (shippingLevel || 'GROUND_HD') as ShippingLevel,
       external_id: externalId,
     };
 

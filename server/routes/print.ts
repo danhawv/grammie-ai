@@ -8,7 +8,8 @@ import type { BookConfig, CostCalculationRequest, LuluAddress, ShippingLevel } f
 
 const SHIPPING_OPTIONS = [
   { id: "MAIL", name: "Mail", description: "7-21 business days" },
-  { id: "GROUND", name: "Ground", description: "5-10 business days" },
+  { id: "PRIORITY_MAIL", name: "Priority Mail", description: "4-8 business days" },
+  { id: "GROUND_HD", name: "Ground", description: "5-10 business days" },
   { id: "EXPEDITED", name: "Expedited", description: "3-5 business days" },
   { id: "EXPRESS", name: "Express", description: "1-3 business days" },
 ] as const;
@@ -125,7 +126,7 @@ router.post("/api/print/lulu/calculate-price", isAuthenticated, async (req: any,
     const costRequest: CostCalculationRequest = {
       line_items: [{ pod_package_id: podPackageId, page_count: pageCount, quantity }],
       shipping_address: shippingAddress as LuluAddress,
-      shipping_level: (shippingLevel || 'GROUND') as ShippingLevel,
+      shipping_level: (shippingLevel || 'GROUND_HD') as ShippingLevel,
     };
 
     const result = await calculateCost(costRequest);

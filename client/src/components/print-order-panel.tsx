@@ -70,7 +70,8 @@ interface LuluStatus {
 
 const SHIPPING_OPTIONS = [
   { id: "MAIL", name: "Mail", description: "7-21 business days" },
-  { id: "GROUND", name: "Ground", description: "5-10 business days" },
+  { id: "PRIORITY_MAIL", name: "Priority Mail", description: "4-8 business days" },
+  { id: "GROUND_HD", name: "Ground", description: "5-10 business days" },
   { id: "EXPEDITED", name: "Expedited", description: "3-5 business days" },
   { id: "EXPRESS", name: "Express", description: "1-3 business days" },
 ];
@@ -96,7 +97,7 @@ export function PrintOrderPanel({
   const [showOrderDialog, setShowOrderDialog] = useState(false);
   const [quantity, setQuantity] = useState(1);
   const [colorOption, setColorOption] = useState<"color" | "bw">("color");
-  const [shippingLevel, setShippingLevel] = useState("GROUND");
+  const [shippingLevel, setShippingLevel] = useState("GROUND_HD");
   const [address, setAddress] = useState<ShippingAddress>({
     name: "",
     street1: "",

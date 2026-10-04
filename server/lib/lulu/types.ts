@@ -21,7 +21,8 @@ export type CoverFinish = 'M' | 'G';
 export type LinenColor = 'N' | 'G' | 'K' | 'R' | 'T' | 'E' | 'X';
 export type FoilType = 'G' | 'B' | 'W' | 'S' | 'X';
 
-export type ShippingLevel = 'MAIL' | 'PRIORITY_MAIL' | 'GROUND' | 'EXPEDITED' | 'EXPRESS';
+// Lulu has no plain GROUND level for US orders; GROUND_HD is home delivery
+export type ShippingLevel = 'MAIL' | 'PRIORITY_MAIL' | 'GROUND_HD' | 'GROUND_BUS' | 'EXPEDITED' | 'EXPRESS';
 
 export interface BookConfig {
   trimSize: TrimSize;
