@@ -3,18 +3,21 @@ import { z } from "zod";
 import { isAuthenticated, optionalAuth } from "../clerkAuth";
 import { storage } from "../storage";
 import { db } from "../db";
-import { eq, inArray, getTableColumns } from "drizzle-orm";
+import { eq, and, inArray, getTableColumns } from "drizzle-orm";
 import {
   insertCookbookSchema,
   printLayoutDataSchema,
   recipes,
   cookbooks,
   cookbookRecipes,
+  cookbookPhotos,
+  type PrintLayoutData,
 } from "@shared/schema";
 import { CHAPTERS, chapterForTags, buildCoursePlan } from "@shared/courses";
 import { normalizeUsState } from "@shared/us-states";
 import { isGeminiAvailable, parseQueryWithGemini } from "../gemini";
-import { generateInteriorPdf, generateCoverPdf, type CookbookPrintData } from "../lib/pdf/generator";
+import { generateInteriorPdf, generateCoverPdf, measureRecipeGaps, type CookbookPrintData } from "../lib/pdf/generator";
+import { planFamilyPhotos } from "@shared/family-photos";
 import { transformRecipe } from "../lib/pdf/recipe-transformer";
 import { buildPodPackageId, BINDING_PAGE_LIMITS } from "../lib/lulu/pod-package";
 import { createPrintJob } from "../lib/lulu/client";
@@ -1089,6 +1092,137 @@ Grams for protein/carbohydrates/fat/fiber/sugar, milligrams for sodium/cholester
   }
 });
 
+// Builds the PDF input for a cookbook layout exactly as "Download PDF" does.
+// Shared with family photo placement so gaps are measured on the same book.
+async function buildPrintDataFromLayout(
+  cookbookId: number,
+  cookbookName: string,
+  userId: string,
+  layout: PrintLayoutData,
+  templateStyle?: string,
+  customTemplateId?: number | null,
+): Promise<{ data: CookbookPrintData } | { error: string }> {
+    const allRecipeIds = layout.sections
+      .flatMap(s => Array.isArray(s.recipeIds) ? s.recipeIds : [])
+      .filter((rid): rid is string => typeof rid === 'string' && rid.length > 0);
+
+    if (allRecipeIds.length === 0) {
+      return { error: "No recipes in layout" };
+    }
+
+    // Backfill print-resolution derivatives (no-op once generated), then fetch
+    const generatedCount = await storage.ensurePrintImagesForRecipes(allRecipeIds);
+    if (generatedCount > 0) {
+      console.log(`[PDF Generation] Generated ${generatedCount} print-resolution image derivatives`);
+    }
+    const recipesResult = await fetchPrintRecipesByIds(allRecipeIds);
+
+    if (recipesResult.length === 0) {
+      return { error: "No recipes found in database for this layout" };
+    }
+
+    // Get print project for specs (or use defaults)
+    const printProjects = await storage.getPrintProjectsByCookbook(cookbookId, userId);
+    const printProject = printProjects[0];
+
+    const trimSize = printProject?.trimSize || '0600X0900';
+    const bindingType = printProject?.bindingType || 'PB';
+    const paperType = printProject?.paperType || '080CW444';
+    // The editor sends what's on screen (possibly unsaved); it wins over the saved project
+    const templateId = templateStyle || printProject?.templateStyle || 'classic';
+    const recipePrintSettings = layout.recipePrintSettings || {};
+
+    // Resolve custom template if provided
+    let customTemplateData = undefined;
+    let customFonts = undefined;
+    let backgroundImage = undefined;
+
+    const resolvedCustomTemplateId = templateStyle !== undefined ? customTemplateId : printProject?.customTemplateId;
+    if (resolvedCustomTemplateId) {
+      const customTemplate = await storage.getCustomTemplate(resolvedCustomTemplateId);
+      if (customTemplate) {
+        customTemplateData = customTemplate.templateData as any;
+        customFonts = customTemplate.customFonts as any;
+        backgroundImage = await embedTemplateMediaForPdf(customTemplateData, customFonts, customTemplate.backgroundImage || undefined);
+      }
+    }
+
+    // Build cookbook print data using recipe transformer
+    const cookbookPrintData: CookbookPrintData = {
+      title: layout.title || cookbookName,
+      subtitle: layout.subtitle,
+      authorName: layout.authorName || 'Unknown',
+      dedication: layout.dedication,
+      minPages: (BINDING_PAGE_LIMITS[bindingType] || { min: 32 }).min,
+      templateId,
+      trimSize,
+      bindingType,
+      paperType,
+      sections: layout.sections.map((s, i) => ({
+        id: s.id,
+        title: s.title,
+        sortOrder: i,
+      })),
+      recipes: layout.sections.flatMap((section, sIdx) =>
+        (section.recipeIds || []).map((recipeId, rIdx) => {
+          const recipeData = recipesResult.find(r => r.id === recipeId);
+          if (!recipeData) return null;
+          const settings = recipePrintSettings[recipeId];
+          return {
+            sectionId: section.id,
+            sortOrder: rIdx,
+            layoutOverride: settings?.layoutOverride,
+            data: transformRecipe(recipeData, layout.customizations?.unitSystem || 'original'),
+          };
+        }).filter(Boolean)
+      ) as CookbookPrintData['recipes'],
+      coverData: layout.coverData,
+      customizations: layout.customizations ? {
+        showNutrition: layout.customizations.showNutrition,
+        showTips: layout.customizations.showTips,
+        showVariations: layout.customizations.showVariations,
+      } : undefined,
+      customTemplateData,
+      customFonts,
+      backgroundImage,
+    };
+
+    cookbookPrintData.familyPhotos = await loadFamilyPhotosForPrint(cookbookId, layout);
+    return { data: cookbookPrintData };
+}
+
+/**
+ * Embeds the family photos a layout uses: one per recipe (placed under it)
+ * and the Family Album. Photos are read in small batches; each is ~0.5-1MB.
+ */
+async function loadFamilyPhotosForPrint(cookbookId: number, layout: PrintLayoutData): Promise<CookbookPrintData["familyPhotos"]> {
+  const entries = layout.familyPhotos ?? [];
+  const inBook = new Set(layout.sections.flatMap((s) => s.recipeIds));
+  const wanted = entries.filter((e) =>
+    e.placement?.type === "album" || (e.placement?.type === "recipe" && e.placement.recipeId && inBook.has(e.placement.recipeId)));
+  if (wanted.length === 0) return undefined;
+
+  const images = new Map<string, string>();
+  for (let i = 0; i < wanted.length; i += 8) {
+    const rows = await db
+      .select({ id: cookbookPhotos.id, image: cookbookPhotos.image })
+      .from(cookbookPhotos)
+      .where(and(eq(cookbookPhotos.cookbookId, cookbookId), inArray(cookbookPhotos.id, wanted.slice(i, i + 8).map((e) => e.id))));
+    rows.forEach((r) => images.set(r.id, r.image));
+  }
+
+  const byRecipe: Record<string, { src: string; aspect: number }> = {};
+  const album: { src: string; aspect: number }[] = [];
+  for (const e of wanted) {
+    const src = images.get(e.id);
+    if (!src) continue;
+    const photo = { src, aspect: e.width / e.height };
+    if (e.placement?.type === "album") album.push(photo);
+    else if (e.placement?.recipeId && !byRecipe[e.placement.recipeId]) byRecipe[e.placement.recipeId] = photo;
+  }
+  return { byRecipe, album };
+}
+
 router.post("/cookbooks/:id/generate-pdf", isAuthenticated, async (req: any, res) => {
   try {
     const { id } = req.params;
@@ -1109,89 +1243,9 @@ router.post("/cookbooks/:id/generate-pdf", isAuthenticated, async (req: any, res
       return res.status(400).json({ error: "Invalid layout data", details: validatedLayout.error.issues });
     }
 
-    const allRecipeIds = validatedLayout.data.sections
-      .flatMap(s => Array.isArray(s.recipeIds) ? s.recipeIds : [])
-      .filter((rid): rid is string => typeof rid === 'string' && rid.length > 0);
-
-    if (allRecipeIds.length === 0) {
-      return res.status(400).json({ error: "No recipes in layout" });
-    }
-
-    // Backfill print-resolution derivatives (no-op once generated), then fetch
-    const generatedCount = await storage.ensurePrintImagesForRecipes(allRecipeIds);
-    if (generatedCount > 0) {
-      console.log(`[PDF Generation] Generated ${generatedCount} print-resolution image derivatives`);
-    }
-    const recipesResult = await fetchPrintRecipesByIds(allRecipeIds);
-
-    if (recipesResult.length === 0) {
-      return res.status(400).json({ error: "No recipes found in database for this layout" });
-    }
-
-    // Get print project for specs (or use defaults)
-    const printProjects = await storage.getPrintProjectsByCookbook(cookbookId, userId);
-    const printProject = printProjects[0];
-
-    const trimSize = printProject?.trimSize || '0600X0900';
-    const bindingType = printProject?.bindingType || 'PB';
-    const paperType = printProject?.paperType || '080CW444';
-    const templateId = printProject?.templateStyle || templateStyle || 'classic';
-    const recipePrintSettings = validatedLayout.data.recipePrintSettings || {};
-
-    // Resolve custom template if provided
-    let customTemplateData = undefined;
-    let customFonts = undefined;
-    let backgroundImage = undefined;
-
-    const resolvedCustomTemplateId = customTemplateId || printProject?.customTemplateId;
-    if (resolvedCustomTemplateId) {
-      const customTemplate = await storage.getCustomTemplate(resolvedCustomTemplateId);
-      if (customTemplate) {
-        customTemplateData = customTemplate.templateData as any;
-        customFonts = customTemplate.customFonts as any;
-        backgroundImage = await embedTemplateMediaForPdf(customTemplateData, customFonts, customTemplate.backgroundImage || undefined);
-      }
-    }
-
-    // Build cookbook print data using recipe transformer
-    const cookbookPrintData: CookbookPrintData = {
-      title: validatedLayout.data.title || cookbook.name,
-      subtitle: validatedLayout.data.subtitle,
-      authorName: validatedLayout.data.authorName || 'Unknown',
-      dedication: validatedLayout.data.dedication,
-      minPages: (BINDING_PAGE_LIMITS[bindingType] || { min: 32 }).min,
-      templateId,
-      trimSize,
-      bindingType,
-      paperType,
-      sections: validatedLayout.data.sections.map((s, i) => ({
-        id: s.id,
-        title: s.title,
-        sortOrder: i,
-      })),
-      recipes: validatedLayout.data.sections.flatMap((section, sIdx) =>
-        (section.recipeIds || []).map((recipeId, rIdx) => {
-          const recipeData = recipesResult.find(r => r.id === recipeId);
-          if (!recipeData) return null;
-          const settings = recipePrintSettings[recipeId];
-          return {
-            sectionId: section.id,
-            sortOrder: rIdx,
-            layoutOverride: settings?.layoutOverride,
-            data: transformRecipe(recipeData, validatedLayout.data.customizations?.unitSystem || 'original'),
-          };
-        }).filter(Boolean)
-      ) as CookbookPrintData['recipes'],
-      coverData: validatedLayout.data.coverData,
-      customizations: validatedLayout.data.customizations ? {
-        showNutrition: validatedLayout.data.customizations.showNutrition,
-        showTips: validatedLayout.data.customizations.showTips,
-        showVariations: validatedLayout.data.customizations.showVariations,
-      } : undefined,
-      customTemplateData,
-      customFonts,
-      backgroundImage,
-    };
+    const built = await buildPrintDataFromLayout(cookbookId, cookbook.name, userId, validatedLayout.data, templateStyle, customTemplateId);
+    if ("error" in built) return res.status(400).json({ error: built.error });
+    const cookbookPrintData = built.data;
 
     console.log(`[PDF Generation] Starting PDF generation for cookbook ${cookbookId} with ${cookbookPrintData.recipes.length} recipes`);
 
@@ -1206,6 +1260,42 @@ router.post("/cookbooks/:id/generate-pdf", isAuthenticated, async (req: any, res
   } catch (error) {
     console.error("Error generating PDF:", error);
     res.status(500).json({ error: "Failed to generate PDF" });
+  }
+});
+
+// Places family photos into the empty space under recipes. Lays the book out
+// exactly as the PDF would (current template, sizes, fonts), measures each
+// recipe's leftover space, and returns the updated photo list for the layout.
+router.post("/cookbooks/:id/photos/place", isAuthenticated, async (req: any, res) => {
+  try {
+    const cookbookId = parseInt(req.params.id);
+    const userId = getUserId(req);
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    const cookbook = await storage.getCookbook(cookbookId);
+    if (!cookbook) return res.status(404).json({ error: "Cookbook not found" });
+    if (cookbook.ownerUserId !== userId) return res.status(403).json({ error: "Not authorized" });
+
+    const { layoutData, templateStyle, customTemplateId } = req.body;
+    const parsed = printLayoutDataSchema.safeParse(layoutData);
+    if (!parsed.success) return res.status(400).json({ error: "Invalid layout data" });
+    const photos = parsed.data.familyPhotos ?? [];
+    if (photos.length === 0) return res.json({ familyPhotos: [], placed: 0, unplaced: 0 });
+
+    const built = await buildPrintDataFromLayout(
+      cookbookId, cookbook.name, userId, { ...parsed.data, familyPhotos: undefined }, templateStyle, customTemplateId,
+    );
+    if ("error" in built) return res.status(400).json({ error: built.error });
+
+    const gaps = await measureRecipeGaps(built.data);
+    const familyPhotos = planFamilyPhotos(photos, gaps);
+    res.json({
+      familyPhotos,
+      placed: familyPhotos.filter((p) => p.placement?.type === "recipe").length,
+      unplaced: familyPhotos.filter((p) => p.placement?.type === "unplaced").length,
+    });
+  } catch (error) {
+    console.error("Error placing family photos:", error);
+    res.status(500).json({ error: "Failed to place photos" });
   }
 });
 
@@ -1330,6 +1420,7 @@ router.post("/cookbooks/:id/print-order", isAuthenticated, async (req: any, res)
       customTemplateData: orderCustomTemplateData,
       customFonts: orderCustomFonts,
       backgroundImage: orderBackgroundImage,
+      familyPhotos: await loadFamilyPhotosForPrint(cookbookId, validatedLayout.data),
     };
 
     console.log(`[Print Order] Generating PDF for cookbook ${cookbookId} with ${cookbookPrintData.recipes.length} recipes`);

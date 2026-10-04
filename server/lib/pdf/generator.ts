@@ -1,5 +1,9 @@
 import { paginateToc, tocMetrics, type TocMetrics } from "@shared/toc-layout";
 import { buildRecipeCardHtml, CARD_THEME } from "@shared/recipe-card";
+import {
+  buildAlbumPageHtml, chunkAlbum, familyPhotoSlotHtml, fitFamilyPhotoSlots,
+  FAMILY_ALBUM_TITLE, type AlbumPhoto, type RecipeGap,
+} from "@shared/family-photos";
 import type { BookSizeConfig, BindingType, PaperType, TrimSize } from '../lulu/types';
 import type { NormalizedRecipe } from './types';
 import type { CustomTemplateData } from '@shared/schema';
@@ -42,6 +46,11 @@ export interface CookbookPrintData {
     showNutrition?: boolean;
     showTips?: boolean;
     showVariations?: boolean;
+  };
+  /** Family photos: one per recipe (fills the space under it) plus album pages */
+  familyPhotos?: {
+    byRecipe: Record<string, AlbumPhoto>;
+    album: AlbumPhoto[];
   };
   // Custom template support
   customTemplateData?: CustomTemplateData;
@@ -286,14 +295,81 @@ async function generateInteriorPdfInner(
     cookbookData.bindingType as BindingType
   );
 
-  // Inline cached fonts so generation has no network dependency (falls back
-  // to the <link> tag if the cache can't be built)
-  const html = await inlineGoogleFonts(buildInteriorHtml(config, cookbookData));
-
   const browser = await getSharedBrowser();
   const page = await browser.newPage();
 
   try {
+    await loadAndFitInterior(page, config, cookbookData);
+
+    const pdfBuffer = await page.pdf({
+      width: `${config.pageWidthWithBleed}in`,
+      height: `${config.pageHeightWithBleed}in`,
+      printBackground: true,
+      margin: { top: 0, right: 0, bottom: 0, left: 0 },
+    });
+
+    const pageCount = await page.evaluate(() => {
+      return document.querySelectorAll('.page').length;
+    });
+
+    return {
+      buffer: Buffer.from(pdfBuffer),
+      pageCount,
+    };
+  } finally {
+    await page.close();
+  }
+}
+
+/**
+ * Measures the empty space under each recipe exactly as the PDF would lay it
+ * out (same fonts, same shrink-to-fit), without any family photos. Feeds the
+ * photo planner in shared/family-photos.ts.
+ */
+export function measureRecipeGaps(cookbookData: CookbookPrintData): Promise<RecipeGap[]> {
+  return withPdfSlot(async () => {
+    const config = getBookSizeConfig(cookbookData.trimSize as TrimSize, cookbookData.bindingType as BindingType);
+    const browser = await getSharedBrowser();
+    const page = await browser.newPage();
+    try {
+      await loadAndFitInterior(page, config, { ...cookbookData, familyPhotos: undefined });
+      const raw = await page.evaluate(`(() => {
+        const out = [];
+        document.querySelectorAll('.page[data-recipe-id]').forEach((pg) => {
+          const content = pg.querySelector('.recipe-content');
+          if (!content) return;
+          const availH = parseFloat(content.getAttribute('data-avail-h') || '0');
+          const availW = parseFloat(content.getAttribute('data-avail-w') || '0');
+          const box = content.getBoundingClientRect();
+          out.push({ recipeId: pg.getAttribute('data-recipe-id'), freePx: box.top + availH - box.bottom, widthPx: availW });
+        });
+        return out;
+      })()`) as { recipeId: string; freePx: number; widthPx: number }[];
+
+      const titles = new Map(cookbookData.recipes.map((r) => [r.data.id, r.data.title]));
+      const seen = new Set<string>();
+      // A two-page spread has one text page; keep the first page per recipe
+      return raw.filter((g) => !seen.has(g.recipeId) && seen.add(g.recipeId)).map((g) => ({
+        recipeId: g.recipeId,
+        title: titles.get(g.recipeId) || 'Recipe',
+        freeHIn: Math.max(0, g.freePx / 96),
+        widthIn: g.widthPx / 96,
+      }));
+    } finally {
+      await page.close();
+    }
+  });
+}
+
+async function loadAndFitInterior(
+  page: import('puppeteer').Page,
+  config: BookSizeConfig,
+  cookbookData: CookbookPrintData,
+): Promise<void> {
+  // Inline cached fonts so generation has no network dependency (falls back
+  // to the <link> tag if the cache can't be built)
+  const html = await inlineGoogleFonts(buildInteriorHtml(config, cookbookData));
+  {
     await page.setContent(html, { waitUntil: 'networkidle0' });
     // networkidle0 doesn't guarantee webfonts have been applied; without this
     // wait, text measures/prints with the fallback font (Times)
@@ -328,23 +404,9 @@ async function generateInteriorPdfInner(
       });
     })()`);
 
-    const pdfBuffer = await page.pdf({
-      width: `${config.pageWidthWithBleed}in`,
-      height: `${config.pageHeightWithBleed}in`,
-      printBackground: true,
-      margin: { top: 0, right: 0, bottom: 0, left: 0 },
-    });
-
-    const pageCount = await page.evaluate(() => {
-      return document.querySelectorAll('.page').length;
-    });
-
-    return {
-      buffer: Buffer.from(pdfBuffer),
-      pageCount,
-    };
-  } finally {
-    await page.close();
+    // Family photos fill whatever room is left under each recipe (after the
+    // text is laid out, so they can never push it around)
+    await page.evaluate(`(${fitFamilyPhotoSlots.toString()})(document, 1)`);
   }
 }
 
@@ -470,6 +532,8 @@ export function buildInteriorHtml(
     for (let i = 0; i < count; i++) tocShape.push({ isSection: false });
   }
   for (const r of cookbook.recipes) if (!r.sectionId) tocShape.push({ isSection: false });
+  const albumPhotos = cookbook.familyPhotos?.album ?? [];
+  if (albumPhotos.length) tocShape.push({ isSection: false });
 
   const tocMetrics = getTocMetrics(config, pageWPx);
   const tocPageCount = Math.max(1, paginateToc(tocShape, tocMetrics).length);
@@ -520,10 +584,10 @@ export function buildInteriorHtml(
       if (layout === 'two-page-spread') {
         pages.push(buildRecipeSpreadLeftHtml(config, recipe.data, theme));
         currentPage++;
-        pages.push(buildRecipePageHtml(config, recipe.data, currentPage, 'text-only', theme, pageWPx, pageHPx));
+        pages.push(buildRecipePageHtml(config, recipe.data, currentPage, 'text-only', theme, pageWPx, pageHPx, cookbook.familyPhotos?.byRecipe[recipe.data.id]));
         currentPage++;
       } else {
-        pages.push(buildRecipePageHtml(config, recipe.data, currentPage, layout === 'half-page' ? 'text-only' : 'single', theme, pageWPx, pageHPx));
+        pages.push(buildRecipePageHtml(config, recipe.data, currentPage, layout === 'half-page' ? 'text-only' : 'single', theme, pageWPx, pageHPx, cookbook.familyPhotos?.byRecipe[recipe.data.id]));
         currentPage++;
       }
 
@@ -542,11 +606,31 @@ export function buildInteriorHtml(
 
   for (const recipe of unsectioned) {
     tocEntries.push({ title: recipe.data.title, pageNumber: currentPage, isSection: false });
-    pages.push(buildRecipePageHtml(config, recipe.data, currentPage, 'single', theme, pageWPx, pageHPx));
+    pages.push(buildRecipePageHtml(config, recipe.data, currentPage, 'single', theme, pageWPx, pageHPx, cookbook.familyPhotos?.byRecipe[recipe.data.id]));
     currentPage++;
 
     if (hasRecipeExtras(recipe.data, extrasCustomizations)) {
       pages.push(buildRecipeExtrasPageHtml(config, recipe.data, currentPage, theme, pageWPx, pageHPx, extrasCustomizations));
+      currentPage++;
+    }
+  }
+
+  // Family Album: photos that went in the album rather than under a recipe
+  if (albumPhotos.length) {
+    tocEntries.push({ title: FAMILY_ALBUM_TITLE, pageNumber: currentPage, isSection: false });
+    pages.push(buildSectionDividerHtml(config, FAMILY_ALBUM_TITLE, undefined, theme, pageWPx, pageHPx));
+    currentPage++;
+    for (const chunk of chunkAlbum(albumPhotos)) {
+      const recto = currentPage % 2 === 1;
+      pages.push(`<div class="page album-page" style="width:${config.pageWidthWithBleed}in;height:${config.pageHeightWithBleed}in;overflow:hidden;position:relative;page-break-after:always;">${buildAlbumPageHtml(chunk, theme, {
+        widthIn: config.pageWidthWithBleed,
+        heightIn: config.pageHeightWithBleed,
+        padTopIn: config.bleed + config.safetyMargin,
+        padBottomIn: config.bleed + config.safetyMargin,
+        padLeftIn: config.bleed + (recto ? config.gutterMargin + config.safetyMargin : config.safetyMargin),
+        padRightIn: config.bleed + (recto ? config.safetyMargin : config.gutterMargin + config.safetyMargin),
+        pageNumber: currentPage,
+      })}</div>`);
       currentPage++;
     }
   }
@@ -1035,8 +1119,11 @@ function buildRecipePageHtml(
   layout: 'single' | 'text-only',
   theme: ThemeConfig,
   pageWPx: number,
-  pageHPx: number
+  pageHPx: number,
+  familyPhoto?: AlbumPhoto
 ): string {
+  const photoSlot = familyPhoto ? familyPhotoSlotHtml(familyPhoto.src, theme) : '';
+  const recipeIdAttr = `data-recipe-id="${escapeHtml(recipe.id)}"`;
   if (theme.recipeLayout) {
     const recto = pageNumber % 2 === 1;
     const card = buildRecipeCardHtml(recipe, theme.recipeLayout, theme, {
@@ -1048,8 +1135,8 @@ function buildRecipePageHtml(
       padLeftIn: config.bleed + (recto ? config.gutterMargin + config.safetyMargin : config.safetyMargin),
       padRightIn: config.bleed + (recto ? config.safetyMargin : config.gutterMargin + config.safetyMargin),
       pageNumber,
-    }, { includePhoto: layout !== 'text-only' });
-    return `<div class="page recipe-page" style="width:${config.pageWidthWithBleed}in;height:${config.pageHeightWithBleed}in;overflow:hidden;position:relative;page-break-after:always;">${card}</div>`;
+    }, { includePhoto: layout !== 'text-only', beforePageNumber: photoSlot });
+    return `<div class="page recipe-page" ${recipeIdAttr} style="width:${config.pageWidthWithBleed}in;height:${config.pageHeightWithBleed}in;overflow:hidden;position:relative;page-break-after:always;">${card}</div>`;
   }
 
   const isRecto = pageNumber % 2 === 1;
@@ -1132,7 +1219,7 @@ function buildRecipePageHtml(
     </div>`
   ).join('');
 
-  return `<div class="page recipe-page" style="width:${config.pageWidthWithBleed}in;height:${config.pageHeightWithBleed}in;background:${theme.bg};overflow:hidden;position:relative;page-break-after:always;">
+  return `<div class="page recipe-page" ${recipeIdAttr} style="width:${config.pageWidthWithBleed}in;height:${config.pageHeightWithBleed}in;background:${theme.bg};overflow:hidden;position:relative;page-break-after:always;">
     ${imageHtml}
     <!-- Auto-fit content area -->
     <div class="recipe-content" data-avail-h="${availHPx}" data-avail-w="${availWPx}" style="position:absolute;top:${showImage ? imageHeightPct + '%' : padTop + 'in'};left:${padLeft}in;width:${availWIn}in;">
@@ -1153,6 +1240,7 @@ function buildRecipePageHtml(
           ${instructionsHtml}
         </div>
       </div>
+      ${photoSlot}
       <!-- Page number -->
       <div style="text-align:center;font-size:${pageNumSize}px;color:${theme.pageNum};margin-top:8px;padding-top:4px;">${pageNumber}</div>
     </div>

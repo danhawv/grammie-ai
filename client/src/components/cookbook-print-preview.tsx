@@ -14,6 +14,10 @@ import { convertAmount, type UnitSystem } from "@shared/units";
 import { BOOK_SIZES, type TrimSizeId } from "@/lib/print-constants";
 import { buildRecipeCardHtml, CARD_THEME } from "@shared/recipe-card";
 import { transformRecipe } from "@shared/print-recipe-transform";
+import {
+  buildAlbumPageHtml, chunkAlbum, familyPhotoSlotHtml, fitFamilyPhotoSlots,
+  FAMILY_ALBUM_TITLE, type AlbumPhoto,
+} from "@shared/family-photos";
 
 // --- Constants ---
 const DPI = 96;
@@ -164,12 +168,17 @@ type TocEntry =
   | { isSection: true; title: string }
   | { isSection: false; title: string; index: number };
 
+/** TOC index used for the Family Album entry */
+const ALBUM_TOC_INDEX = -1;
+const photoUrl = (id: string) => `/api/cookbook-photos/${id}`;
+
 type PageContent =
   | { type: "cover" }
   | { type: "dedication" }
   | { type: "colophon" }
   | { type: "toc"; entries: TocEntry[]; first: boolean }
-  | { type: "section-divider"; title: string }
+  | { type: "section-divider"; title: string; album?: boolean }
+  | { type: "album"; photos: AlbumPhoto[] }
   | { type: "recipe"; recipe: Recipe; index: number }
   | { type: "recipe-extras"; recipe: Recipe; index: number }
   | { type: "back" };
@@ -294,6 +303,20 @@ export function CookbookPrintPreview({
     return false;
   }, [showNutrition, showTips, showVariations, theme.recipeLayout]);
 
+  // Family photos: one under each recipe that has room, the rest in the album
+  const { photoByRecipe, albumPhotos } = useMemo(() => {
+    const inBook = new Set((layoutData?.sections ?? []).flatMap((s) => s.recipeIds));
+    const byRecipe = new Map<string, string>();
+    const album: AlbumPhoto[] = [];
+    for (const p of layoutData?.familyPhotos ?? []) {
+      if (p.placement?.type === 'album') album.push({ src: photoUrl(p.id), aspect: p.width / p.height });
+      else if (p.placement?.type === 'recipe' && p.placement.recipeId && inBook.has(p.placement.recipeId) && !byRecipe.has(p.placement.recipeId)) {
+        byRecipe.set(p.placement.recipeId, photoUrl(p.id));
+      }
+    }
+    return { photoByRecipe: byRecipe, albumPhotos: album };
+  }, [layoutData?.familyPhotos, layoutData?.sections]);
+
   // Build pages
   const pages: PageContent[] = useMemo(() => {
     const p: PageContent[] = [];
@@ -317,6 +340,7 @@ export function CookbookPrintPreview({
       } else {
         orderedRecipes.forEach((r, index) => entries.push({ isSection: false, title: r.title, index }));
       }
+      if (albumPhotos.length) entries.push({ isSection: false, title: FAMILY_ALBUM_TITLE, index: ALBUM_TOC_INDEX });
       const contentPx = pageH - (MARGIN_TOP + MARGIN_BOTTOM) * DPI - TOC_TOP_GAP;
       const chunks = paginateToc(entries, tocMetrics(contentPx, pageW));
       chunks.forEach((chunk, i) => p.push({ type: "toc", entries: chunk, first: i === 0 }));
@@ -346,9 +370,13 @@ export function CookbookPrintPreview({
         });
       }
     }
+    if (orderedRecipes.length > 0 && albumPhotos.length) {
+      p.push({ type: "section-divider", title: FAMILY_ALBUM_TITLE, album: true });
+      chunkAlbum(albumPhotos).forEach((photos) => p.push({ type: "album", photos }));
+    }
     p.push({ type: "back" });
     return p;
-  }, [orderedRecipes, layoutData, hasExtras, pageW, pageH]);
+  }, [orderedRecipes, layoutData, hasExtras, pageW, pageH, albumPhotos]);
 
   const totalPages = pages.length;
 
@@ -357,6 +385,7 @@ export function CookbookPrintPreview({
     const map = new Map<number, number>();
     pages.forEach((p, i) => {
       if (p.type === 'recipe') map.set(p.index, i + 1);
+      if (p.type === 'section-divider' && p.album) map.set(ALBUM_TOC_INDEX, i + 1);
     });
     return map;
   }, [pages]);
@@ -509,7 +538,9 @@ export function CookbookPrintPreview({
                     pageNumbers={recipePageNumbers}
                     theme={theme}
                     onGoToRecipe={(i) => {
-                      const idx = pages.findIndex(p => p.type === 'recipe' && (p as any).index === i);
+                      const idx = i === ALBUM_TOC_INDEX
+                        ? pages.findIndex(p => p.type === 'section-divider' && p.album)
+                        : pages.findIndex(p => p.type === 'recipe' && (p as any).index === i);
                       if (idx >= 0) setCurrentPage(idx);
                     }}
                     w={pageW} h={pageH}
@@ -525,13 +556,18 @@ export function CookbookPrintPreview({
                     unitSystem={(layoutData?.customizations?.unitSystem as UnitSystem) || "original"}
                     w={pageW} h={pageH}
                     pageNumber={recipePageNumbers.get(page.index)}
+                    familyPhotoSrc={photoByRecipe.get(String(page.recipe.id))}
                     includePhoto={
                       layoutData?.recipePrintSettings?.[String(page.recipe.id)]?.includePhoto !== false
                     }
                   />
                 )}
+                {page?.type === "album" && (
+                  <AlbumPage photos={page.photos} theme={theme} w={pageW} h={pageH} pageNumber={currentPage + 1} />
+                )}
                 {page?.type === "recipe" && !theme.recipeLayout && (
                   <RecipePage
+                    familyPhotoSrc={photoByRecipe.get(String(page.recipe.id))}
                     recipe={page.recipe}
                     index={page.index}
                     theme={theme}
@@ -581,6 +617,7 @@ export function CookbookPrintPreview({
                 p.type === 'back' ? 'B' :
                 p.type === 'toc' ? 'TOC' :
                 p.type === 'section-divider' ? 'S' :
+                p.type === 'album' ? 'A' :
                 p.type === 'dedication' ? 'D' :
                 p.type === 'recipe-extras' ? `${(p as any).index + 1}+` :
                 p.type === 'recipe' ? `${(p as any).index + 1}` : '';
@@ -617,10 +654,12 @@ export function CookbookPrintPreview({
 // ============================================================================
 
 function AutoFitPage({
-  w, h, bg, children, padding,
+  w, h, bg, children, padding, afterFit,
 }: {
   w: number; h: number; bg: string; children: React.ReactNode;
   padding?: { top: number; right: number; bottom: number; left: number };
+  /** Runs once the scale is settled (family photo slots size themselves here) */
+  afterFit?: (root: HTMLElement) => void;
 }) {
   const outerRef = useRef<HTMLDivElement>(null);
   const innerRef = useRef<HTMLDivElement>(null);
@@ -639,9 +678,11 @@ function AutoFitPage({
     const inner = innerRef.current;
     if (!outer || !inner) return;
 
-    // Reset to measure natural height
+    // Reset to measure natural height (photo slots only fill leftover space)
     setScale(1);
+    inner.querySelectorAll<HTMLElement>('.family-photo-slot').forEach((slot) => { slot.style.display = 'none'; });
 
+    let raf2 = 0;
     const raf = requestAnimationFrame(() => {
       const availH = h - pad.top - pad.bottom;
       const contentH = inner.scrollHeight;
@@ -650,9 +691,12 @@ function AutoFitPage({
       } else {
         setScale(1);
       }
+      if (afterFit) {
+        raf2 = requestAnimationFrame(() => afterFit(outer));
+      }
     });
-    return () => cancelAnimationFrame(raf);
-  }, [w, h, pad.top, pad.bottom, children]);
+    return () => { cancelAnimationFrame(raf); cancelAnimationFrame(raf2); };
+  }, [w, h, pad.top, pad.bottom, children, afterFit]);
 
   const availW = w - pad.left - pad.right;
 
@@ -669,6 +713,8 @@ function AutoFitPage({
     >
       <div
         ref={innerRef}
+        className="recipe-content"
+        data-avail-h={h - pad.top - pad.bottom}
         style={{
           position: 'absolute',
           top: pad.top,
@@ -917,11 +963,24 @@ function SectionDividerPage({ title, theme, w, h }: {
 // Recipe Page — ONE recipe per page, content auto-scales to fit
 // ============================================================================
 
+// Family Album page: same HTML builder as the PDF
+function AlbumPage({ photos, theme, w, h, pageNumber }: {
+  photos: AlbumPhoto[]; theme: ThemeConfig; w: number; h: number; pageNumber: number;
+}) {
+  const html = useMemo(() => buildAlbumPageHtml(photos, theme, {
+    widthIn: w / DPI, heightIn: h / DPI,
+    padTopIn: MARGIN_TOP, padBottomIn: MARGIN_BOTTOM,
+    padLeftIn: MARGIN_INNER, padRightIn: MARGIN_OUTER,
+    pageNumber,
+  }), [photos, theme, w, h, pageNumber]);
+  return <div style={{ width: w, height: h }} dangerouslySetInnerHTML={{ __html: html }} />;
+}
+
 // Card layout: the same HTML the PDF generator prints (shared/recipe-card.ts),
 // shrunk to fit with the same zoom search when a recipe runs long
-function CardRecipePage({ recipe, theme, w, h, includePhoto, unitSystem, pageNumber }: {
+function CardRecipePage({ recipe, theme, w, h, includePhoto, unitSystem, pageNumber, familyPhotoSrc }: {
   recipe: Recipe; theme: ThemeConfig; w: number; h: number;
-  includePhoto: boolean; unitSystem: UnitSystem; pageNumber?: number;
+  includePhoto: boolean; unitSystem: UnitSystem; pageNumber?: number; familyPhotoSrc?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const html = useMemo(() => {
@@ -932,13 +991,15 @@ function CardRecipePage({ recipe, theme, w, h, includePhoto, unitSystem, pageNum
       padTopIn: MARGIN_TOP, padBottomIn: MARGIN_BOTTOM,
       padLeftIn: MARGIN_INNER, padRightIn: MARGIN_OUTER,
       pageNumber,
-    }, { includePhoto });
-  }, [recipe, theme, unitSystem, w, h, pageNumber, includePhoto]);
+    }, { includePhoto, beforePageNumber: familyPhotoSrc ? familyPhotoSlotHtml(familyPhotoSrc, theme) : '' });
+  }, [recipe, theme, unitSystem, w, h, pageNumber, includePhoto, familyPhotoSrc]);
 
   useLayoutEffect(() => {
     const root = ref.current;
     if (!root) return;
     const fit = () => {
+      // Photos fill leftover space, so measure the recipe without them
+      root.querySelectorAll<HTMLElement>('.family-photo-slot').forEach((slot) => { slot.style.display = 'none'; });
       root.querySelectorAll<HTMLElement>('.recipe-content').forEach((container) => {
         const availH = parseFloat(container.dataset.availH || '0');
         const availW = parseFloat(container.dataset.availW || '0');
@@ -965,6 +1026,7 @@ function CardRecipePage({ recipe, theme, w, h, includePhoto, unitSystem, pageNum
         inner.style.zoom = String(best);
         inner.style.width = `${availW / best}px`;
       });
+      fitFamilyPhotoSlots(root, root.getBoundingClientRect().height / h || 1);
     };
     fit();
     // Photos change the height once they load
@@ -977,9 +1039,9 @@ function CardRecipePage({ recipe, theme, w, h, includePhoto, unitSystem, pageNum
   return <div ref={ref} style={{ width: w, height: h }} dangerouslySetInnerHTML={{ __html: html }} />;
 }
 
-function RecipePage({ recipe, index, theme, w, h, includePhoto, unitSystem = "original" }: {
+function RecipePage({ recipe, index, theme, w, h, includePhoto, unitSystem = "original", familyPhotoSrc }: {
   recipe: Recipe; index: number; theme: ThemeConfig;
-  w: number; h: number; includePhoto: boolean; unitSystem?: UnitSystem;
+  w: number; h: number; includePhoto: boolean; unitSystem?: UnitSystem; familyPhotoSrc?: string;
 }) {
   const padTop = MARGIN_TOP * DPI;
   const padBottom = MARGIN_BOTTOM * DPI;
@@ -1053,6 +1115,7 @@ function RecipePage({ recipe, index, theme, w, h, includePhoto, unitSystem = "or
         h={contentH}
         bg="transparent"
         padding={contentPadding}
+        afterFit={familyPhotoSrc ? (root) => fitFamilyPhotoSlots(root, root.getBoundingClientRect().height / contentH || 1) : undefined}
       >
         {/* Title (when no image) */}
         {!hasImage && (
@@ -1152,6 +1215,8 @@ function RecipePage({ recipe, index, theme, w, h, includePhoto, unitSystem = "or
             ))}
           </div>
         </div>
+
+        {familyPhotoSrc && <div dangerouslySetInnerHTML={{ __html: familyPhotoSlotHtml(familyPhotoSrc, theme) }} />}
 
         {/* Page number */}
         <div style={{

@@ -526,6 +526,23 @@ export const cookbooks = pgTable("cookbooks", {
 // ============================================================================
 
 // Layout data structure for print projects
+export const familyPhotoEntrySchema = z.object({
+  id: z.string(),
+  width: z.number().positive(),
+  height: z.number().positive(),
+  /** Set by "Place photos" or by the user; absent = not placed yet */
+  placement: z.object({
+    type: z.enum(['recipe', 'album', 'unplaced']),
+    recipeId: z.string().optional(),
+    /** Why an unplaced photo couldn't go anywhere */
+    reason: z.string().optional(),
+  }).optional(),
+  /** User wants this photo on a specific recipe */
+  pinnedRecipeId: z.string().optional(),
+});
+
+export type FamilyPhotoEntry = z.infer<typeof familyPhotoEntrySchema>;
+
 export const printLayoutDataSchema = z.object({
   coverImage: z.string().optional(),
   backCoverImage: z.string().optional(),
@@ -561,6 +578,10 @@ export const printLayoutDataSchema = z.object({
     backText: z.string().optional(),
     frontImageUrl: z.string().optional(),
   }).optional(),
+  // Family photos placed in the empty space under recipes (or in a Family
+  // Album section). Image data lives in cookbook_photos; this keeps only the
+  // order, shape and where each one goes. See shared/family-photos.ts.
+  familyPhotos: z.array(familyPhotoEntrySchema).optional(),
 });
 
 export type PrintLayoutData = z.infer<typeof printLayoutDataSchema>;
@@ -658,6 +679,24 @@ export const customTemplateDataSchema = z.object({
 });
 
 export type CustomTemplateData = z.infer<typeof customTemplateDataSchema>;
+
+// Family photos uploaded for a printed cookbook. Stored as print-resolution
+// JPEG data URLs (the live site keeps media in the database) plus a small
+// thumbnail for the editor and preview.
+export const cookbookPhotos = pgTable("cookbook_photos", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  cookbookId: integer("cookbook_id").notNull().references(() => cookbooks.id, { onDelete: 'cascade' }),
+  ownerUserId: varchar("owner_user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  image: text("image").notNull(),
+  thumbnail: text("thumbnail").notNull(),
+  width: integer("width").notNull(),
+  height: integer("height").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  cookbookIdIdx: index("cookbook_photos_cookbook_id_idx").on(table.cookbookId),
+}));
+
+export type CookbookPhoto = typeof cookbookPhotos.$inferSelect;
 
 export const customTemplates = pgTable("custom_templates", {
   id: serial("id").primaryKey(),

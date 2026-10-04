@@ -84,6 +84,7 @@ import { PrintOrderPanel } from "@/components/print-order-panel";
 import type { PrintLayoutData, CookbookPrintProject, CustomTemplate } from "@shared/schema";
 import { TemplateDesigner } from "@/components/template-designer";
 import { PrintDetailsNotice } from "@/components/print-details-notice";
+import { FamilyPhotosPanel } from "@/components/family-photos-panel";
 import { TemplateFromPhotos } from "@/components/template-from-photos";
 
 interface CookbookWithOwner {
@@ -603,6 +604,8 @@ function CookbookPrintEditorInner() {
     allRecipes.forEach(r => map.set(r.id, r));
     return map;
   }, [allRecipes]);
+
+  const recipeTitles = useMemo(() => new Map(allRecipes.map(r => [r.id, r.title])), [allRecipes]);
 
   // Fetch or create print project
   const { data: printProjects, isLoading: projectsLoading } = useQuery<CookbookPrintProject[]>({
@@ -1252,6 +1255,19 @@ function CookbookPrintEditorInner() {
               </Button>
             </CardContent>
           </Card>
+
+          {/* Family photos placed in the space under recipes */}
+          <FamilyPhotosPanel
+            cookbookId={cookbookId}
+            layoutData={layoutData}
+            onChange={(familyPhotos) => {
+              setLayoutData(prev => ({ ...prev, familyPhotos }));
+              setHasUnsavedChanges(true);
+            }}
+            templateStyle={templateStyle}
+            customTemplateId={selectedCustomTemplateId}
+            recipeTitles={recipeTitles}
+          />
 
           {/* Template Designer Dialog */}
           <TemplateDesigner

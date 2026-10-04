@@ -68,6 +68,8 @@ export interface CardOptions {
   /** Override the template: hide the nutrition/tips panels */
   showNutrition?: boolean;
   showTips?: boolean;
+  /** Extra HTML placed after the recipe, before the page number (family photo slot) */
+  beforePageNumber?: string;
 }
 
 function esc(s: unknown): string {
@@ -304,6 +306,7 @@ export function buildRecipeCardHtml(
       ${badgesHtml}
       ${bodyHtml}
       ${extrasHtml}
+      ${opts.beforePageNumber || ''}
       ${pageNumHtml}
     </div>
   </div>`;
