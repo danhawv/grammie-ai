@@ -118,9 +118,10 @@ export function PrintOrderPanel({
 
   const priceMutation = useMutation({
     mutationFn: async () => {
-      const pageCount = Math.max(24, estimatedPageCount);
+      // Server pads to the binding minimum and uses the cookbook's print specs
       const response = await apiRequest("POST", "/api/print/lulu/calculate-price", {
-        pageCount,
+        cookbookId,
+        pageCount: estimatedPageCount,
         pageSize,
         colorOption,
         quantity,

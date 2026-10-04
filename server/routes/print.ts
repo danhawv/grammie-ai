@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { isAuthenticated } from "../clerkAuth";
-import { getPdf } from "./route-utils";
+import { getPdf, getUserId } from "./route-utils";
+import { storage } from "../storage";
 import { calculateCost, getPrintJob } from "../lib/lulu/client";
 import { buildPodPackageId, BINDING_PAGE_LIMITS, BINDING_PAPER_COMPATIBILITY } from "../lib/lulu/pod-package";
 import { BOOK_SIZES, BINDING_TYPE_INFO, PAPER_TYPE_INFO, COLOR_TYPE_INFO } from "../lib/lulu/book-sizes";
@@ -62,20 +63,34 @@ router.post("/api/print/lulu/calculate-price", isAuthenticated, async (req: any,
     }
 
     const {
-      pageCount,
       quantity,
       shippingAddress,
       shippingLevel,
-      // Full book config for dynamic POD package
-      trimSize,
-      bindingType,
-      colorType,
-      paperType,
-      coverFinish,
+      cookbookId,
       // Legacy simple fields (backward compat)
       pageSize,
       colorOption,
     } = req.body;
+    let { pageCount, trimSize, bindingType, colorType, paperType, coverFinish } = req.body;
+
+    // Quote the same specs the real order will use: the cookbook's print project
+    if (cookbookId && !(trimSize && bindingType)) {
+      const userId = getUserId(req);
+      const project = userId
+        ? (await storage.getPrintProjectsByCookbook(Number(cookbookId), userId))[0]
+        : undefined;
+      trimSize = project?.trimSize || '0600X0900';
+      bindingType = project?.bindingType || 'PB';
+      paperType = project?.paperType || '080CW444';
+      colorType = project?.colorType || (colorOption === 'bw' ? 'BW' : 'FC');
+      coverFinish = project?.coverFinish || 'M';
+    }
+
+    // The interior PDF is padded with Notes pages up to the binding minimum
+    // (and to an even count), so quote that padded count
+    const minPages = (BINDING_PAGE_LIMITS[bindingType || 'PB'] || { min: 32 }).min;
+    pageCount = Math.max(minPages, Number(pageCount) || 0);
+    if (pageCount % 2 !== 0) pageCount++;
 
     if (!pageCount || pageCount < 4 || pageCount > 800) {
       return res.status(400).json({ error: "Page count must be between 4 and 800" });
