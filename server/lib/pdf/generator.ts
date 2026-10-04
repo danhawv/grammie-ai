@@ -438,11 +438,11 @@ export function buildInteriorHtml(
   pages.push(buildTitlePageHtml(config, cookbook, theme, pageWPx, pageHPx));
   currentPage++;
 
-  // 2. Dedication (or blank verso) — mirrors the preview's page order
+  // 2. Dedication, or a copyright page — mirrors the preview's page order
   if (cookbook.dedication?.trim()) {
     pages.push(buildDedicationPageHtml(config, cookbook.dedication.trim(), theme, pageWPx));
   } else {
-    pages.push(buildBlankPageHtml(config));
+    pages.push(buildColophonPageHtml(config, cookbook, theme, pageWPx));
   }
   currentPage++;
 
@@ -451,11 +451,9 @@ export function buildInteriorHtml(
   pages.push('');
   currentPage++;
 
-  // Ensure next content starts on recto
-  if (currentPage % 2 === 0) {
-    pages.push(buildBlankPageHtml(config));
-    currentPage++;
-  }
+  // Content flows continuously from here: one-page recipes don't need the
+  // trade-book convention of starting every section on a right-hand page,
+  // which left runs of blank pages in short cookbooks.
 
   // 4. Recipe pages by section
   interface TocEntry { title: string; pageNumber: number; isSection: boolean }
@@ -474,15 +472,18 @@ export function buildInteriorHtml(
     pages.push(buildSectionDividerHtml(config, section.title, section.description, theme, pageWPx, pageHPx));
     currentPage++;
 
-    if (currentPage % 2 === 0) {
-      pages.push(buildBlankPageHtml(config));
-      currentPage++;
-    }
-
     for (const recipe of sectionRecipes) {
+      const layout = recipe.layoutOverride || 'full-page';
+
+      // A two-page spread must open on a left-hand (even) page so the photo
+      // and recipe face each other; this is the only case that pads
+      if (layout === 'two-page-spread' && currentPage % 2 === 1) {
+        pages.push(buildBlankPageHtml(config));
+        currentPage++;
+      }
+
       tocEntries.push({ title: recipe.data.title, pageNumber: currentPage, isSection: false });
 
-      const layout = recipe.layoutOverride || 'full-page';
       if (layout === 'two-page-spread') {
         pages.push(buildRecipeSpreadLeftHtml(config, recipe.data, theme));
         currentPage++;
@@ -836,6 +837,27 @@ function buildTitlePageHtml(
       <div style="width:36px;height:1px;background:${theme.divider};margin:0 auto 14px;"></div>
       <p style="font-size:${authorSize}px;font-weight:500;text-transform:uppercase;letter-spacing:0.18em;color:${mutedText};">${escapeHtml(cookbook.authorName)}</p>
       <p style="font-size:${countSize}px;margin-top:6px;letter-spacing:0.08em;color:${faintText};">${cookbook.recipes.length} recipe${cookbook.recipes.length !== 1 ? 's' : ''}</p>
+    </div>
+  </div>`;
+}
+
+// --- Copyright page (matches preview ColophonPage) ---
+
+function buildColophonPageHtml(
+  config: BookSizeConfig,
+  cookbook: CookbookPrintData,
+  theme: ThemeConfig,
+  pageWPx: number
+): string {
+  const size = Math.min(10, pageWPx * 0.016);
+  const year = new Date().getFullYear();
+  const muted = theme.textColor || '#78716c';
+  // Traditional verso placement: small type anchored to the bottom of the page
+  return `<div class="page" style="width:${config.pageWidthWithBleed}in;height:${config.pageHeightWithBleed}in;background:${theme.bg};display:flex;flex-direction:column;justify-content:flex-end;padding:${config.bleed + config.safetyMargin + 0.4}in;page-break-after:always;">
+    <div style="font-size:${size}px;line-height:1.7;color:${muted};opacity:0.75;">
+      <p style="font-family:${theme.titleFont};font-size:${size + 2}px;opacity:1;margin-bottom:6px;">${escapeHtml(cookbook.title)}</p>
+      <p>Copyright © ${year} ${escapeHtml(cookbook.authorName)}. All rights reserved.</p>
+      <p>${cookbook.recipes.length} recipe${cookbook.recipes.length === 1 ? '' : 's'} collected and printed with Grammie.</p>
     </div>
   </div>`;
 }

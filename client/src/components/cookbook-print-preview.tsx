@@ -158,6 +158,7 @@ function formatTime(minutes: number | null | undefined): string {
 type PageContent =
   | { type: "cover" }
   | { type: "dedication" }
+  | { type: "colophon" }
   | { type: "toc" }
   | { type: "section-divider"; title: string }
   | { type: "recipe"; recipe: Recipe; index: number }
@@ -280,7 +281,7 @@ export function CookbookPrintPreview({
   const pages: PageContent[] = useMemo(() => {
     const p: PageContent[] = [];
     p.push({ type: "cover" });
-    if (layoutData?.dedication) p.push({ type: "dedication" });
+    p.push(layoutData?.dedication ? { type: "dedication" } : { type: "colophon" });
     if (orderedRecipes.length > 0) {
       p.push({ type: "toc" });
       if (layoutData?.sections?.length) {
@@ -448,6 +449,9 @@ export function CookbookPrintPreview({
               >
                 {page?.type === "cover" && (
                   <CoverPage layoutData={layoutData} theme={theme} recipes={orderedRecipes} w={pageW} h={pageH} customTemplateData={customTemplateData} />
+                )}
+                {page?.type === "colophon" && (
+                  <ColophonPage layoutData={layoutData} theme={theme} recipeCount={orderedRecipes.length} w={pageW} h={pageH} />
                 )}
                 {page?.type === "dedication" && (
                   <DedicationPage dedication={layoutData.dedication || ''} theme={theme} w={pageW} h={pageH} />
@@ -722,6 +726,27 @@ function CoverPage({ layoutData, theme, recipes, w, h, customTemplateData }: {
         }}>
           {recipes.length} recipe{recipes.length !== 1 ? 's' : ''}
         </p>
+      </div>
+    </div>
+  );
+}
+
+function ColophonPage({ layoutData, theme, recipeCount, w, h }: {
+  layoutData: PrintLayoutData; theme: ThemeConfig; recipeCount: number; w: number; h: number;
+}) {
+  const size = Math.min(10, w * 0.016);
+  const pad = (MARGIN_OUTER + 0.4) * DPI;
+  return (
+    <div style={{
+      width: w, height: h, background: theme.bg, padding: pad,
+      display: 'flex', flexDirection: 'column', justifyContent: 'flex-end',
+    }}>
+      <div style={{ fontSize: size, lineHeight: 1.7, color: theme.textColor || '#78716c', opacity: 0.75 }}>
+        <p style={{ fontFamily: theme.titleFont, fontSize: size + 2, marginBottom: 6 }}>
+          {layoutData?.title || 'My Cookbook'}
+        </p>
+        <p>Copyright © {new Date().getFullYear()} {layoutData?.authorName || ''}. All rights reserved.</p>
+        <p>{recipeCount} recipe{recipeCount === 1 ? '' : 's'} collected and printed with Grammie.</p>
       </div>
     </div>
   );

@@ -98,6 +98,18 @@ describe('buildInteriorHtml', () => {
     expect(html).not.toContain('p.7'); // old double-numbering format
   });
 
+  it('fills page 2 with a copyright page when there is no dedication', () => {
+    const noDedication = buildInteriorHtml(config, { ...fixture, dedication: undefined });
+    expect(noDedication).toContain('Copyright ©');
+  });
+
+  it('never pads with blank pages between front matter and recipes', () => {
+    // Blank pages render as an empty .page div; one-page recipes shouldn't
+    // force right-hand starts, so only the final even-count pad may be blank
+    const blanks = html.match(/<div class="page" style="[^"]*"><\/div>/g) || [];
+    expect(blanks.length).toBeLessThanOrEqual(1);
+  });
+
   it('uses custom template colors', () => {
     expect(html).toContain('#c1502e'); // accent
     expect(html).toContain('#22382c'); // cover background
