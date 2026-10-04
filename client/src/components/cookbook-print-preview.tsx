@@ -12,6 +12,8 @@ import { buildThemeConfigFromTemplate, isColorDark, type ThemeConfig } from "@sh
 import { formatIngredientQuantity } from "@shared/print-format";
 import { convertAmount, type UnitSystem } from "@shared/units";
 import { BOOK_SIZES, type TrimSizeId } from "@/lib/print-constants";
+import { buildRecipeCardHtml, CARD_THEME } from "@shared/recipe-card";
+import { transformRecipe } from "@shared/print-recipe-transform";
 
 // --- Constants ---
 const DPI = 96;
@@ -50,7 +52,7 @@ interface CookbookPrintPreviewProps {
   open: boolean;
   onClose: () => void;
   layoutData: PrintLayoutData;
-  templateStyle: 'classic' | 'modern' | 'rustic' | 'elegant';
+  templateStyle: 'classic' | 'modern' | 'rustic' | 'elegant' | 'card';
   cookbookId: number;
   trimSize?: string;
   customTemplateData?: CustomTemplateData | null;
@@ -143,6 +145,7 @@ const THEMES = {
     coverDark: true,
     pageNum: '#a8a29e',
   },
+  card: { name: 'Recipe Card', ...CARD_THEME },
 };
 
 
@@ -196,11 +199,15 @@ export function CookbookPrintPreview({
 
   // Dynamically load Google Fonts for custom template
   useEffect(() => {
-    if (!customTemplateData || !open) return;
-    const fonts = customTemplateData.fonts;
+    if (!open) return;
     const families: string[] = [];
-    if (fonts.heading.source === 'google') families.push(fonts.heading.family);
-    if (fonts.body.source === 'google' && fonts.body.family !== fonts.heading.family) families.push(fonts.body.family);
+    if (customTemplateData) {
+      const fonts = customTemplateData.fonts;
+      if (fonts.heading.source === 'google') families.push(fonts.heading.family);
+      if (fonts.body.source === 'google' && fonts.body.family !== fonts.heading.family) families.push(fonts.body.family);
+    } else if (templateStyle === 'card') {
+      families.push('Playfair Display', 'Inter');
+    }
     if (families.length === 0) return;
 
     const linkId = 'custom-template-preview-fonts';
@@ -216,7 +223,7 @@ export function CookbookPrintPreview({
       link.href = url;
       document.head.appendChild(link);
     }
-  }, [customTemplateData, open]);
+  }, [customTemplateData, templateStyle, open]);
 
   // Inject @font-face rules for uploaded custom fonts (mirrors the PDF generator)
   useEffect(() => {
@@ -277,11 +284,15 @@ export function CookbookPrintPreview({
 
   // Check if recipe has extras content
   const hasExtras = useCallback((recipe: Recipe) => {
+    if (theme.recipeLayout) {
+      // Card pages already include nutrition and tips; only variations spill over
+      return !!(showVariations && Array.isArray(recipe.variations) && recipe.variations.length > 0);
+    }
     if (showNutrition && (recipe.calories || recipe.protein || recipe.carbohydrates || recipe.fat)) return true;
     if (showTips && recipe.tips && Array.isArray(recipe.tips) && recipe.tips.length > 0) return true;
     if (showVariations && recipe.variations && Array.isArray(recipe.variations) && recipe.variations.length > 0) return true;
     return false;
-  }, [showNutrition, showTips, showVariations]);
+  }, [showNutrition, showTips, showVariations, theme.recipeLayout]);
 
   // Build pages
   const pages: PageContent[] = useMemo(() => {
@@ -507,7 +518,19 @@ export function CookbookPrintPreview({
                 {page?.type === "section-divider" && (
                   <SectionDividerPage title={page.title} theme={theme} w={pageW} h={pageH} />
                 )}
-                {page?.type === "recipe" && (
+                {page?.type === "recipe" && theme.recipeLayout && (
+                  <CardRecipePage
+                    recipe={page.recipe}
+                    theme={theme}
+                    unitSystem={(layoutData?.customizations?.unitSystem as UnitSystem) || "original"}
+                    w={pageW} h={pageH}
+                    pageNumber={recipePageNumbers.get(page.index)}
+                    includePhoto={
+                      layoutData?.recipePrintSettings?.[String(page.recipe.id)]?.includePhoto !== false
+                    }
+                  />
+                )}
+                {page?.type === "recipe" && !theme.recipeLayout && (
                   <RecipePage
                     recipe={page.recipe}
                     index={page.index}
@@ -893,6 +916,66 @@ function SectionDividerPage({ title, theme, w, h }: {
 // ============================================================================
 // Recipe Page — ONE recipe per page, content auto-scales to fit
 // ============================================================================
+
+// Card layout: the same HTML the PDF generator prints (shared/recipe-card.ts),
+// shrunk to fit with the same zoom search when a recipe runs long
+function CardRecipePage({ recipe, theme, w, h, includePhoto, unitSystem, pageNumber }: {
+  recipe: Recipe; theme: ThemeConfig; w: number; h: number;
+  includePhoto: boolean; unitSystem: UnitSystem; pageNumber?: number;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const html = useMemo(() => {
+    const n = transformRecipe(recipe as any, unitSystem);
+    n.imageUrl = recipe.dishImageThumbnail || recipe.dishImage || n.imageUrl;
+    return buildRecipeCardHtml(n, theme.recipeLayout, theme, {
+      widthIn: w / DPI, heightIn: h / DPI, bleedIn: 0,
+      padTopIn: MARGIN_TOP, padBottomIn: MARGIN_BOTTOM,
+      padLeftIn: MARGIN_INNER, padRightIn: MARGIN_OUTER,
+      pageNumber,
+    }, { includePhoto });
+  }, [recipe, theme, unitSystem, w, h, pageNumber, includePhoto]);
+
+  useLayoutEffect(() => {
+    const root = ref.current;
+    if (!root) return;
+    const fit = () => {
+      root.querySelectorAll<HTMLElement>('.recipe-content').forEach((container) => {
+        const availH = parseFloat(container.dataset.availH || '0');
+        const availW = parseFloat(container.dataset.availW || '0');
+        let inner = container.firstElementChild as HTMLElement | null;
+        if (!inner?.dataset.fit) {
+          inner = document.createElement('div');
+          inner.dataset.fit = '1';
+          while (container.firstChild) inner.appendChild(container.firstChild);
+          container.appendChild(inner);
+        }
+        // Heights in page px, independent of the preview's own zoom transform
+        const factor = root.getBoundingClientRect().height / h || 1;
+        const height = () => inner!.getBoundingClientRect().height / factor;
+        inner.style.zoom = '1';
+        inner.style.width = `${availW}px`;
+        if (height() <= availH) return;
+        let lo = 0.45, hi = 1, best = 0.45;
+        for (let i = 0; i < 8; i++) {
+          const mid = (lo + hi) / 2;
+          inner.style.zoom = String(mid);
+          inner.style.width = `${availW / mid}px`;
+          if (height() <= availH) { best = mid; lo = mid; } else { hi = mid; }
+        }
+        inner.style.zoom = String(best);
+        inner.style.width = `${availW / best}px`;
+      });
+    };
+    fit();
+    // Photos change the height once they load
+    const imgs = Array.from(root.querySelectorAll('img'));
+    imgs.forEach((img) => img.addEventListener('load', fit));
+    document.fonts?.ready.then(fit);
+    return () => imgs.forEach((img) => img.removeEventListener('load', fit));
+  }, [html, h]);
+
+  return <div ref={ref} style={{ width: w, height: h }} dangerouslySetInnerHTML={{ __html: html }} />;
+}
 
 function RecipePage({ recipe, index, theme, w, h, includePhoto, unitSystem = "original" }: {
   recipe: Recipe; index: number; theme: ThemeConfig;

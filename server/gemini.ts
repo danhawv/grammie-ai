@@ -1049,6 +1049,30 @@ export async function generateTextWithGemini(systemPrompt: string, userPrompt: s
   }
 }
 
+// ============ Cookbook Style Analysis (template from photos) ============
+
+/** Reads photos of cookbook pages and returns the raw style JSON described by `prompt` */
+export async function analyzeCookbookStyleWithGemini(imagesBase64: string[], prompt: string): Promise<any> {
+  if (!genAI) {
+    throw new Error("Gemini API not configured");
+  }
+  const model = genAI.getGenerativeModel({ model: GEMINI_TEXT_MODEL });
+  const startTime = Date.now();
+
+  const parts: any[] = [{ text: prompt }];
+  for (const img of imagesBase64) {
+    const optimized = await optimizeImageForVision(img);
+    parts.push({ inlineData: { mimeType: optimized.mimeType, data: optimized.data } });
+  }
+
+  const result = await model.generateContent(parts);
+  const text = result.response.text();
+  console.log(`[Gemini] Cookbook style analysis (${imagesBase64.length} images) in ${Date.now() - startTime}ms`);
+
+  const jsonMatch = text.match(/```json\s*([\s\S]*?)\s*```/) || text.match(/\{[\s\S]*\}/);
+  return JSON.parse(jsonMatch ? (jsonMatch[1] || jsonMatch[0]) : text);
+}
+
 // ============ Recipe Variation Generation (Make Your Own) ============
 
 export interface RecipeVariationRequest {

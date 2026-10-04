@@ -1,4 +1,5 @@
 import { paginateToc, tocMetrics, type TocMetrics } from "@shared/toc-layout";
+import { buildRecipeCardHtml, CARD_THEME } from "@shared/recipe-card";
 import type { BookSizeConfig, BindingType, PaperType, TrimSize } from '../lulu/types';
 import type { NormalizedRecipe } from './types';
 import type { CustomTemplateData } from '@shared/schema';
@@ -11,7 +12,7 @@ import fs from 'fs';
 
 export { buildThemeConfigFromTemplate, type ThemeConfig };
 
-export type ThemeId = 'classic' | 'modern' | 'rustic' | 'elegant';
+export type ThemeId = 'classic' | 'modern' | 'rustic' | 'elegant' | 'card';
 
 export interface CookbookPrintData {
   title: string;
@@ -143,6 +144,7 @@ const THEMES: Record<string, ThemeConfig> = {
     coverDark: true,
     pageNum: '#a8a29e',
   },
+  card: CARD_THEME,
 };
 
 // --- Chromium path discovery ---
@@ -297,27 +299,34 @@ async function generateInteriorPdfInner(
     // wait, text measures/prints with the fallback font (Times)
     await page.evaluateHandle('document.fonts.ready');
 
-    // Auto-fit: scale recipe content to fit within each page
-    await page.evaluate(() => {
-      const recipeContents = document.querySelectorAll('.recipe-content');
-      recipeContents.forEach((el) => {
-        const container = el as HTMLElement;
-        const pageEl = container.closest('.page') as HTMLElement;
-        if (!pageEl) return;
-
+    // Auto-fit: shrink recipe content that's taller than its page. Uses CSS
+    // zoom on an inner wrapper rather than transform: print pagination works
+    // on layout size, so a transform-scaled block still overflowed the page
+    // box and its bottom was pushed onto a hidden next page (clipped text).
+    // (Passed as a string: bundlers wrap named inner functions in a __name()
+    // helper that doesn't exist inside the page.)
+    await page.evaluate(`(() => {
+      document.querySelectorAll('.recipe-content').forEach((container) => {
         const availH = parseFloat(container.getAttribute('data-avail-h') || '0');
+        const availW = parseFloat(container.getAttribute('data-avail-w') || String(container.offsetWidth));
         if (availH <= 0) return;
+        if (container.getBoundingClientRect().height <= availH) return;
 
-        const contentH = container.scrollHeight;
-        if (contentH > availH && contentH > 0) {
-          const scale = Math.max(0.45, availH / contentH);
-          const availW = parseFloat(container.getAttribute('data-avail-w') || String(container.offsetWidth));
-          container.style.transform = `scale(${scale})`;
-          container.style.transformOrigin = 'top left';
-          container.style.width = `${availW / scale}px`;
+        const inner = document.createElement('div');
+        while (container.firstChild) inner.appendChild(container.firstChild);
+        container.appendChild(inner);
+        // Text reflows wider as it shrinks, so search for the largest fit
+        let lo = 0.45, hi = 1, best = 0.45;
+        for (let i = 0; i < 8; i++) {
+          const mid = (lo + hi) / 2;
+          inner.style.zoom = String(mid);
+          inner.style.width = (availW / mid) + 'px';
+          if (inner.getBoundingClientRect().height <= availH) { best = mid; lo = mid; } else { hi = mid; }
         }
+        inner.style.zoom = String(best);
+        inner.style.width = (availW / best) + 'px';
       });
-    });
+    })()`);
 
     const pdfBuffer = await page.pdf({
       width: `${config.pageWidthWithBleed}in`,
@@ -475,6 +484,12 @@ export function buildInteriorHtml(
   // trade-book convention of starting every section on a right-hand page,
   // which left runs of blank pages in short cookbooks.
 
+  // Card layouts already show nutrition and tips on the recipe page, so the
+  // extras page only carries variations
+  const extrasCustomizations: CookbookPrintData['customizations'] = theme.recipeLayout
+    ? { ...cookbook.customizations, showNutrition: false, showTips: false }
+    : cookbook.customizations;
+
   // 4. Recipe pages by section
   interface TocEntry { title: string; pageNumber: number; isSection: boolean }
   const tocEntries: TocEntry[] = [];
@@ -513,8 +528,8 @@ export function buildInteriorHtml(
       }
 
       // Extras page if applicable
-      if (hasRecipeExtras(recipe.data, cookbook.customizations)) {
-        pages.push(buildRecipeExtrasPageHtml(config, recipe.data, currentPage, theme, pageWPx, pageHPx, cookbook.customizations));
+      if (hasRecipeExtras(recipe.data, extrasCustomizations)) {
+        pages.push(buildRecipeExtrasPageHtml(config, recipe.data, currentPage, theme, pageWPx, pageHPx, extrasCustomizations));
         currentPage++;
       }
     }
@@ -530,8 +545,8 @@ export function buildInteriorHtml(
     pages.push(buildRecipePageHtml(config, recipe.data, currentPage, 'single', theme, pageWPx, pageHPx));
     currentPage++;
 
-    if (hasRecipeExtras(recipe.data, cookbook.customizations)) {
-      pages.push(buildRecipeExtrasPageHtml(config, recipe.data, currentPage, theme, pageWPx, pageHPx, cookbook.customizations));
+    if (hasRecipeExtras(recipe.data, extrasCustomizations)) {
+      pages.push(buildRecipeExtrasPageHtml(config, recipe.data, currentPage, theme, pageWPx, pageHPx, extrasCustomizations));
       currentPage++;
     }
   }
@@ -1022,6 +1037,21 @@ function buildRecipePageHtml(
   pageWPx: number,
   pageHPx: number
 ): string {
+  if (theme.recipeLayout) {
+    const recto = pageNumber % 2 === 1;
+    const card = buildRecipeCardHtml(recipe, theme.recipeLayout, theme, {
+      widthIn: config.pageWidthWithBleed,
+      heightIn: config.pageHeightWithBleed,
+      bleedIn: config.bleed,
+      padTopIn: config.bleed + config.safetyMargin,
+      padBottomIn: config.bleed + config.safetyMargin,
+      padLeftIn: config.bleed + (recto ? config.gutterMargin + config.safetyMargin : config.safetyMargin),
+      padRightIn: config.bleed + (recto ? config.safetyMargin : config.gutterMargin + config.safetyMargin),
+      pageNumber,
+    }, { includePhoto: layout !== 'text-only' });
+    return `<div class="page recipe-page" style="width:${config.pageWidthWithBleed}in;height:${config.pageHeightWithBleed}in;overflow:hidden;position:relative;page-break-after:always;">${card}</div>`;
+  }
+
   const isRecto = pageNumber % 2 === 1;
   const padLeft = (isRecto ? config.gutterMargin + config.safetyMargin : config.safetyMargin) + config.bleed;
   const padRight = (isRecto ? config.safetyMargin : config.gutterMargin + config.safetyMargin) + config.bleed;

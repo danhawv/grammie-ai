@@ -580,7 +580,7 @@ router.post("/cookbooks/:id/print-projects", isAuthenticated, async (req: any, r
 
     const validatedLayout = printLayoutDataSchema.parse(layoutData || { sections: [] });
 
-    const validStyles = ['classic', 'modern', 'rustic', 'elegant'] as const;
+    const validStyles = ['classic', 'modern', 'rustic', 'elegant', 'card'] as const;
     const validTemplateStyle = validStyles.includes(templateStyle) ? templateStyle : 'classic';
 
     const project = await storage.createPrintProject({
@@ -667,7 +667,7 @@ router.patch("/print-projects/:projectId", isAuthenticated, async (req: any, res
     }
 
     if (templateStyle !== undefined) {
-      const validStyles = ['classic', 'modern', 'rustic', 'elegant'] as const;
+      const validStyles = ['classic', 'modern', 'rustic', 'elegant', 'card'] as const;
       if (!validStyles.includes(templateStyle)) {
         return res.status(400).json({ error: "Invalid template style" });
       }
@@ -972,6 +972,120 @@ router.post("/cookbooks/:id/course-plan", isAuthenticated, async (req: any, res)
   } catch (error) {
     console.error("Error building course plan:", error);
     res.status(500).json({ error: "Failed to organize recipes" });
+  }
+});
+
+// Recipe Card pages show nutrition and tips. These two routes report which of
+// the cookbook's recipes lack them and fill the gaps with Gemini estimates.
+// Only the owner's own recipes are written; existing values are never replaced.
+async function recipesMissingPrintDetails(cookbookId: number) {
+  const rows = await db
+    .select({
+      id: recipes.id,
+      title: recipes.title,
+      servings: recipes.servings,
+      ingredients: recipes.ingredients,
+      instructions: recipes.instructions,
+      calories: recipes.calories,
+      protein: recipes.protein,
+      carbohydrates: recipes.carbohydrates,
+      fat: recipes.fat,
+      fiber: recipes.fiber,
+      sugar: recipes.sugar,
+      sodium: recipes.sodium,
+      cholesterol: recipes.cholesterol,
+      tips: recipes.tips,
+      ownerUserId: recipes.ownerUserId,
+    })
+    .from(cookbookRecipes)
+    .innerJoin(recipes, eq(cookbookRecipes.recipeId, recipes.id))
+    .where(eq(cookbookRecipes.cookbookId, cookbookId));
+  return rows.filter((r) => r.calories == null || !Array.isArray(r.tips) || r.tips.length === 0);
+}
+
+router.get("/cookbooks/:id/print-details-status", isAuthenticated, async (req: any, res) => {
+  try {
+    const cookbookId = parseInt(req.params.id);
+    const userId = getUserId(req);
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    const cookbook = await storage.getCookbook(cookbookId);
+    if (!cookbook) return res.status(404).json({ error: "Cookbook not found" });
+    if (cookbook.ownerUserId !== userId) return res.status(403).json({ error: "Not authorized" });
+
+    const missing = await recipesMissingPrintDetails(cookbookId);
+    res.json({
+      missing: missing.length,
+      fillable: missing.filter((r) => r.ownerUserId === userId).length,
+      aiAvailable: isGeminiAvailable(),
+    });
+  } catch (error) {
+    console.error("Error checking print details:", error);
+    res.status(500).json({ error: "Failed to check recipes" });
+  }
+});
+
+router.post("/cookbooks/:id/fill-print-details", isAuthenticated, async (req: any, res) => {
+  try {
+    const cookbookId = parseInt(req.params.id);
+    const userId = getUserId(req);
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    const cookbook = await storage.getCookbook(cookbookId);
+    if (!cookbook) return res.status(404).json({ error: "Cookbook not found" });
+    if (cookbook.ownerUserId !== userId) return res.status(403).json({ error: "Not authorized" });
+    if (!isGeminiAvailable()) return res.status(503).json({ error: "AI is not configured" });
+
+    const todo = (await recipesMissingPrintDetails(cookbookId)).filter((r) => r.ownerUserId === userId);
+    const systemPrompt = `You estimate per-serving nutrition and write short cooking tips for recipes.
+Respond with JSON only: {"recipes": [{"id": "<recipe id>", "calories": number, "protein": number, "carbohydrates": number, "fat": number, "fiber": number, "sugar": number, "sodium": number, "cholesterol": number, "tips": [{"type": "technique"|"storage"|"makeAhead"|"reheating"|"serving", "text": string}]}]}
+Grams for protein/carbohydrates/fat/fiber/sugar, milligrams for sodium/cholesterol, rounded to whole numbers. Give 3 or 4 tips per recipe, each one practical sentence under 120 characters.`;
+
+    const num = (v: unknown) => {
+      const n = Number(v);
+      return Number.isFinite(n) && n >= 0 ? Math.round(n) : null;
+    };
+    const tipTypes = new Set(["technique", "storage", "makeAhead", "reheating", "serving"]);
+
+    let filled = 0;
+    const BATCH = 6;
+    for (let i = 0; i < todo.length; i += BATCH) {
+      const batch = todo.slice(i, i + BATCH);
+      const payload = batch.map((r) => ({
+        id: r.id,
+        title: r.title,
+        servings: r.servings,
+        ingredients: r.ingredients,
+        instructions: Array.isArray(r.instructions) ? (r.instructions as any[]).slice(0, 15) : r.instructions,
+      }));
+      try {
+        const result = await parseQueryWithGemini(JSON.stringify(payload), systemPrompt);
+        for (const est of result?.recipes ?? []) {
+          const r = batch.find((b) => b.id === est.id);
+          if (!r) continue;
+          const update: Record<string, any> = {};
+          for (const key of ["calories", "protein", "carbohydrates", "fat", "fiber", "sugar", "sodium", "cholesterol"] as const) {
+            if (r[key] == null && num(est[key]) != null) update[key] = num(est[key]);
+          }
+          if (!Array.isArray(r.tips) || r.tips.length === 0) {
+            const tips = (Array.isArray(est.tips) ? est.tips : [])
+              .filter((t: any) => typeof t?.text === "string" && t.text.trim())
+              .slice(0, 4)
+              .map((t: any) => ({ type: tipTypes.has(t.type) ? t.type : "technique", text: String(t.text).trim().slice(0, 200) }));
+            if (tips.length) update.tips = tips;
+          }
+          if (Object.keys(update).length) {
+            await db.update(recipes).set(update).where(eq(recipes.id, r.id));
+            filled++;
+          }
+        }
+      } catch (err) {
+        console.error("[fill-print-details] Gemini batch failed:", err);
+      }
+    }
+
+    res.json({ filled, attempted: todo.length });
+  } catch (error) {
+    console.error("Error filling print details:", error);
+    res.status(500).json({ error: "Failed to fill recipe details" });
   }
 });
 

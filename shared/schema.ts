@@ -582,6 +582,31 @@ export type PreflightWarning = z.infer<typeof preflightWarningSchema>;
 
 const hexColorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Must be a hex color like #aabbcc');
 
+// Recipe page layout built from a fixed set of building blocks. Used by the
+// built-in Recipe Card template and by custom templates (including ones the
+// AI derives from photos of a cookbook). Rendered by shared/recipe-card.ts.
+export const recipeLayoutSpecSchema = z.object({
+  /** Where the dish photo goes; 'right'/'left' fall back to 'top' on narrow pages */
+  photo: z.enum(['top', 'right', 'left', 'none']).default('right'),
+  titleAlign: z.enum(['left', 'center']).default('left'),
+  titleCase: z.enum(['normal', 'upper']).default('normal'),
+  /** Multiplier on the base recipe title size */
+  titleScale: z.number().min(0.7).max(1.6).default(1.2),
+  badges: z.boolean().default(true),
+  badgeStyle: z.enum(['circle', 'pill', 'plain']).default('circle'),
+  /** 'auto' = two columns on wide pages (8.5x11, square), stacked on 6x9 */
+  columns: z.enum(['auto', 'one', 'two']).default('auto'),
+  ingredientMarker: z.enum(['dot', 'check', 'dash', 'none']).default('dot'),
+  stepMarker: z.enum(['circle', 'number', 'none']).default('circle'),
+  panels: z.enum(['boxed', 'plain']).default('boxed'),
+  headingRule: z.boolean().default(true),
+  nutritionBox: z.boolean().default(true),
+  tipsBox: z.boolean().default(true),
+  cornerRadius: z.number().min(0).max(24).default(8),
+});
+
+export type RecipeLayoutSpec = z.infer<typeof recipeLayoutSpecSchema>;
+
 export const customTemplateDataSchema = z.object({
   fonts: z.object({
     heading: z.object({
@@ -628,6 +653,8 @@ export const customTemplateDataSchema = z.object({
     recipeTitle: z.string().optional(),
     body: z.string().optional(),
   }).optional(),
+  /** Optional recipe page layout; absent = the standard photo-banner page */
+  layout: recipeLayoutSpecSchema.optional(),
 });
 
 export type CustomTemplateData = z.infer<typeof customTemplateDataSchema>;
@@ -670,8 +697,8 @@ export const cookbookPrintProjects = pgTable("cookbook_print_projects", {
   // Layout JSON structure
   layoutData: jsonb("layout_data").$type<PrintLayoutData>().notNull(),
   
-  // Template style: 'classic' | 'modern' | 'rustic' | 'elegant'
-  templateStyle: varchar("template_style", { length: 50 }).$type<'classic' | 'modern' | 'rustic' | 'elegant'>().notNull().default('classic'),
+  // Template style: 'classic' | 'modern' | 'rustic' | 'elegant' | 'card'
+  templateStyle: varchar("template_style", { length: 50 }).$type<'classic' | 'modern' | 'rustic' | 'elegant' | 'card'>().notNull().default('classic'),
 
   // Custom template (takes precedence over templateStyle when set)
   customTemplateId: integer("custom_template_id").references(() => customTemplates.id, { onDelete: 'set null' }),

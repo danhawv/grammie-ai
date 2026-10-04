@@ -5,6 +5,8 @@ import { storage } from "../storage";
 import { getUserId, upload } from "./route-utils";
 import { customTemplateDataSchema } from "@shared/schema";
 import { getMediaStorage } from "../lib/media-storage";
+import { analyzeCookbookStyleWithGemini, isGeminiAvailable } from "../gemini";
+import { templateFromStyleAnalysis, styleAnalysisPrompt } from "@shared/template-from-photos";
 
 const router = Router();
 
@@ -92,6 +94,47 @@ router.post("/templates", isAuthenticated, async (req: any, res) => {
     res.status(201).json(template);
   } catch (error) {
     console.error("Error creating template:", error);
+    res.status(500).json({ error: "Failed to create template" });
+  }
+});
+
+// Create a template that matches photos of an existing cookbook or recipe card.
+// The AI picks colors, fonts and a recipe page layout; the result is an
+// ordinary custom template the user can edit afterwards.
+router.post("/templates/from-photos", isAuthenticated, upload.array("images", 5), async (req: any, res) => {
+  try {
+    const userId = getUserId(req);
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    if (!isGeminiAvailable()) return res.status(503).json({ error: "AI is not configured" });
+
+    const files = (req.files as Express.Multer.File[] | undefined) ?? [];
+    const images = files.filter((f) => f.mimetype.startsWith("image/"));
+    if (images.length === 0) return res.status(400).json({ error: "Add at least one photo" });
+
+    let raw: any;
+    try {
+      raw = await analyzeCookbookStyleWithGemini(
+        images.map((f) => f.buffer.toString("base64")),
+        styleAnalysisPrompt(images.length),
+      );
+    } catch (err) {
+      console.error("[templates/from-photos] analysis failed:", err);
+      return res.status(502).json({ error: "Couldn't read the style from those photos. Try clearer, straight-on shots." });
+    }
+
+    const { name, description, templateData } = templateFromStyleAnalysis(raw ?? {});
+    const template = await storage.createCustomTemplate({
+      ownerUserId: userId,
+      name,
+      description,
+      isPublic: false,
+      templateData,
+      backgroundImage: null,
+      customFonts: null,
+    });
+    res.status(201).json(template);
+  } catch (error) {
+    console.error("Error creating template from photos:", error);
     res.status(500).json({ error: "Failed to create template" });
   }
 });

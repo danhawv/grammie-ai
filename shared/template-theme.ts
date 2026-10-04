@@ -1,4 +1,4 @@
-import type { CustomTemplateData } from './schema';
+import type { CustomTemplateData, RecipeLayoutSpec } from './schema';
 
 // Theme configuration shared by the PDF generator (server) and the print
 // preview (client). Both renderers must derive identical values from a custom
@@ -36,6 +36,8 @@ export interface ThemeConfig {
   };
   /** Applied to the interior (bottom) corners of full-bleed recipe photos; outer corners are trimmed at bleed */
   imageRadius?: string;
+  /** When set, recipe pages use the card layout (shared/recipe-card.ts) instead of the photo banner */
+  recipeLayout?: RecipeLayoutSpec;
 }
 
 /** Parse a CSS length like '18px' into px, rejecting non-positive/invalid values */
@@ -104,6 +106,7 @@ export function buildThemeConfigFromTemplate(data: CustomTemplateData): ThemeCon
     textColor: colors.textColor,
     fontSizes,
     imageRadius: data.decorative?.imageRadius,
+    recipeLayout: data.layout,
   };
 }
 

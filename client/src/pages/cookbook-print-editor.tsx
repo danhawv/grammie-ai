@@ -83,6 +83,8 @@ import { PreflightCheckPanel } from "@/components/preflight-check-panel";
 import { PrintOrderPanel } from "@/components/print-order-panel";
 import type { PrintLayoutData, CookbookPrintProject, CustomTemplate } from "@shared/schema";
 import { TemplateDesigner } from "@/components/template-designer";
+import { PrintDetailsNotice } from "@/components/print-details-notice";
+import { TemplateFromPhotos } from "@/components/template-from-photos";
 
 interface CookbookWithOwner {
   id: number;
@@ -109,6 +111,7 @@ const TEMPLATE_STYLES = [
   { id: "modern", name: "Modern", description: "Clean, minimalist design with bold imagery" },
   { id: "rustic", name: "Rustic", description: "Warm, homey feel with textured backgrounds" },
   { id: "elegant", name: "Elegant", description: "Sophisticated design with refined typography" },
+  { id: "card", name: "Recipe Card", description: "Photo beside the title, icon badges, nutrition and tips on every page" },
 ] as const;
 
 import {
@@ -471,7 +474,7 @@ function CookbookPrintEditorInner() {
   const [layoutData, setLayoutData] = useState<PrintLayoutData>({
     sections: [],
   });
-  const [templateStyle, setTemplateStyle] = useState<'classic' | 'modern' | 'rustic' | 'elegant'>('classic');
+  const [templateStyle, setTemplateStyle] = useState<'classic' | 'modern' | 'rustic' | 'elegant' | 'card'>('classic');
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
   const [activeRecipe, setActiveRecipe] = useState<RecipeCard | null>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
@@ -1217,6 +1220,21 @@ function CookbookPrintEditorInner() {
                   ))}
                 </>
               )}
+
+              {/* Card-style templates print nutrition and tips on every recipe */}
+              {((templateStyle === "card" && !selectedCustomTemplateId) ||
+                (selectedCustomTemplateId != null &&
+                  !!(customTemplates.find((t: CustomTemplate) => t.id === selectedCustomTemplateId)?.templateData as any)?.layout)) && (
+                <PrintDetailsNotice cookbookId={cookbookId} />
+              )}
+
+              {/* Build a template from photos of an existing cookbook */}
+              <TemplateFromPhotos
+                onCreated={(t) => {
+                  setSelectedCustomTemplateId(t.id);
+                  setHasUnsavedChanges(true);
+                }}
+              />
 
               {/* Design Custom Template button */}
               <Button
