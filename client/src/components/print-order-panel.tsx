@@ -34,6 +34,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import type { PrintLayoutData } from "@shared/schema";
+import { normalizeUsState } from "@shared/us-states";
 
 interface PrintOrderPanelProps {
   cookbookId: number;
@@ -182,6 +183,18 @@ export function PrintOrderPanel({
         variant: "destructive",
       });
       return;
+    }
+    if (address.country_code === "US") {
+      const state = normalizeUsState(address.state_code);
+      if (!state) {
+        toast({
+          title: "Check the state",
+          description: "Enter a US state, like OH or Ohio.",
+          variant: "destructive",
+        });
+        return;
+      }
+      if (state !== address.state_code) setAddress({ ...address, state_code: state });
     }
     priceMutation.mutate();
   };
@@ -337,6 +350,10 @@ export function PrintOrderPanel({
                       id="state"
                       value={address.state_code}
                       onChange={(e) => setAddress({ ...address, state_code: e.target.value })}
+                      onBlur={() => {
+                        const state = address.country_code === "US" ? normalizeUsState(address.state_code) : null;
+                        if (state) setAddress({ ...address, state_code: state });
+                      }}
                       placeholder="NY"
                       data-testid="input-shipping-state"
                     />

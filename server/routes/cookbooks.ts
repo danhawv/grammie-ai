@@ -12,6 +12,7 @@ import {
   cookbookRecipes,
 } from "@shared/schema";
 import { CHAPTERS, chapterForTags, buildCoursePlan } from "@shared/courses";
+import { normalizeUsState } from "@shared/us-states";
 import { isGeminiAvailable, parseQueryWithGemini } from "../gemini";
 import { generateInteriorPdf, generateCoverPdf, type CookbookPrintData } from "../lib/pdf/generator";
 import { transformRecipe } from "../lib/pdf/recipe-transformer";
@@ -1124,6 +1125,11 @@ router.post("/cookbooks/:id/print-order", isAuthenticated, async (req: any, res)
 
     if (!layoutData) {
       return res.status(400).json({ error: "Layout data is required" });
+    }
+    if (shippingAddress?.country_code === 'US') {
+      const state = normalizeUsState(shippingAddress.state_code);
+      if (!state) return res.status(400).json({ error: "Enter a valid US state, like OH or Ohio." });
+      shippingAddress.state_code = state;
     }
     const validatedLayout = printLayoutDataSchema.safeParse(layoutData);
     if (!validatedLayout.success) {

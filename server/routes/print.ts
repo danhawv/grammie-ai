@@ -2,6 +2,7 @@ import { Router } from "express";
 import { isAuthenticated } from "../clerkAuth";
 import { getPdf, getUserId } from "./route-utils";
 import { storage } from "../storage";
+import { normalizeUsState } from "@shared/us-states";
 import { calculateCost, getPrintJob } from "../lib/lulu/client";
 import { buildPodPackageId, BINDING_PAGE_LIMITS, BINDING_PAPER_COMPATIBILITY } from "../lib/lulu/pod-package";
 import { BOOK_SIZES, BINDING_TYPE_INFO, PAPER_TYPE_INFO, COLOR_TYPE_INFO } from "../lib/lulu/book-sizes";
@@ -100,6 +101,11 @@ router.post("/api/print/lulu/calculate-price", isAuthenticated, async (req: any,
     }
     if (!shippingAddress || !shippingAddress.country_code) {
       return res.status(400).json({ error: "Valid shipping address required" });
+    }
+    if (shippingAddress.country_code === 'US') {
+      const state = normalizeUsState(shippingAddress.state_code);
+      if (!state) return res.status(400).json({ error: "Enter a valid US state, like OH or Ohio." });
+      shippingAddress.state_code = state;
     }
 
     // Build POD package ID from full config or legacy fields
