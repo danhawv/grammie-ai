@@ -463,12 +463,11 @@ export default function CookbookViewPage() {
                   </Button>
                   <Link href={`/cookbook/${cookbookId}/print-editor`}>
                     <Button
-                      variant="outline"
                       size="sm"
                       data-testid="button-print-cookbook"
                     >
                       <Printer className="h-4 w-4 mr-2" />
-                      Print
+                      Create Physical Cookbook
                     </Button>
                   </Link>
                 </>

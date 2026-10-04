@@ -9,7 +9,10 @@ import {
   printLayoutDataSchema,
   recipes,
   cookbooks,
+  cookbookRecipes,
 } from "@shared/schema";
+import { CHAPTERS, chapterForTags, buildCoursePlan } from "@shared/courses";
+import { isGeminiAvailable, parseQueryWithGemini } from "../gemini";
 import { generateInteriorPdf, generateCoverPdf, type CookbookPrintData } from "../lib/pdf/generator";
 import { transformRecipe } from "../lib/pdf/recipe-transformer";
 import { buildPodPackageId, BINDING_PAGE_LIMITS } from "../lib/lulu/pod-package";
@@ -902,6 +905,75 @@ router.post("/cookbooks/:id/preflight", isAuthenticated, async (req: any, res) =
 });
 
 // Generate PDF for cookbook print project
+// Propose book chapters by course. Recipes with no recognizable course tag
+// are classified by Gemini first, and those tags are saved back to the
+// recipe so the rest of the app's meal filters benefit too.
+router.post("/cookbooks/:id/course-plan", isAuthenticated, async (req: any, res) => {
+  try {
+    const cookbookId = parseInt(req.params.id);
+    const userId = getUserId(req);
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+    const cookbook = await storage.getCookbook(cookbookId);
+    if (!cookbook) return res.status(404).json({ error: "Cookbook not found" });
+    if (cookbook.ownerUserId !== userId) {
+      return res.status(403).json({ error: "Not authorized to organize this cookbook" });
+    }
+
+    const rows = await db
+      .select({
+        id: recipes.id,
+        title: recipes.title,
+        description: recipes.description,
+        mealType: recipes.mealType,
+        ownerUserId: recipes.ownerUserId,
+      })
+      .from(cookbookRecipes)
+      .innerJoin(recipes, eq(cookbookRecipes.recipeId, recipes.id))
+      .where(eq(cookbookRecipes.cookbookId, cookbookId));
+
+    // Only the user's own recipes get tags written back; others are
+    // classified in memory for this plan
+    const needsClassification = rows.filter((r) => chapterForTags(r.mealType) === null);
+    let classified = 0;
+
+    if (needsClassification.length > 0 && isGeminiAvailable()) {
+      const chapterList = CHAPTERS.map((c) => `- ${c.key}: ${c.title}`).join("\n");
+      const systemPrompt = `You sort recipes into cookbook chapters. Chapters:\n${chapterList}\n\nRespond with JSON only: {"assignments": [{"id": "<recipe id>", "chapter": "<chapter key>"}]}. Use exactly one chapter key per recipe. A main dish served at lunch or dinner is "mains".`;
+
+      const BATCH = 40;
+      for (let i = 0; i < needsClassification.length; i += BATCH) {
+        const batch = needsClassification.slice(i, i + BATCH);
+        const list = batch
+          .map((r) => `${r.id} | ${r.title}${r.description ? ` | ${r.description.slice(0, 120)}` : ""}`)
+          .join("\n");
+        try {
+          const result = await parseQueryWithGemini(list, systemPrompt);
+          for (const a of result?.assignments ?? []) {
+            const chapter = CHAPTERS.find((c) => c.key === a.chapter);
+            const recipe = batch.find((r) => r.id === a.id);
+            if (!chapter || !recipe) continue;
+            recipe.mealType = [chapter.canonicalTag];
+            if (recipe.ownerUserId === userId) {
+              await db.update(recipes).set({ mealType: [chapter.canonicalTag] }).where(eq(recipes.id, recipe.id));
+            }
+            classified++;
+          }
+        } catch (err) {
+          // A failed batch falls back to "More Recipes" rather than failing the plan
+          console.error("[course-plan] Gemini classification batch failed:", err);
+        }
+      }
+    }
+
+    const chapters = buildCoursePlan(rows.map((r) => ({ id: r.id, title: r.title, mealType: r.mealType })));
+    res.json({ chapters, classified, total: rows.length });
+  } catch (error) {
+    console.error("Error building course plan:", error);
+    res.status(500).json({ error: "Failed to organize recipes" });
+  }
+});
+
 router.post("/cookbooks/:id/generate-pdf", isAuthenticated, async (req: any, res) => {
   try {
     const { id } = req.params;

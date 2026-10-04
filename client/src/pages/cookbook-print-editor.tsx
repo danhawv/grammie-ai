@@ -78,6 +78,7 @@ import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { CookbookPrintPreview } from "@/components/cookbook-print-preview";
 import { RecipeReviewDialog } from "@/components/recipe-review-dialog";
+import { OrganizeByCourse } from "@/components/organize-by-course";
 import { PreflightCheckPanel } from "@/components/preflight-check-panel";
 import { PrintOrderPanel } from "@/components/print-order-panel";
 import type { PrintLayoutData, CookbookPrintProject, CustomTemplate } from "@shared/schema";
@@ -1115,6 +1116,15 @@ function CookbookPrintEditorInner() {
 
         {/* Sidebar - Settings & Preview */}
         <div className="space-y-6">
+          <OrganizeByCourse
+            cookbookId={cookbookId}
+            hasExistingSections={(layoutData?.sections?.length ?? 0) > 1}
+            onApply={(sections) => {
+              setLayoutData(prev => ({ ...prev, sections }));
+              setHasUnsavedChanges(true);
+            }}
+          />
+
           {/* Template Style */}
           <Card>
             <CardHeader>

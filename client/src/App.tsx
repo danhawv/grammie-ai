@@ -6,6 +6,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/components/theme-provider";
 import { UserHeader } from "@/components/user-header";
+import { PrintCookbookPicker } from "@/components/print-cookbook-picker";
 import { Button } from "@/components/ui/button";
 import { UploadProgressProvider } from "@/contexts/UploadProgressContext";
 import { AlertsButton } from "@/components/alerts-button";
@@ -99,6 +100,7 @@ function AppHeader() {
               <ShoppingCart className="h-5 w-5" />
             </Button>
           </Link>
+          <PrintCookbookPicker />
           <Link href="/settings">
             <Button variant="ghost" className="inline-flex items-center justify-center touch-target p-0" data-testid="button-settings" aria-label="Settings">
               <SettingsIcon className="h-5 w-5" />

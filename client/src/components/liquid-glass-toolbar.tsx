@@ -7,6 +7,7 @@ import { UserHeader } from "@/components/user-header";
 import { AlertsButton } from "@/components/alerts-button";
 import { PendingInvitationsPopover } from "@/components/pending-invitations-popover";
 import { VoiceAssistant } from "@/components/voice-assistant";
+import { PrintCookbookPicker } from "@/components/print-cookbook-picker";
 import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
 
@@ -148,6 +149,7 @@ export function LiquidGlassToolbar({
               </Button>
             </Link>
           )}
+          <PrintCookbookPicker />
           {user && (
             <Link href="/settings">
               <Button
