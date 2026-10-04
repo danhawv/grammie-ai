@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { eq, and, or, asc, desc, inArray, sql, getTableColumns, isNull, isNotNull } from "drizzle-orm";
+import { eq, and, or, asc, desc, inArray, notInArray, sql, getTableColumns, isNull, isNotNull } from "drizzle-orm";
 import { buildPrintImage } from "./lib/images";
 import {
   type Recipe,
@@ -1647,17 +1647,18 @@ export class PostgresStorage implements IStorage {
   }
 
   async reorderCookbookRecipes(cookbookId: number, recipePositions: { recipeId: string; position: number }[]): Promise<void> {
-    // Update positions in a transaction
-    await db.transaction(async (tx) => {
-      for (const { recipeId, position } of recipePositions) {
-        await tx.update(cookbookRecipes)
-          .set({ position })
-          .where(and(
-            eq(cookbookRecipes.cookbookId, cookbookId),
-            eq(cookbookRecipes.recipeId, recipeId)
-          ));
-      }
-    });
+    if (recipePositions.length === 0) return;
+    // neon-http has no interactive transactions; db.batch applies all
+    // position updates atomically in one round trip
+    const statements = recipePositions.map(({ recipeId, position }) =>
+      db.update(cookbookRecipes)
+        .set({ position })
+        .where(and(
+          eq(cookbookRecipes.cookbookId, cookbookId),
+          eq(cookbookRecipes.recipeId, recipeId)
+        ))
+    );
+    await db.batch(statements as [any, ...any[]]);
   }
 
   // ========== BULK OPERATIONS ==========
@@ -3639,27 +3640,35 @@ export class PostgresStorage implements IStorage {
       throw new Error('Recipes not found or not owned by user');
     }
 
-    await db.transaction(async (tx) => {
-      for (const rm of removeIds) {
-        // Repoint cookbook memberships, skipping cookbooks that already have the keeper
-        await tx.execute(sql`
-          update cookbook_recipes set recipe_id = ${keepId}
-          where recipe_id = ${rm}
-            and cookbook_id not in (select cookbook_id from cookbook_recipes where recipe_id = ${keepId})
-        `);
-        // Repoint meal plan entries and grocery references
-        await tx.execute(sql`update meal_plan_entries set recipe_id = ${keepId} where recipe_id = ${rm}`);
-        await tx.execute(sql`update grocery_list_items set recipe_id = ${keepId} where recipe_id = ${rm}`);
-        // Repoint bookmarks unless the user already bookmarked the keeper
-        await tx.execute(sql`
-          update bookmarks b set recipe_id = ${keepId}
-          where b.recipe_id = ${rm}
-            and not exists (select 1 from bookmarks b2 where b2.user_id = b.user_id and b2.recipe_id = ${keepId})
-        `);
-        // Remaining references cascade away with the delete
-        await tx.execute(sql`delete from recipes where id = ${rm} and owner_user_id = ${userId}`);
-      }
-    });
+    // The neon-http driver has no interactive transactions; db.batch runs the
+    // statements atomically in a single round trip instead.
+    const statements = removeIds.flatMap((rm) => [
+      // Repoint cookbook memberships, skipping cookbooks that already have the keeper
+      db.update(cookbookRecipes)
+        .set({ recipeId: keepId })
+        .where(and(
+          eq(cookbookRecipes.recipeId, rm),
+          notInArray(
+            cookbookRecipes.cookbookId,
+            db.select({ id: cookbookRecipes.cookbookId }).from(cookbookRecipes).where(eq(cookbookRecipes.recipeId, keepId)),
+          ),
+        )),
+      db.update(mealPlanEntries).set({ recipeId: keepId }).where(eq(mealPlanEntries.recipeId, rm)),
+      db.update(groceryListItems).set({ recipeId: keepId }).where(eq(groceryListItems.recipeId, rm)),
+      // Repoint bookmarks unless that user already bookmarked the keeper
+      db.update(bookmarks)
+        .set({ recipeId: keepId })
+        .where(and(
+          eq(bookmarks.recipeId, rm),
+          notInArray(
+            bookmarks.userId,
+            db.select({ id: bookmarks.userId }).from(bookmarks).where(eq(bookmarks.recipeId, keepId)),
+          ),
+        )),
+      // Remaining references cascade away with the delete
+      db.delete(recipes).where(and(eq(recipes.id, rm), eq(recipes.ownerUserId, userId))),
+    ]);
+    await db.batch(statements as [any, ...any[]]);
     return { merged: removeIds.length };
   }
 
