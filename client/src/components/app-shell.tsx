@@ -78,7 +78,7 @@ export function AppShell() {
 
           <div className="ml-auto flex items-center gap-1">
             {user && (
-              <Button className="hidden md:inline-flex" onClick={() => openAddRecipe()} data-testid="button-add-recipe-header">
+              <Button variant="outline" className="hidden md:inline-flex" onClick={() => openAddRecipe()} data-testid="button-add-recipe-header">
                 <Plus aria-hidden /> Add recipe
               </Button>
             )}
