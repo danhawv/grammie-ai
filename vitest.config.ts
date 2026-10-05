@@ -9,7 +9,7 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
-    include: ['shared/**/*.test.ts', 'server/**/*.test.ts'],
+    include: ['shared/**/*.test.ts', 'server/**/*.test.ts', 'client/src/lib/**/*.test.ts'],
     // The PDF smoke test launches Chromium and renders a real book
     testTimeout: 60_000,
   },

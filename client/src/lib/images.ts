@@ -25,3 +25,36 @@ export function fileToDataUrl(file: Blob): Promise<string> {
     reader.readAsDataURL(file);
   });
 }
+
+/** Turns a photo by a multiple of 90° (for sideways phone shots); returns JPEG */
+export async function rotateImage(file: Blob, degrees: number, quality = 0.9): Promise<Blob> {
+  const turns = ((degrees % 360) + 360) % 360;
+  if (turns === 0) return file;
+  try {
+    const bitmap = await createImageBitmap(file);
+    const sideways = turns === 90 || turns === 270;
+    const canvas = document.createElement("canvas");
+    canvas.width = sideways ? bitmap.height : bitmap.width;
+    canvas.height = sideways ? bitmap.width : bitmap.height;
+    const ctx = canvas.getContext("2d")!;
+    ctx.translate(canvas.width / 2, canvas.height / 2);
+    ctx.rotate((turns * Math.PI) / 180);
+    ctx.drawImage(bitmap, -bitmap.width / 2, -bitmap.height / 2);
+    const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, "image/jpeg", quality));
+    return blob ?? file;
+  } catch {
+    return file;
+  }
+}
+
+/** A small JPEG data URL for lists and progress rows (null if the browser can't decode it) */
+export async function makeThumbnail(file: Blob, maxSide = 160): Promise<string | null> {
+  try {
+    const small = await downscaleImage(file, maxSide, 0.75);
+    // downscaleImage hands back the original only when the browser can't decode it
+    if (small === file) return null;
+    return await fileToDataUrl(small);
+  } catch {
+    return null;
+  }
+}
