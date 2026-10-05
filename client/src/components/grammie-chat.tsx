@@ -172,61 +172,88 @@ export function GrammieChat() {
   // When dismissed, show a tiny restore button
   if (!isOpen && HIDE_ON.some((r) => r.test(location))) return null;
 
+  // Phones: sits just above the tab bar, small and icon-only so it covers as
+  // little as possible. Desktop: the labeled pill in the corner.
+  const corner = position === "right" ? "right-4 md:right-6" : "left-4 md:left-6";
+  const bottom = "bottom-[calc(5.25rem+env(safe-area-inset-bottom,0px))] md:bottom-6";
+
   if (isDismissed) {
     return (
       <button
+        type="button"
         onClick={handleRestore}
-        className={`fixed bottom-24 md:bottom-6 ${position === "right" ? "right-6" : "left-6"} z-50 p-2 bg-muted hover:bg-muted/80 text-muted-foreground rounded-full shadow-md transition-all hover:scale-105 opacity-60 hover:opacity-100`}
-        title="Bring back Grammie"
+        className={`fixed ${bottom} ${corner} z-50 flex h-11 w-11 items-center justify-center rounded-full border bg-background text-muted-foreground shadow-md transition-colors hover:text-foreground`}
+        aria-label="Show Ask Grammie"
+        title="Show Ask Grammie"
         data-testid="button-restore-grammie"
       >
-        <MessageCircle className="w-5 h-5" />
+        <MessageCircle className="h-5 w-5" aria-hidden />
       </button>
     );
   }
 
   if (!isOpen) {
     return (
-      <div className={`fixed bottom-24 md:bottom-6 ${position === "right" ? "right-6" : "left-6"} z-50 flex flex-col ${position === "right" ? "items-end" : "items-start"} gap-1 group`}>
-        {/* Control buttons - visible on hover (desktop) or always visible on mobile */}
-        <div className="flex gap-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+      <div className={`fixed ${bottom} ${corner} z-50 flex flex-col ${position === "right" ? "items-end" : "items-start"} gap-1 group`}>
+        {/* Move / hide: desktop only, on hover or keyboard focus */}
+        <div className="hidden gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 md:flex">
           <button
+            type="button"
             onClick={togglePosition}
-            className="p-1.5 bg-muted/80 hover:bg-muted text-muted-foreground rounded-full transition-all"
-            title={`Move to ${position === "right" ? "left" : "right"} side`}
+            className="flex h-11 w-11 items-center justify-center rounded-full border bg-background text-muted-foreground shadow-sm hover:text-foreground"
+            aria-label={`Move Ask Grammie to the ${position === "right" ? "left" : "right"}`}
+            title={`Move to the ${position === "right" ? "left" : "right"}`}
             data-testid="button-move-grammie"
           >
-            {position === "right" ? <ArrowLeft className="w-3 h-3" /> : <ArrowRight className="w-3 h-3" />}
+            {position === "right" ? <ArrowLeft className="h-4 w-4" aria-hidden /> : <ArrowRight className="h-4 w-4" aria-hidden />}
           </button>
           <button
+            type="button"
             onClick={handleDismiss}
-            className="p-1.5 bg-muted/80 hover:bg-muted text-muted-foreground rounded-full transition-all"
-            title="Hide Grammie"
+            className="flex h-11 w-11 items-center justify-center rounded-full border bg-background text-muted-foreground shadow-sm hover:text-foreground"
+            aria-label="Hide Ask Grammie"
+            title="Hide Ask Grammie"
             data-testid="button-dismiss-grammie"
           >
-            <X className="w-3 h-3" />
+            <X className="h-4 w-4" aria-hidden />
           </button>
         </div>
-        
-        {/* Main button */}
+
+        {/* Phone: a compact 48px avatar button */}
         <button
+          type="button"
           onClick={() => setIsOpen(true)}
-          className="flex items-center gap-2 bg-primary hover:bg-primary/90 text-primary-foreground px-4 py-2 rounded-full shadow-lg transition-all hover:scale-105"
+          className="flex h-12 w-12 items-center justify-center rounded-full bg-primary shadow-lg ring-2 ring-background md:hidden"
+          aria-label="Ask Grammie"
+          title="Ask Grammie"
+          data-testid="button-open-grammie-compact"
+        >
+          <MessageCircle className="h-6 w-6 text-primary-foreground" aria-hidden />
+        </button>
+
+        {/* Desktop: labeled pill */}
+        <button
+          type="button"
+          onClick={() => setIsOpen(true)}
+          className="hidden items-center gap-2 rounded-full bg-primary py-2 pl-2 pr-4 text-primary-foreground shadow-lg transition-colors hover:bg-primary/90 md:flex"
           data-testid="button-open-grammie"
         >
-          <img 
-            src={grammieImage} 
-            alt="Grammie" 
-            className="w-10 h-10 rounded-full object-cover border-2 border-primary-foreground/20"
-          />
-          <span className="font-medium text-sm">Ask Grammie</span>
+          <span className="flex h-10 w-10 items-center justify-center rounded-full bg-primary-foreground/15">
+            <MessageCircle className="h-5 w-5" aria-hidden />
+          </span>
+          <span className="text-sm font-medium">Ask Grammie</span>
         </button>
       </div>
     );
   }
 
   return (
-    <Card className={`fixed bottom-24 md:bottom-6 ${position === "right" ? "right-6" : "left-6"} z-50 w-[380px] max-w-[calc(100vw-3rem)] h-[600px] max-h-[calc(100vh-6rem)] flex flex-col shadow-2xl`} data-testid="grammie-chat-panel">
+    <Card
+      role="dialog"
+      aria-label="Ask Grammie"
+      className={`fixed ${bottom} ${corner} z-50 flex h-[600px] max-h-[calc(100dvh-10rem)] w-[380px] max-w-[calc(100vw-2rem)] flex-col shadow-2xl md:max-h-[calc(100vh-6rem)]`}
+      data-testid="grammie-chat-panel"
+    >
       {/* Header */}
       <CardHeader className="flex-shrink-0 flex flex-row items-center justify-between gap-2 py-3 px-4 border-b">
         <div className="flex items-center gap-2">
@@ -244,9 +271,11 @@ export function GrammieChat() {
           variant="ghost"
           size="icon"
           onClick={() => setIsOpen(false)}
+          aria-label="Close Ask Grammie"
+          title="Close"
           data-testid="button-close-grammie"
         >
-          <X className="w-4 h-4" />
+          <X className="w-5 h-5" aria-hidden />
         </Button>
       </CardHeader>
 
@@ -321,7 +350,7 @@ export function GrammieChat() {
                         key={i}
                         variant="outline"
                         size="sm"
-                        className="text-xs h-7"
+                        className="h-auto min-h-11 whitespace-normal text-left"
                         onClick={() => handleSend(suggestion)}
                         disabled={chatMutation.isPending}
                         data-testid={`grammie-suggestion-${i}`}
@@ -347,14 +376,14 @@ export function GrammieChat() {
           {/* Initial suggestions (only show if no user messages yet) */}
           {messages.length === 1 && (
             <div className="space-y-2">
-              <p className="text-xs text-muted-foreground">Try asking:</p>
+              <p className="text-sm text-muted-foreground">Try asking:</p>
               <div className="flex flex-wrap gap-1.5">
                 {SUGGESTED_QUERIES.map((query, i) => (
                   <Button
                     key={i}
                     variant="outline"
                     size="sm"
-                    className="text-xs h-7"
+                    className="h-auto min-h-11 whitespace-normal text-left"
                     onClick={() => handleSend(query)}
                     disabled={chatMutation.isPending}
                     data-testid={`grammie-initial-${i}`}
@@ -377,6 +406,7 @@ export function GrammieChat() {
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Ask about recipes..."
+            aria-label="Message to Grammie"
             disabled={chatMutation.isPending}
             className="flex-1"
             data-testid="input-grammie-message"
@@ -385,6 +415,8 @@ export function GrammieChat() {
             onClick={() => handleSend()}
             disabled={!input.trim() || chatMutation.isPending}
             size="icon"
+            aria-label="Send"
+            title="Send"
             data-testid="button-send-grammie"
           >
             {chatMutation.isPending ? (
