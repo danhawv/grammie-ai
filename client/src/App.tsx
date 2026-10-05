@@ -1,15 +1,12 @@
-import { Switch, Route, Link, useLocation } from "wouter";
+import { Switch, Route } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { Settings as SettingsIcon, ShoppingCart, CalendarDays } from "lucide-react";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/components/theme-provider";
-import { UserHeader } from "@/components/user-header";
-import { PrintCookbookPicker } from "@/components/print-cookbook-picker";
-import { Button } from "@/components/ui/button";
+import { AppShell } from "@/components/app-shell";
+import { AddRecipeProvider } from "@/contexts/AddRecipeContext";
 import { UploadProgressProvider } from "@/contexts/UploadProgressContext";
-import { AlertsButton } from "@/components/alerts-button";
 import { GrammieChat } from "@/components/grammie-chat";
 import { ShareHandler } from "@/components/share-handler";
 import { InstallPrompt } from "@/components/install-prompt";
@@ -56,6 +53,8 @@ function Router() {
         <Route path="/recipe/:id" component={RecipeDetail} />
         <Route path="/settings" component={Settings} />
         <Route path="/login" component={Login} />
+        <Route path="/kitchen" component={GroceryList} />
+        <Route path="/cookbooks" component={Home} />
         <Route path="/grocery-list" component={GroceryList} />
         <Route path="/grocery-list/shared/:token" component={SharedGroceryList} />
         <Route path="/pantry" component={Pantry} />
@@ -74,58 +73,22 @@ function Router() {
   );
 }
 
-function AppHeader() {
-  const [location] = useLocation();
-  
-  if (location === "/") {
-    return null;
-  }
-  
-  return (
-    <header className="sticky top-0 z-40 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div className="container flex h-14 items-center justify-between px-4">
-        <div className="flex items-center gap-2">
-          <Link href="/">
-            <h2 className="font-serif text-xl font-bold cursor-pointer hover-elevate">Recipes</h2>
-          </Link>
-        </div>
-        <div className="flex items-center gap-3">
-          <Link href="/meal-plans">
-            <Button variant="ghost" className="inline-flex items-center justify-center touch-target p-0" aria-label="Meal plans">
-              <CalendarDays className="h-5 w-5" />
-            </Button>
-          </Link>
-          <Link href="/grocery-list">
-            <Button variant="ghost" className="inline-flex items-center justify-center touch-target p-0" data-testid="button-grocery-list" aria-label="Grocery list">
-              <ShoppingCart className="h-5 w-5" />
-            </Button>
-          </Link>
-          <PrintCookbookPicker />
-          <Link href="/settings">
-            <Button variant="ghost" className="inline-flex items-center justify-center touch-target p-0" data-testid="button-settings" aria-label="Settings">
-              <SettingsIcon className="h-5 w-5" />
-            </Button>
-          </Link>
-          <AlertsButton />
-          <UserHeader />
-        </div>
-      </div>
-    </header>
-  );
-}
-
 function AppCore() {
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider defaultTheme="light">
         <TooltipProvider>
           <UploadProgressProvider>
-            <AppHeader />
-            <Toaster />
-            <Router />
-            <GrammieChat />
-            <ShareHandler />
-            <InstallPrompt />
+            <AddRecipeProvider>
+              <AppShell />
+              <Toaster />
+              <main id="main">
+                <Router />
+              </main>
+              <GrammieChat />
+              <ShareHandler />
+              <InstallPrompt />
+            </AddRecipeProvider>
           </UploadProgressProvider>
         </TooltipProvider>
       </ThemeProvider>

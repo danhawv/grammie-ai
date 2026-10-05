@@ -40,9 +40,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { LiquidGlassToolbar } from "@/components/liquid-glass-toolbar";
-import { MobileFAB } from "@/components/mobile-fab";
-import { UploadRecipeModal } from "@/components/upload-recipe-modal";
+import { useAddRecipe } from "@/contexts/AddRecipeContext";
 import { AdvancedFilterTrigger, AdvancedFilterSheet } from "@/components/advanced-filter-panel";
 import { QuickFilters } from "@/components/quick-filters";
 import { CookbookSelect } from "@/components/cookbook-select";
@@ -153,8 +151,7 @@ export default function Home() {
   const savedState = useRef(loadHomeState()).current;
 
   const [filters, dispatch] = useReducer(filtersReducer, defaultFilters, () => restoreFilters(savedState.filters));
-  const [uploadModalOpen, setUploadModalOpen] = useState(false);
-  const [uploadInitialMode, setUploadInitialMode] = useState<"image" | "link" | "text">("image");
+  const { openAddRecipe } = useAddRecipe();
   const { user } = useAuth();
   const [, navigate] = useLocation();
 
@@ -762,15 +759,26 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Liquid Glass Toolbar - Fixed at top */}
-      <LiquidGlassToolbar
-        searchValue={filters.search}
-        onSearchChange={(value) => dispatch({ type: "SET_SEARCH", payload: value })}
-      />
+      {/* Search lives on the Recipes page (the app shell holds navigation) */}
+      <div className="mx-auto max-w-7xl px-4 pt-4 md:px-6">
+        <label htmlFor="recipe-search" className="sr-only">Search recipes</label>
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" aria-hidden />
+          <Input
+            id="recipe-search"
+            type="search"
+            placeholder="Search recipes, ingredients, or who it's from"
+            value={filters.search}
+            onChange={(e) => dispatch({ type: "SET_SEARCH", payload: e.target.value })}
+            className="h-12 pl-10 text-sm"
+            data-testid="input-search"
+          />
+        </div>
+      </div>
 
       {/* Hero Section with Clear Glass Overlay */}
       <section 
-        className="relative h-[50vh] sm:h-[60vh] max-h-[600px] bg-cover bg-center mt-16 md:mt-16"
+        className="relative h-[50vh] sm:h-[60vh] max-h-[600px] bg-cover bg-center mt-4"
         style={{ backgroundImage: `url(${heroImage})` }}
       >
         {/* Dimming Layer */}
@@ -790,7 +798,7 @@ export default function Home() {
             </p>
             <Button
               size="lg"
-              onClick={() => setUploadModalOpen(true)}
+              onClick={() => openAddRecipe()}
               className="bg-primary hover:bg-primary/90 shadow-lg hidden md:inline-flex"
               data-testid="button-upload-hero"
             >
@@ -1470,7 +1478,7 @@ export default function Home() {
                 : "Start by uploading your first recipe"}
             </p>
             <Button
-              onClick={() => setUploadModalOpen(true)}
+              onClick={() => openAddRecipe()}
               className="touch-target"
               data-testid="button-upload-first-recipe"
             >
@@ -1481,14 +1489,6 @@ export default function Home() {
         ) : null}
       </div>
 
-      {/* Mobile FAB - Floating Action Button for upload (mobile only) */}
-      <MobileFAB onClick={() => setUploadModalOpen(true)} />
-
-      <UploadRecipeModal
-        open={uploadModalOpen}
-        onOpenChange={setUploadModalOpen}
-        initialMode={uploadInitialMode}
-      />
 
       {/* Bulk action toolbar - floating at bottom with glass effect */}
       {user && selectedRecipeIds.size > 0 && (

@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { MessageCircle, X, Send, Loader2, Clock, Flame, ChefHat, ArrowLeft, ArrowRight } from "lucide-react";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
 import grammieImage from "@assets/image_1763329917086.png";
 
@@ -44,7 +44,11 @@ const SUGGESTED_QUERIES = [
   "Show me vegetarian options",
 ];
 
+// Floating buttons never cover recipes, forms or editors (DESIGN_PRINCIPLES §3)
+const HIDE_ON = [/^\/recipe\//, /^\/recipe-creator/, /^\/cookbook\/\d+\/print/, /^\/login/];
+
 export function GrammieChat() {
+  const [location] = useLocation();
   const [isOpen, setIsOpen] = useState(false);
   const [isDismissed, setIsDismissed] = useState(() => {
     return localStorage.getItem("grammie-dismissed") === "true";
@@ -166,11 +170,13 @@ export function GrammieChat() {
   }, [isOpen]);
 
   // When dismissed, show a tiny restore button
+  if (!isOpen && HIDE_ON.some((r) => r.test(location))) return null;
+
   if (isDismissed) {
     return (
       <button
         onClick={handleRestore}
-        className={`fixed bottom-6 ${position === "right" ? "right-6" : "left-6"} z-50 p-2 bg-muted hover:bg-muted/80 text-muted-foreground rounded-full shadow-md transition-all hover:scale-105 opacity-60 hover:opacity-100`}
+        className={`fixed bottom-24 md:bottom-6 ${position === "right" ? "right-6" : "left-6"} z-50 p-2 bg-muted hover:bg-muted/80 text-muted-foreground rounded-full shadow-md transition-all hover:scale-105 opacity-60 hover:opacity-100`}
         title="Bring back Grammie"
         data-testid="button-restore-grammie"
       >
@@ -181,7 +187,7 @@ export function GrammieChat() {
 
   if (!isOpen) {
     return (
-      <div className={`fixed bottom-6 ${position === "right" ? "right-6" : "left-6"} z-50 flex flex-col ${position === "right" ? "items-end" : "items-start"} gap-1 group`}>
+      <div className={`fixed bottom-24 md:bottom-6 ${position === "right" ? "right-6" : "left-6"} z-50 flex flex-col ${position === "right" ? "items-end" : "items-start"} gap-1 group`}>
         {/* Control buttons - visible on hover (desktop) or always visible on mobile */}
         <div className="flex gap-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
           <button
@@ -220,7 +226,7 @@ export function GrammieChat() {
   }
 
   return (
-    <Card className={`fixed bottom-6 ${position === "right" ? "right-6" : "left-6"} z-50 w-[380px] max-w-[calc(100vw-3rem)] h-[600px] max-h-[calc(100vh-6rem)] flex flex-col shadow-2xl`} data-testid="grammie-chat-panel">
+    <Card className={`fixed bottom-24 md:bottom-6 ${position === "right" ? "right-6" : "left-6"} z-50 w-[380px] max-w-[calc(100vw-3rem)] h-[600px] max-h-[calc(100vh-6rem)] flex flex-col shadow-2xl`} data-testid="grammie-chat-panel">
       {/* Header */}
       <CardHeader className="flex-shrink-0 flex flex-row items-center justify-between gap-2 py-3 px-4 border-b">
         <div className="flex items-center gap-2">

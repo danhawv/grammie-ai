@@ -4,6 +4,21 @@ export default {
   darkMode: ["class"],
   content: ["./client/index.html", "./client/src/**/*.{js,jsx,ts,tsx}"],
   theme: {
+    // Type scale (docs/DESIGN_PRINCIPLES.md): body text is 16px, nothing
+    // below 14px. Sizes are rem so the Display > Text size setting scales them.
+    fontSize: {
+      xs: ["0.875rem", { lineHeight: "1.25rem" }],
+      sm: ["1rem", { lineHeight: "1.5rem" }],
+      base: ["1.0625rem", { lineHeight: "1.625rem" }],
+      lg: ["1.1875rem", { lineHeight: "1.75rem" }],
+      xl: ["1.3125rem", { lineHeight: "1.875rem" }],
+      "2xl": ["1.5rem", { lineHeight: "2rem" }],
+      "3xl": ["1.875rem", { lineHeight: "2.25rem" }],
+      "4xl": ["2.25rem", { lineHeight: "2.5rem" }],
+      "5xl": ["3rem", { lineHeight: "1.1" }],
+      "6xl": ["3.75rem", { lineHeight: "1.05" }],
+      "7xl": ["4.5rem", { lineHeight: "1" }],
+    },
     extend: {
       borderRadius: {
         lg: ".5625rem", /* 9px */

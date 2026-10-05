@@ -18,7 +18,7 @@
   --sidebar: 0 0% 96%;
   --sidebar-foreground: 0 0% 9%;
   --sidebar-border: 0 0% 92%;
-  --sidebar-primary: 26 85% 48%;
+  --sidebar-primary: 26 85% 38%;
   --sidebar-primary-foreground: 26 85% 98%;
   --sidebar-accent: 0 0% 92%;
   --sidebar-accent-foreground: 0 0% 9%;
@@ -26,8 +26,8 @@
   --popover: 0 0% 94%;
   --popover-foreground: 0 0% 9%;
   --popover-border: 0 0% 90%;
-  --primary: 26 85% 48%;
-  --primary-foreground: 26 85% 98%;
+  --primary: 26 85% 38%; /* #B3560F: 4.9:1 on white (was 48%, 3.3:1) */
+  --primary-foreground: 0 0% 100%;
   --secondary: 0 0% 90%;
   --secondary-foreground: 0 0% 9%;
   --muted: 0 3% 88%;
@@ -37,7 +37,7 @@
   --destructive: 0 72% 51%;
   --destructive-foreground: 0 0% 98%;
   --input: 0 0% 75%;
-  --ring: 26 85% 48%;
+  --ring: 26 85% 38%;
   --chart-1: 26 85% 42%;
   --chart-2: 16 75% 48%;
   --chart-3: 36 65% 45%;
@@ -124,8 +124,8 @@
   --popover: 0 0% 13%;
   --popover-foreground: 0 0% 98%;
   --popover-border: 0 0% 16%;
-  --primary: 26 85% 48%;
-  --primary-foreground: 26 85% 98%;
+  --primary: 26 85% 38%; /* #B3560F: 4.9:1 on white (was 48%, 3.3:1) */
+  --primary-foreground: 0 0% 100%;
   --secondary: 0 0% 17%;
   --secondary-foreground: 0 0% 98%;
   --muted: 0 3% 18%;
@@ -367,8 +367,9 @@
   
   /* 44pt minimum touch target (iOS guideline = ~59px at standard DPI) */
   .touch-target {
-    min-width: 3.6875rem; /* 59px = 44pt */
-    min-height: 3.6875rem; /* 59px = 44pt */
+    /* 44 CSS px = Apple's 44pt (pt equals CSS px on the web) */
+    min-width: 2.75rem;
+    min-height: 2.75rem;
   }
   
   /* Comfortable list item height for mobile */
@@ -839,4 +840,24 @@
     padding: 0.1rem 0;
     color: #000;
   }
+}
+
+
+/* Display > Text size: scales every rem-based size in the app */
+html[data-text-size="large"] { font-size: 112.5%; }
+html[data-text-size="xlarge"] { font-size: 125%; }
+
+/* Honor the system "reduce motion" setting everywhere */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Room for the phone tab bar so it never covers content */
+@media (max-width: 767px) {
+  body.has-tab-bar { padding-bottom: calc(4.5rem + env(safe-area-inset-bottom, 0px)); }
 }
