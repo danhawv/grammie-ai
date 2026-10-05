@@ -59,7 +59,7 @@ export default function CookbooksPage() {
   }
 
   return (
-    <div className="mx-auto max-w-5xl px-4 py-6 md:px-6">
+    <div className="mx-auto max-w-5xl px-4 pb-24 pt-6 md:px-6">
       <PageHeader
         title="Cookbooks"
         description="Collect recipes into books you can share with family or print."

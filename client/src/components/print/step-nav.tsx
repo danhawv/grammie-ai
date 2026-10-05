@@ -102,7 +102,8 @@ export function StepBar({
         </Button>
         {next && (
           <Button className="ml-auto" onClick={() => onSelect(next.id)} data-testid="button-next-step">
-            {next.id === "review" ? "Check the book" : next.id === "order" ? "Order" : `Next: ${next.label}`} <ArrowRight aria-hidden />
+            {next.id === "review" ? "Check the book" : next.id === "order" ? "Order" : <>Next<span className="sr-only sm:not-sr-only">: {next.label}</span></>}
+            <ArrowRight aria-hidden />
           </Button>
         )}
       </div>
