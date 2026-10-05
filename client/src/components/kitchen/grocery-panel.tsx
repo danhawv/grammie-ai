@@ -394,7 +394,7 @@ export function GroceryPanel({ onOpenPantry }: { onOpenPantry: () => void }) {
                             {name(item)}
                           </span>
                           {(source || pantryMatch) && (
-                            <span className="block text-sm text-muted-foreground">
+                            <span className="block truncate text-sm text-muted-foreground" title={source || undefined}>
                               {source}
                               {source && pantryMatch ? " · " : ""}
                               {pantryMatch && (

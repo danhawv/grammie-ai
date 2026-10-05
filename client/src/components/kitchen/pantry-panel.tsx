@@ -902,7 +902,7 @@ export function PantryPanel({ onOpenGrocery }: { onOpenGrocery: () => void }) {
       <Tabs value={section} onValueChange={(v) => setSection(v as "have" | "staples")}>
         <TabsList className="grid h-auto w-full grid-cols-2">
           <TabsTrigger value="have" className="min-h-11 text-base" data-testid="tab-inventory">What I have</TabsTrigger>
-          <TabsTrigger value="staples" className="min-h-11 text-base" data-testid="tab-staples">Always keep stocked</TabsTrigger>
+          <TabsTrigger value="staples" className="min-h-11 text-base" data-testid="tab-staples">Staples I keep</TabsTrigger>
         </TabsList>
 
         <TabsContent value="have" className="mt-4 space-y-4">

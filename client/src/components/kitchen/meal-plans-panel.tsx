@@ -128,10 +128,13 @@ export function MealPlansPanel() {
             </Button>
           ))}
         </div>
-        <Button onClick={() => openCreate()} data-testid="button-new-meal-plan">
-          <Plus aria-hidden />
-          New meal plan
-        </Button>
+        {/* The empty state carries the main action when there's nothing yet */}
+        {!(view === "active" && !isLoading && !isError && visible.length === 0) && (
+          <Button onClick={() => openCreate()} data-testid="button-new-meal-plan">
+            <Plus aria-hidden />
+            New meal plan
+          </Button>
+        )}
       </div>
 
       {isLoading ? (

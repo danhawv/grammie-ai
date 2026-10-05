@@ -172,7 +172,18 @@ router.get("/recipes/what-can-i-make", isAuthenticated, async (req: any, res) =>
       );
     }
 
-    const ranked = rankRecipesByPantry(recipesList, pantryItems, { limit: 60 });
+    // Own recipes first, so a public copy of the same dish doesn't push yours out
+    recipesList = [...recipesList].sort((a, b) => Number(b.ownerUserId === userId) - Number(a.ownerUserId === userId));
+    const seenTitles = new Set<string>();
+    const ranked = rankRecipesByPantry(recipesList, pantryItems)
+      .filter((r) => {
+        // Show each dish once (libraries often hold several copies)
+        const key = r.recipe.title.trim().toLowerCase();
+        if (seenTitles.has(key)) return false;
+        seenTitles.add(key);
+        return true;
+      })
+      .slice(0, 60);
 
     const now = Date.now();
     const expiryThreshold = now + 3 * 24 * 60 * 60 * 1000;

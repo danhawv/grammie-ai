@@ -226,7 +226,10 @@ export default function WhatCanIMakePage() {
       />
 
       {isLoading ? (
-        <LoadingState label="Checking your recipes against your pantry" rows={4} />
+        <div className="space-y-4">
+          <p className="text-base text-muted-foreground" role="status">Checking your recipes against your pantry…</p>
+          <LoadingState label="Checking your recipes against your pantry" rows={4} />
+        </div>
       ) : isError ? (
         <ErrorState title="Couldn't check your recipes" description="Check your connection and try again." onRetry={() => refetch()} />
       ) : !data || data.pantryItemCount === 0 ? (
