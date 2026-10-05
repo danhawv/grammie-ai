@@ -2,19 +2,20 @@ import { Router } from "express";
 import { z } from "zod";
 import crypto from "node:crypto";
 import passport from "passport";
-import { isAuthenticated } from "../clerkAuth";
+import { isAuthenticated, optionalAuth } from "../clerkAuth";
 import { storage } from "../storage";
 import { hashPassword } from "../password-utils";
 import { getUserId } from "./route-utils";
 
 const router = Router();
 
-// Check auth status (public endpoint - no auth required, but respects dev bypass)
-router.get("/auth/status", async (req: any, res) => {
+// Check auth status (public endpoint). optionalAuth reads the Clerk session
+// when there is one; without it every signed-in user looked signed out here.
+router.get("/auth/status", optionalAuth, async (req: any, res) => {
   const isDevelopment = process.env.NODE_ENV === 'development';
 
   // In development, inject admin user if not authenticated (same as isAuthenticated middleware)
-  if (isDevelopment && !req.isAuthenticated()) {
+  if (isDevelopment && !getUserId(req)) {
     (req as any).user = {
       claims: {
         sub: '37290791',

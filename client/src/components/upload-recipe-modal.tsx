@@ -752,22 +752,15 @@ export function UploadRecipeModal({
           {showAuthPrompt && (
             <div className="space-y-6 py-4">
               <div className="flex flex-col items-center text-center">
-                <div className="relative w-32 h-32 mb-4">
-                  <img
-                    src={grandmaImage}
-                    alt="Grandma"
-                    className="w-full h-full object-contain rounded-lg"
-                  />
-                </div>
                 <p className="text-muted-foreground max-w-md mb-6">
-                  To upload recipes, you'll need a free account. Sign in with Google, GitHub, or create a local account.
+                  To save recipes, sign in or create a free account. It only takes a minute.
                 </p>
                 <div className="flex gap-3 w-full max-w-sm">
                   <Button
                     variant="default"
                     className="flex-1"
                     onClick={() => window.location.href = '/login'}
-                    data-testid="button-sign-in-replit"
+                    data-testid="button-sign-in"
                   >
                     Sign In
                   </Button>
@@ -776,7 +769,7 @@ export function UploadRecipeModal({
                     className="flex-1"
                     onClick={() => {
                       onOpenChange(false);
-                      navigate('/signup');
+                      navigate('/login');
                     }}
                     data-testid="button-create-account"
                   >
