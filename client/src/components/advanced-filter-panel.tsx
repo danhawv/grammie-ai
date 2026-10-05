@@ -1,4 +1,4 @@
-import { Dispatch, useMemo } from "react";
+import { Dispatch, useMemo, type ReactNode } from "react";
 import { SlidersHorizontal, X, RotateCcw } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { FiltersState, FilterAction, defaultFilters, countActiveFilters } from "@/lib/filters";
@@ -94,6 +94,10 @@ interface AdvancedFilterSheetProps {
   scope?: string;
   totalResults: number;
   onReset: () => void;
+  /** Sections the page adds above the standard ones (e.g. Show, Cookbook) */
+  leadingSections?: ReactNode;
+  /** Applied-filter count for the header badge, when the page counts more than these filters */
+  activeCountOverride?: number;
 }
 
 function serializeFiltersForCounts(f: FiltersState): Record<string, string> {
@@ -112,9 +116,9 @@ function serializeFiltersForCounts(f: FiltersState): Record<string, string> {
   return params;
 }
 
-export function AdvancedFilterSheet({ open, onOpenChange, filters, dispatch, userId, scope, totalResults, onReset }: AdvancedFilterSheetProps) {
+export function AdvancedFilterSheet({ open, onOpenChange, filters, dispatch, userId, scope, totalResults, onReset, leadingSections, activeCountOverride }: AdvancedFilterSheetProps) {
   const filterParams = useMemo(() => serializeFiltersForCounts(filters), [filters]);
-  const activeCount = countActiveFilters(filters);
+  const activeCount = activeCountOverride ?? countActiveFilters(filters);
 
   const { data: filterCounts } = useQuery<FilterCounts>({
     queryKey: ['/api/recipes/filter-counts', filterParams, scope],
@@ -159,6 +163,7 @@ export function AdvancedFilterSheet({ open, onOpenChange, filters, dispatch, use
         </SheetHeader>
 
         <div className="flex-1 overflow-y-auto px-6 py-4" data-testid="sheet-filter-content">
+          {leadingSections}
           <MealTypeSection filters={filters} dispatch={dispatch} filterCounts={filterCounts} />
 
           <Accordion type="multiple" className="w-full space-y-2 mt-2">
@@ -200,9 +205,11 @@ function MealTypeSection({ filters, dispatch, filterCounts }: AdvancedFilterPane
             variant="ghost"
             size="sm"
             onClick={() => dispatch({ type: "RESET_SECTION", payload: "mealTypes" })}
-            className="text-muted-foreground h-8"
+            className="text-muted-foreground"
+            aria-label="Clear this section"
+            title="Clear this section"
           >
-            <X className="h-3.5 w-3.5" />
+            <X className="h-4 w-4" aria-hidden />
           </Button>
         )}
       </div>
@@ -259,9 +266,11 @@ function TimeConvenienceSection({ filters, dispatch, filterCounts }: AdvancedFil
               e.stopPropagation();
               dispatch({ type: "RESET_SECTION", payload: "timeConvenience" });
             }}
-            className="text-muted-foreground h-8"
+            className="text-muted-foreground"
+            aria-label="Clear this section"
+            title="Clear this section"
           >
-            <X className="h-3.5 w-3.5" />
+            <X className="h-4 w-4" aria-hidden />
           </Button>
         )}
       </div>
@@ -324,9 +333,11 @@ function DietaryAllergensSection({ filters, dispatch, filterCounts }: AdvancedFi
               e.stopPropagation();
               resetSection();
             }}
-            className="text-muted-foreground h-8"
+            className="text-muted-foreground"
+            aria-label="Clear this section"
+            title="Clear this section"
           >
-            <X className="h-3.5 w-3.5" />
+            <X className="h-4 w-4" aria-hidden />
           </Button>
         )}
       </div>
@@ -432,9 +443,11 @@ function CuisineSeasonSection({ filters, dispatch, filterCounts }: AdvancedFilte
               e.stopPropagation();
               resetSection();
             }}
-            className="text-muted-foreground h-8"
+            className="text-muted-foreground"
+            aria-label="Clear this section"
+            title="Clear this section"
           >
-            <X className="h-3.5 w-3.5" />
+            <X className="h-4 w-4" aria-hidden />
           </Button>
         )}
       </div>
@@ -525,9 +538,11 @@ function CookingStyleSection({ filters, dispatch, filterCounts }: AdvancedFilter
               e.stopPropagation();
               resetSection();
             }}
-            className="text-muted-foreground h-8"
+            className="text-muted-foreground"
+            aria-label="Clear this section"
+            title="Clear this section"
           >
-            <X className="h-3.5 w-3.5" />
+            <X className="h-4 w-4" aria-hidden />
           </Button>
         )}
       </div>

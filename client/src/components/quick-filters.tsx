@@ -1,95 +1,76 @@
 import { Dispatch } from "react";
-import { Clock, Zap, Leaf, Wheat, Milk, Soup, DollarSign, Flame, ListChecks } from "lucide-react";
+import { Clock, Zap, Leaf, Wheat, Milk, Carrot, type LucideIcon } from "lucide-react";
 import { FiltersState, FilterAction } from "@/lib/filters";
-import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
+
+// The optional row of one-tap filters on Recipes. It only shows when the
+// user turns on Settings > "Show Quick Filters", and it shows the chips they
+// picked there. Ids match the Settings page's filter ids.
+
+interface QuickChip {
+  id: string;
+  label: string;
+  icon: LucideIcon;
+  isActive: (f: FiltersState) => boolean;
+  toggle: FilterAction;
+}
+
+const time = (id: string, label: string, value: string): QuickChip => ({
+  id,
+  label,
+  icon: Clock,
+  isActive: (f) => f.timeConvenience.includes(value),
+  toggle: { type: "TOGGLE_TIME_CONVENIENCE", payload: value },
+});
+
+const diet = (id: string, label: string, icon: LucideIcon, key: keyof FiltersState["dietary"]): QuickChip => ({
+  id,
+  label,
+  icon,
+  isActive: (f) => f.dietary[key],
+  toggle: { type: "TOGGLE_DIETARY", payload: key },
+});
+
+export const QUICK_FILTER_CHIPS: QuickChip[] = [
+  time("under-15-mins", "Under 15 min", "Under 15 mins"),
+  time("under-30-mins", "Under 30 min", "Under 30 mins"),
+  time("under-1-hour", "Under 1 hour", "Under 1 hour"),
+  diet("vegetarian", "Vegetarian", Carrot, "vegetarian"),
+  diet("vegan", "Vegan", Leaf, "vegan"),
+  diet("gluten-free", "Gluten-free", Wheat, "glutenFree"),
+  diet("dairy-free", "Dairy-free", Milk, "dairyFree"),
+  diet("high-protein", "High protein", Zap, "highProtein"),
+];
 
 interface QuickFiltersProps {
   filters: FiltersState;
   dispatch: Dispatch<FilterAction>;
+  /** Chip ids chosen in Settings; unknown ids (e.g. old collection ids) are ignored */
+  enabledIds?: string[];
 }
 
-const quickFilterChips = [
-  {
-    id: "under-30-min",
-    label: "Under 30 min",
-    icon: Clock,
-    isActive: (f: FiltersState) => f.timeConvenience.includes("Under 30 mins"),
-    toggle: { type: "TOGGLE_TIME_CONVENIENCE" as const, payload: "Under 30 mins" },
-  },
-  {
-    id: "high-protein",
-    label: "High Protein",
-    icon: Zap,
-    isActive: (f: FiltersState) => f.dietary.highProtein,
-    toggle: { type: "TOGGLE_DIETARY" as const, payload: "highProtein" as const },
-  },
-  {
-    id: "vegan",
-    label: "Vegan",
-    icon: Leaf,
-    isActive: (f: FiltersState) => f.dietary.vegan,
-    toggle: { type: "TOGGLE_DIETARY" as const, payload: "vegan" as const },
-  },
-  {
-    id: "gluten-free",
-    label: "Gluten-Free",
-    icon: Wheat,
-    isActive: (f: FiltersState) => f.dietary.glutenFree,
-    toggle: { type: "TOGGLE_DIETARY" as const, payload: "glutenFree" as const },
-  },
-  {
-    id: "dairy-free",
-    label: "Dairy-Free",
-    icon: Milk,
-    isActive: (f: FiltersState) => f.dietary.dairyFree,
-    toggle: { type: "TOGGLE_DIETARY" as const, payload: "dairyFree" as const },
-  },
-  {
-    id: "few-ingredients",
-    label: "5 or Less",
-    icon: ListChecks,
-    isActive: (f: FiltersState) => f.fewIngredients,
-    toggle: { type: "TOGGLE_QUICK_FILTER" as const, payload: "fewIngredients" as const },
-  },
-  {
-    id: "one-pot",
-    label: "One-Pot",
-    icon: Soup,
-    isActive: (f: FiltersState) => f.onePot,
-    toggle: { type: "TOGGLE_QUICK_FILTER" as const, payload: "onePot" as const },
-  },
-  {
-    id: "budget-friendly",
-    label: "Budget-Friendly",
-    icon: DollarSign,
-    isActive: (f: FiltersState) => f.budgetFriendly,
-    toggle: { type: "TOGGLE_QUICK_FILTER" as const, payload: "budgetFriendly" as const },
-  },
-  {
-    id: "air-fryer",
-    label: "Air Fryer",
-    icon: Flame,
-    isActive: (f: FiltersState) => f.airFryer,
-    toggle: { type: "TOGGLE_QUICK_FILTER" as const, payload: "airFryer" as const },
-  },
-];
-
-export function QuickFilters({ filters, dispatch }: QuickFiltersProps) {
+export function QuickFilters({ filters, dispatch, enabledIds }: QuickFiltersProps) {
+  const chips = enabledIds ? QUICK_FILTER_CHIPS.filter((c) => enabledIds.includes(c.id)) : QUICK_FILTER_CHIPS;
+  if (chips.length === 0) return null;
   return (
-    <div className="flex gap-2 overflow-x-auto py-2 scrollbar-hide" data-testid="quick-filters-bar">
-      {quickFilterChips.map(({ id, label, icon: Icon, isActive, toggle }) => {
+    <div className="flex flex-wrap gap-2 py-2" role="group" aria-label="Quick filters" data-testid="quick-filters-bar">
+      {chips.map(({ id, label, icon: Icon, isActive, toggle }) => {
         const active = isActive(filters);
         return (
-          <Badge
+          <button
             key={id}
-            variant={active ? "default" : "outline"}
-            className="cursor-pointer flex-shrink-0 gap-1.5 px-3 py-1.5"
+            type="button"
+            aria-pressed={active}
             onClick={() => dispatch(toggle)}
+            className={cn(
+              "inline-flex min-h-11 items-center gap-1.5 rounded-full border px-4 text-sm font-medium transition-colors",
+              active ? "border-primary bg-primary text-primary-foreground" : "bg-background hover:bg-accent",
+            )}
             data-testid={`chip-quick-${id}`}
           >
-            <Icon className="h-3.5 w-3.5" />
+            <Icon className="h-4 w-4" aria-hidden />
             {label}
-          </Badge>
+          </button>
         );
       })}
     </div>
