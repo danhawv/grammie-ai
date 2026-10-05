@@ -1,98 +1,72 @@
-import { useState, useMemo } from "react";
-import { useRoute, Link, useLocation } from "wouter";
-import { useQuery, useMutation } from "@tanstack/react-query";
-import { queryClient } from "@/lib/queryClient";
+import { useMemo, useState } from "react";
+import { Link, useLocation, useRoute } from "wouter";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   DndContext,
   DragOverlay,
-  closestCenter,
   PointerSensor,
+  closestCenter,
+  useDraggable,
+  useDroppable,
   useSensor,
   useSensors,
-  type DragStartEvent,
   type DragEndEvent,
+  type DragStartEvent,
 } from "@dnd-kit/core";
-import { useDroppable } from "@dnd-kit/core";
-import { useDraggable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import {
-  ArrowLeft,
-  ChevronLeft,
-  ChevronRight,
-  Plus,
-  Minus,
-  ShoppingCart,
-  Loader2,
-  Utensils,
-  X,
   BarChart3,
   BookTemplate,
-  Trash2,
-  GripVertical,
-  CalendarDays,
-  Users,
   Clock,
-  Recycle,
+  Loader2,
+  Minus,
+  MoreHorizontal,
   PenLine,
+  Plus,
+  Recycle,
+  ShoppingCart,
+  Trash2,
+  Users,
+  Utensils,
 } from "lucide-react";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-  DialogDescription,
-} from "@/components/ui/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { useToast } from "@/hooks/use-toast";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { PageHeader } from "@/components/page-header";
+import { EmptyState, ErrorState, LoadingState } from "@/components/page-states";
 import { RecipePicker } from "@/components/meal-plan/recipe-picker";
-import { useMealPlanWebSocket } from "@/hooks/use-meal-plan-websocket";
-import { useAuth } from "@/hooks/useAuth";
 import NutritionDashboard from "@/components/meal-plan/nutrition-dashboard";
 import { MealPlanCollaborators } from "@/components/meal-plan/collaborators";
+import { formatPlanDates } from "@/components/kitchen/meal-plans-panel";
+import { useHiddenIds } from "@/components/kitchen/use-hidden-ids";
+import { useMealPlanWebSocket } from "@/hooks/use-meal-plan-websocket";
+import { useAuth } from "@/hooks/useAuth";
+import { useToast } from "@/hooks/use-toast";
+import { useUndoable } from "@/hooks/use-undoable";
 
 const MEAL_SLOTS = ["breakfast", "lunch", "dinner", "snack"] as const;
-const SLOT_LABELS: Record<string, string> = {
-  breakfast: "Breakfast",
-  lunch: "Lunch",
-  dinner: "Dinner",
-  snack: "Snack",
-};
-const SLOT_ICONS: Record<string, string> = {
-  breakfast: "\u2615",
-  lunch: "\ud83c\udf5d",
-  dinner: "\ud83c\udf7d\ufe0f",
-  snack: "\ud83c\udf6a",
-};
+const SLOT_LABELS: Record<string, string> = { breakfast: "Breakfast", lunch: "Lunch", dinner: "Dinner", snack: "Snack" };
 
-// Format "40 mins" → "40m", "1 hour 40 mins" → "1h40m", "2 hours" → "2h"
+// "40 mins" → "40 min", "1 hour 40 mins" → "1 hr 40 min"
 function formatTime(timeStr: string): string {
   const lower = timeStr.toLowerCase().trim();
-  let hours = 0;
-  let mins = 0;
-  const hMatch = lower.match(/(\d+)\s*h(?:ou)?r?s?/);
-  const mMatch = lower.match(/(\d+)\s*m(?:in(?:ute)?s?)?/);
-  if (hMatch) hours = parseInt(hMatch[1]);
-  if (mMatch) mins = parseInt(mMatch[1]);
-  if (hours === 0 && mins === 0) {
-    // Try plain number (assume minutes)
+  const h = lower.match(/(\d+)\s*h(?:ou)?r?s?/);
+  const m = lower.match(/(\d+)\s*m(?:in(?:ute)?s?)?/);
+  let hours = h ? parseInt(h[1]) : 0;
+  let mins = m ? parseInt(m[1]) : 0;
+  if (!hours && !mins) {
     const plain = lower.match(/^(\d+)$/);
-    if (plain) mins = parseInt(plain[1]);
-    else return timeStr;
+    if (!plain) return timeStr;
+    mins = parseInt(plain[1]);
   }
-  if (hours > 0 && mins > 0) return `${hours}h${mins}m`;
-  if (hours > 0) return `${hours}h`;
-  return `${mins}m`;
+  if (mins >= 60) { hours += Math.floor(mins / 60); mins %= 60; }
+  if (hours && mins) return `${hours} hr ${mins} min`;
+  if (hours) return `${hours} hr`;
+  return `${mins} min`;
 }
 
 type MealPlanEntry = {
@@ -106,6 +80,7 @@ type MealPlanEntry = {
   isLeftover: boolean;
   customMealName: string | null;
   notes: string | null;
+  assignedUserId?: string | null;
   recipe?: any;
   assignedUser?: any;
 };
@@ -122,824 +97,563 @@ type MealPlanWithEntries = {
   collaborators?: any[];
 };
 
-// Droppable cell component
-function DroppableCell({
-  id,
-  children,
-}: {
-  id: string;
-  children: React.ReactNode;
-}) {
+const dateKeyOf = (d: Date | string) => new Date(d).toISOString().split("T")[0];
+const dayLabel = (d: Date, opts: Intl.DateTimeFormatOptions) => d.toLocaleDateString(undefined, { ...opts, timeZone: "UTC" });
+const entryTitle = (e: MealPlanEntry) => e.recipe?.title || e.customMealName || "Meal";
+
+// ---------------------------------------------------------------------------
+// Entry cards
+// ---------------------------------------------------------------------------
+
+function EntryContent({ entry, compact }: { entry: MealPlanEntry; compact?: boolean }) {
+  const servings = entry.scaledServings || entry.recipe?.servings || null;
+  const image = entry.recipe?.dishImageThumbnail || entry.recipe?.dishImage || null;
+  return (
+    <>
+      {!compact && (image ? (
+        <img src={image} alt="" className="aspect-[4/3] w-full object-cover" />
+      ) : (
+        <div className="flex aspect-[4/3] w-full items-center justify-center bg-muted/50">
+          <Utensils className="h-5 w-5 text-muted-foreground" aria-hidden />
+        </div>
+      ))}
+      <span className="block px-2 py-1.5 text-left">
+        <span className="line-clamp-2 block text-sm font-medium leading-snug">{entryTitle(entry)}</span>
+        <span className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+          {entry.isLeftover && (
+            <span className="inline-flex items-center gap-0.5 font-medium text-green-800 dark:text-green-300">
+              <Recycle className="h-3.5 w-3.5" aria-hidden /> Leftovers
+            </span>
+          )}
+          {servings && <span>Serves {servings}</span>}
+          {entry.recipe?.totalTime && <span>{formatTime(entry.recipe.totalTime)}</span>}
+        </span>
+      </span>
+    </>
+  );
+}
+
+/** Desktop grid card: drag to move, click to open */
+function DraggableEntry({ entry, onOpen }: { entry: MealPlanEntry; onOpen: () => void }) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: entry.id });
+  return (
+    <button
+      type="button"
+      ref={setNodeRef}
+      style={{ transform: CSS.Translate.toString(transform), opacity: isDragging ? 0.5 : 1 }}
+      {...attributes}
+      {...listeners}
+      onClick={onOpen}
+      aria-label={`${entryTitle(entry)} — open to change or move`}
+      className="block w-full cursor-grab overflow-hidden rounded-lg border bg-card text-left shadow-sm hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing"
+    >
+      <EntryContent entry={entry} />
+    </button>
+  );
+}
+
+function DroppableCell({ id, children }: { id: string; children: React.ReactNode }) {
   const { isOver, setNodeRef } = useDroppable({ id });
   return (
-    <div
-      ref={setNodeRef}
-      className={`min-h-[60px] min-w-0 p-1 rounded transition-colors overflow-hidden ${
-        isOver ? "bg-primary/10 ring-2 ring-primary/30" : ""
-      }`}
-    >
+    <div ref={setNodeRef} className={`min-w-0 rounded p-1 transition-colors ${isOver ? "bg-primary/10 ring-2 ring-primary/30" : ""}`}>
       {children}
     </div>
   );
 }
 
-// Draggable entry card — image-forward, compact
-function DraggableEntry({
-  entry,
-  onRemove,
-  onToggleLeftover,
-  collaborators,
-  onAssign,
-  onClick,
-}: {
-  entry: MealPlanEntry;
-  onRemove: () => void;
-  onToggleLeftover?: () => void;
-  collaborators?: { userId: string; displayName: string }[];
-  onAssign?: (userId: string | null) => void;
-  onClick?: () => void;
-}) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } =
-    useDraggable({ id: entry.id });
-
-  const style = {
-    transform: CSS.Translate.toString(transform),
-    opacity: isDragging ? 0.5 : 1,
-  };
-
-  const title = entry.recipe?.title || entry.customMealName || "Custom Meal";
-  const servings = entry.scaledServings || entry.recipe?.servings || 1;
-  const imageUrl =
-    entry.recipe?.dishImageThumbnail || entry.recipe?.dishImage || null;
-
+function AddMenu({ label, onRecipe, onCustom, className }: { label: string; onRecipe: () => void; onCustom: () => void; className?: string }) {
   return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      {...attributes}
-      {...listeners}
-      className="group relative rounded-lg overflow-hidden max-w-full shadow-sm hover:shadow-md transition-shadow cursor-grab active:cursor-grabbing bg-card border"
-    >
-      {/* Context menu — top-right corner on hover */}
-      <div className="absolute top-1 right-1 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button className="bg-black/40 rounded p-0.5 hover:bg-black/60">
-              <X className="h-3 w-3 text-white" />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-40">
-            {onToggleLeftover && (
-              <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onToggleLeftover(); }}>
-                <Recycle className="h-3.5 w-3.5 mr-2" />
-                {entry.isLeftover ? "Unmark Leftover" : "Mark as Leftover"}
-              </DropdownMenuItem>
-            )}
-            {onAssign && collaborators && collaborators.length > 0 && (
-              <>
-                {collaborators.map((c) => (
-                  <DropdownMenuItem
-                    key={c.userId}
-                    onClick={(e) => { e.stopPropagation(); onAssign(c.userId); }}
-                  >
-                    <Users className="h-3.5 w-3.5 mr-2" />
-                    Assign to {c.displayName.split(" ")[0]}
-                  </DropdownMenuItem>
-                ))}
-                {entry.assignedUser && (
-                  <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onAssign(null); }}>
-                    <X className="h-3.5 w-3.5 mr-2" />
-                    Unassign
-                  </DropdownMenuItem>
-                )}
-              </>
-            )}
-            <DropdownMenuItem
-              onClick={(e) => { e.stopPropagation(); onRemove(); }}
-              className="text-destructive focus:text-destructive"
-            >
-              <Trash2 className="h-3.5 w-3.5 mr-2" />
-              Remove
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-      {/* Leftover badge */}
-      {entry.isLeftover && (
-        <div className="absolute top-1 left-1 z-10 bg-green-600 text-white rounded px-1 py-0.5 text-[9px] font-medium flex items-center gap-0.5 group-hover:left-7">
-          <Recycle className="h-2.5 w-2.5" /> Leftover
-        </div>
-      )}
-      {/* Main clickable area */}
-      <div onClick={onClick}>
-        {/* Image */}
-        {imageUrl ? (
-          <div className="aspect-[4/3] w-full overflow-hidden">
-            <img
-              src={imageUrl}
-              alt={title}
-              className="w-full h-full object-cover"
-            />
-          </div>
-        ) : (
-          <div className="aspect-[4/3] w-full bg-muted/50 flex items-center justify-center">
-            <Utensils className="h-5 w-5 text-muted-foreground/40" />
-          </div>
-        )}
-        {/* Info bar */}
-        <div className="px-1.5 py-1">
-          <div className="text-[10px] font-medium leading-tight truncate" title={title}>
-            {title}
-          </div>
-          <div className="flex items-center gap-1.5 mt-0.5 text-[9px] text-muted-foreground">
-            <span className="flex items-center gap-0.5">
-              <Users className="h-2 w-2" />
-              {servings}
-            </span>
-            {entry.recipe?.totalTime && (
-              <span className="flex items-center gap-0.5">
-                <Clock className="h-2 w-2" />
-                {formatTime(entry.recipe.totalTime)}
-              </span>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="outline" className={`w-full border-dashed text-muted-foreground ${className || ""}`} aria-label={label}>
+          <Plus aria-hidden /> Add
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent>
+        <DropdownMenuItem className="min-h-11 text-base" onClick={onRecipe}>
+          <Utensils className="mr-2 h-4 w-4" aria-hidden /> A recipe
+        </DropdownMenuItem>
+        <DropdownMenuItem className="min-h-11 text-base" onClick={onCustom}>
+          <PenLine className="mr-2 h-4 w-4" aria-hidden /> A note (“Eating out”)
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
-// Recipe sidebar panel
-function RecipeSidebar({
+// ---------------------------------------------------------------------------
+// Entry details: servings, leftovers, who's cooking, move, remove
+// ---------------------------------------------------------------------------
+
+function EntryDialog({
   entry,
+  days,
+  assignable,
   onClose,
-  onAdjustServings,
+  onUpdate,
+  onMove,
   onRemove,
 }: {
-  entry: MealPlanEntry;
+  entry: MealPlanEntry | null;
+  days: Date[];
+  assignable: { userId: string; displayName: string }[];
   onClose: () => void;
-  onAdjustServings: (delta: number) => void;
+  onUpdate: (updates: Record<string, unknown>) => void;
+  onMove: (date: string, slot: string) => void;
   onRemove: () => void;
 }) {
+  const [moveDay, setMoveDay] = useState("");
+  const [moveSlot, setMoveSlot] = useState("");
+  if (!entry) return null;
   const recipe = entry.recipe;
-  if (!recipe) return null;
-
-  const servings = entry.scaledServings || recipe.servings || 1;
-  const imageUrl = recipe.dishImage || recipe.dishImageThumbnail || null;
+  const servings = entry.scaledServings || recipe?.servings || 1;
+  const currentDay = dateKeyOf(entry.date);
+  const targetDay = moveDay || currentDay;
+  const targetSlot = moveSlot || entry.mealSlot;
+  const moved = targetDay !== currentDay || targetSlot !== entry.mealSlot;
 
   return (
-    <div className="fixed inset-y-0 right-0 w-80 md:w-96 bg-background border-l shadow-xl z-50 flex flex-col animate-in slide-in-from-right-full duration-200">
-      {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b">
-        <h3 className="font-semibold text-sm truncate flex-1 mr-2">{recipe.title}</h3>
-        <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
-          <X className="h-4 w-4" />
-        </button>
-      </div>
-      {/* Scrollable content */}
-      <div className="flex-1 overflow-y-auto">
-        {/* Image */}
-        {imageUrl && (
-          <div className="aspect-video w-full overflow-hidden">
-            <img src={imageUrl} alt={recipe.title} className="w-full h-full object-cover" />
-          </div>
+    <Dialog open onOpenChange={(open) => { if (!open) { setMoveDay(""); setMoveSlot(""); onClose(); } }}>
+      <DialogContent className="max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>{entryTitle(entry)}</DialogTitle>
+          <DialogDescription>
+            {SLOT_LABELS[entry.mealSlot]}, {dayLabel(new Date(entry.date), { weekday: "long", month: "short", day: "numeric" })}
+          </DialogDescription>
+        </DialogHeader>
+
+        {recipe && (recipe.dishImage || recipe.dishImageThumbnail) && (
+          <img src={recipe.dishImage || recipe.dishImageThumbnail} alt="" className="aspect-video w-full rounded-lg object-cover" />
         )}
-        {/* Quick stats */}
-        <div className="flex items-center gap-3 p-4 border-b text-sm">
-          {recipe.totalTime && (
-            <div className="flex items-center gap-1 text-muted-foreground">
-              <Clock className="h-4 w-4" />
-              <span>{formatTime(recipe.totalTime)}</span>
+        {recipe?.totalTime && (
+          <p className="flex items-center gap-2 text-base text-muted-foreground">
+            <Clock className="h-4 w-4" aria-hidden /> {formatTime(recipe.totalTime)}
+          </p>
+        )}
+
+        <div className="space-y-5">
+          {recipe && (
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-base font-medium" id="servings-label">Servings</span>
+              <div className="flex items-center gap-2" role="group" aria-labelledby="servings-label">
+                <Button variant="outline" size="icon" aria-label="Fewer servings" disabled={servings <= 1}
+                  onClick={() => onUpdate({ scaledServings: Math.max(1, servings - 1) })}>
+                  <Minus aria-hidden />
+                </Button>
+                <span className="w-8 text-center text-lg font-semibold" aria-live="polite">{servings}</span>
+                <Button variant="outline" size="icon" aria-label="More servings" onClick={() => onUpdate({ scaledServings: servings + 1 })}>
+                  <Plus aria-hidden />
+                </Button>
+              </div>
             </div>
           )}
-          <div className="flex items-center gap-1 text-muted-foreground">
-            <Users className="h-4 w-4" />
-            <span>{servings} servings</span>
-          </div>
-        </div>
-        {/* Servings adjuster */}
-        <div className="flex items-center justify-between p-4 border-b">
-          <span className="text-sm font-medium">Servings</span>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => onAdjustServings(-1)}
-              className="h-7 w-7 rounded-full border flex items-center justify-center hover:bg-muted"
-            >
-              <Minus className="h-3 w-3" />
-            </button>
-            <span className="text-sm font-semibold w-6 text-center">{servings}</span>
-            <button
-              onClick={() => onAdjustServings(1)}
-              className="h-7 w-7 rounded-full border flex items-center justify-center hover:bg-muted"
-            >
-              <Plus className="h-3 w-3" />
-            </button>
-          </div>
-        </div>
-        {/* Description */}
-        {recipe.description && (
-          <div className="p-4 border-b">
-            <h4 className="text-xs font-semibold text-muted-foreground uppercase mb-1">Description</h4>
-            <p className="text-sm text-muted-foreground">{recipe.description}</p>
-          </div>
-        )}
-        {/* Ingredients */}
-        {recipe.ingredients && recipe.ingredients.length > 0 && (
-          <div className="p-4 border-b">
-            <h4 className="text-xs font-semibold text-muted-foreground uppercase mb-2">Ingredients</h4>
-            <ul className="space-y-1">
-              {recipe.ingredients.map((ing: any, i: number) => (
-                <li key={i} className="text-sm flex items-start gap-2">
-                  <span className="text-muted-foreground mt-1.5 h-1.5 w-1.5 rounded-full bg-current flex-shrink-0" />
-                  <span>
-                    {ing.quantity && <span className="font-medium">{ing.quantity}</span>}
-                    {ing.unit && <span> {ing.unit}</span>}
-                    {" "}{ing.name || ing.item || ing}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-        {/* Instructions */}
-        {recipe.instructions && recipe.instructions.length > 0 && (
-          <div className="p-4 border-b">
-            <h4 className="text-xs font-semibold text-muted-foreground uppercase mb-2">Instructions</h4>
-            <ol className="space-y-2">
-              {recipe.instructions.map((step: any, i: number) => (
-                <li key={i} className="text-sm flex gap-2">
-                  <span className="font-semibold text-muted-foreground text-xs mt-0.5 flex-shrink-0 w-5">{i + 1}.</span>
-                  <span>{typeof step === "string" ? step : step.text || step.step}</span>
-                </li>
-              ))}
-            </ol>
-          </div>
-        )}
-        {/* Nutrition */}
-        {(recipe.calories || recipe.protein || recipe.carbs || recipe.fat) && (
-          <div className="p-4 border-b">
-            <h4 className="text-xs font-semibold text-muted-foreground uppercase mb-2">Nutrition (per serving)</h4>
-            <div className="grid grid-cols-4 gap-2 text-center">
-              {recipe.calories && (
-                <div>
-                  <div className="text-sm font-semibold">{recipe.calories}</div>
-                  <div className="text-[10px] text-muted-foreground">cal</div>
-                </div>
-              )}
-              {recipe.protein && (
-                <div>
-                  <div className="text-sm font-semibold">{recipe.protein}g</div>
-                  <div className="text-[10px] text-muted-foreground">protein</div>
-                </div>
-              )}
-              {recipe.carbs && (
-                <div>
-                  <div className="text-sm font-semibold">{recipe.carbs}g</div>
-                  <div className="text-[10px] text-muted-foreground">carbs</div>
-                </div>
-              )}
-              {recipe.fat && (
-                <div>
-                  <div className="text-sm font-semibold">{recipe.fat}g</div>
-                  <div className="text-[10px] text-muted-foreground">fat</div>
-                </div>
-              )}
+
+          <Button variant="outline" className="w-full justify-start" aria-pressed={entry.isLeftover}
+            onClick={() => onUpdate({ isLeftover: !entry.isLeftover })}>
+            <Recycle aria-hidden />
+            {entry.isLeftover ? "Leftovers (not added to the grocery list) — tap to undo" : "Mark as leftovers (skip on the grocery list)"}
+          </Button>
+
+          {assignable.length > 1 && (
+            <div className="space-y-1">
+              <Label htmlFor="entry-cook">Who's cooking?</Label>
+              <Select value={entry.assignedUserId || "none"} onValueChange={(v) => onUpdate({ assignedUserId: v === "none" ? null : v })}>
+                <SelectTrigger id="entry-cook" className="h-11 text-base"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none" className="min-h-11 text-base">Nobody yet</SelectItem>
+                  {assignable.map((u) => (
+                    <SelectItem key={u.userId} value={u.userId} className="min-h-11 text-base">{u.displayName}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
+          )}
+
+          <fieldset className="space-y-2">
+            <legend className="text-base font-medium">Move to</legend>
+            <div className="flex flex-wrap gap-2">
+              <div className="min-w-0 flex-1">
+                <Label htmlFor="move-day" className="sr-only">Day</Label>
+                <Select value={targetDay} onValueChange={setMoveDay}>
+                  <SelectTrigger id="move-day" className="h-11 text-base"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {days.map((d) => (
+                      <SelectItem key={dateKeyOf(d)} value={dateKeyOf(d)} className="min-h-11 text-base">
+                        {dayLabel(d, { weekday: "long", month: "short", day: "numeric" })}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="w-36">
+                <Label htmlFor="move-slot" className="sr-only">Meal</Label>
+                <Select value={targetSlot} onValueChange={setMoveSlot}>
+                  <SelectTrigger id="move-slot" className="h-11 text-base"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {MEAL_SLOTS.map((s) => <SelectItem key={s} value={s} className="min-h-11 text-base">{SLOT_LABELS[s]}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button variant="outline" disabled={!moved} onClick={() => { onMove(targetDay, targetSlot); setMoveDay(""); setMoveSlot(""); }}>
+                Move
+              </Button>
+            </div>
+          </fieldset>
+        </div>
+
+        <DialogFooter className="gap-2 sm:justify-between">
+          <Button variant="outline" className="text-destructive" onClick={onRemove}>
+            <Trash2 aria-hidden /> Remove from plan
+          </Button>
+          <div className="flex gap-2">
+            {recipe && (
+              <Button asChild variant="outline">
+                <Link href={`/recipe/${recipe.id}`}>Open recipe</Link>
+              </Button>
+            )}
+            <Button onClick={onClose}>Done</Button>
           </div>
-        )}
-      </div>
-      {/* Footer actions */}
-      <div className="p-4 border-t flex gap-2">
-        <Button variant="outline" size="sm" className="flex-1" asChild>
-          <Link href={`/recipes/${recipe.id}`}>View Full Recipe</Link>
-        </Button>
-        <Button
-          variant="destructive"
-          size="sm"
-          onClick={onRemove}
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </Button>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Page
+// ---------------------------------------------------------------------------
 
 export default function MealPlanDetailPage() {
   const [, params] = useRoute("/meal-plans/:id");
   const [, navigate] = useLocation();
   const { toast } = useToast();
+  const undoable = useUndoable();
+  const { hidden, hide, show } = useHiddenIds();
   const planId = params?.id;
+  const planKey = ["/api/meal-plans", planId];
 
-  const [activeEntryId, setActiveEntryId] = useState<string | null>(null);
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [pickerSlot, setPickerSlot] = useState<{
-    date: string;
-    slot: string;
-  } | null>(null);
-  const [customMealDialog, setCustomMealDialog] = useState<{
-    date: string;
-    slot: string;
-  } | null>(null);
-  const [customMealName, setCustomMealName] = useState("");
-  const [groceryDialog, setGroceryDialog] = useState(false);
-  const [groceryExcludePantry, setGroceryExcludePantry] = useState(false);
-  const [groceryMode, setGroceryMode] = useState<"create_new" | "add_to_existing">("create_new");
-  const [nutritionDialog, setNutritionDialog] = useState(false);
-  const [templateDialog, setTemplateDialog] = useState(false);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [openEntryId, setOpenEntryId] = useState<string | null>(null);
+  const [pickerSlot, setPickerSlot] = useState<{ date: string; slot: string } | null>(null);
+  const [customSlot, setCustomSlot] = useState<{ date: string; slot: string } | null>(null);
+  const [customName, setCustomName] = useState("");
+  const [groceryOpen, setGroceryOpen] = useState(false);
+  const [groceryExcludePantry, setGroceryExcludePantry] = useState(true);
+  const [groceryMode, setGroceryMode] = useState<"add_to_existing" | "create_new">("add_to_existing");
+  const [nutritionOpen, setNutritionOpen] = useState(false);
+  const [templateOpen, setTemplateOpen] = useState(false);
   const [templateName, setTemplateName] = useState("");
-  const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
 
   const { user } = useAuth();
+  const { onlineUsers } = useMealPlanWebSocket({ planId: planId || "", userId: user?.id || "", enabled: !!planId && !!user?.id });
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
-  // Real-time collaboration via WebSocket
-  const { onlineUsers } = useMealPlanWebSocket({
-    planId: planId || "",
-    userId: user?.id || "",
-    enabled: !!planId && !!user?.id,
-  });
-
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
-  );
-
-  const { data: plan, isLoading } = useQuery<MealPlanWithEntries>({
-    queryKey: ["/api/meal-plans", planId],
-    queryFn: async () => {
-      const res = await fetch(`/api/meal-plans/${planId}`);
-      if (!res.ok) throw new Error("Failed to fetch");
-      return res.json();
-    },
+  const { data: plan, isLoading, isError, error, refetch } = useQuery<MealPlanWithEntries>({
+    queryKey: planKey,
+    queryFn: async () => (await apiRequest("GET", `/api/meal-plans/${planId}`)).json(),
     enabled: !!planId,
+    retry: (count, err) => !String((err as Error)?.message).startsWith("404") && count < 2,
   });
 
-  // Compute the days of the plan
   const days = useMemo(() => {
-    if (!plan) return [];
-    const start = new Date(plan.startDate);
+    if (!plan) return [] as Date[];
+    const out: Date[] = [];
+    const current = new Date(plan.startDate);
     const end = new Date(plan.endDate);
-    const result: Date[] = [];
-    const current = new Date(start);
-    while (current <= end) {
-      result.push(new Date(current));
-      current.setDate(current.getDate() + 1);
+    while (current <= end && out.length < 31) {
+      out.push(new Date(current));
+      current.setUTCDate(current.getUTCDate() + 1);
     }
-    return result;
+    return out;
   }, [plan]);
 
-  // Group entries by date-slot
   const entriesByCell = useMemo(() => {
-    if (!plan) return new Map<string, MealPlanEntry[]>();
     const map = new Map<string, MealPlanEntry[]>();
-    for (const entry of plan.entries) {
-      const dateKey = new Date(entry.date).toISOString().split("T")[0];
-      const cellKey = `${dateKey}|${entry.mealSlot}`;
-      if (!map.has(cellKey)) map.set(cellKey, []);
-      map.get(cellKey)!.push(entry);
+    for (const entry of plan?.entries ?? []) {
+      if (hidden.has(entry.id)) continue;
+      const key = `${dateKeyOf(entry.date)}|${entry.mealSlot}`;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(entry);
     }
     return map;
-  }, [plan]);
+  }, [plan, hidden]);
 
-  // Mutations
-  const addEntryMutation = useMutation({
-    mutationFn: async ({
-      date,
-      mealSlot,
-      recipeId,
-      scaledServings,
-      customMealName,
-    }: {
-      date: string;
-      mealSlot: string;
-      recipeId?: string;
-      scaledServings?: number;
-      customMealName?: string;
-    }) => {
-      const res = await fetch(`/api/meal-plans/${planId}/entries`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ date, mealSlot, recipeId, scaledServings, customMealName }),
-      });
-      if (!res.ok) throw new Error("Failed to add entry");
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/meal-plans", planId] });
-    },
+  const assignable = useMemo(() => {
+    const list: { userId: string; displayName: string }[] = [];
+    if (user) list.push({ userId: user.id, displayName: [user.firstName, user.lastName].filter(Boolean).join(" ") || user.email || "Me" });
+    for (const c of plan?.collaborators ?? []) {
+      if (c.userId !== user?.id) list.push({ userId: c.userId, displayName: c.user?.displayName || c.user?.email || "Family member" });
+    }
+    return list;
+  }, [plan, user]);
+
+  const failed = (what: string) => () =>
+    toast({ title: `Couldn't ${what}`, description: "Check your connection and try again.", variant: "destructive" });
+
+  const addEntry = useMutation({
+    mutationFn: async (body: { date: string; mealSlot: string; recipeId?: string; scaledServings?: number; customMealName?: string }) =>
+      apiRequest("POST", `/api/meal-plans/${planId}/entries`, body),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: planKey }),
+    onError: failed("add that meal"),
   });
 
-  const removeEntryMutation = useMutation({
-    mutationFn: async (entryId: string) => {
-      const res = await fetch(
-        `/api/meal-plans/${planId}/entries/${entryId}`,
-        { method: "DELETE" }
+  const updateEntry = useMutation({
+    mutationFn: async ({ entryId, updates }: { entryId: string; updates: Record<string, unknown> }) =>
+      apiRequest("PATCH", `/api/meal-plans/${planId}/entries/${entryId}`, updates),
+    onMutate: async ({ entryId, updates }) => {
+      await queryClient.cancelQueries({ queryKey: planKey });
+      const previous = queryClient.getQueryData(planKey);
+      queryClient.setQueryData(planKey, (old: any) =>
+        old ? { ...old, entries: old.entries.map((e: any) => (e.id === entryId ? { ...e, ...updates } : e)) } : old,
       );
-      if (!res.ok) throw new Error("Failed to remove");
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/meal-plans", planId] });
-    },
-  });
-
-  const updateEntryMutation = useMutation({
-    mutationFn: async ({
-      entryId,
-      updates,
-    }: {
-      entryId: string;
-      updates: any;
-    }) => {
-      const res = await fetch(
-        `/api/meal-plans/${planId}/entries/${entryId}`,
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(updates),
-        }
-      );
-      if (!res.ok) throw new Error("Failed to update");
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/meal-plans", planId] });
-    },
-  });
-
-  const moveEntryMutation = useMutation({
-    mutationFn: async ({
-      entryId,
-      date,
-      mealSlot,
-    }: {
-      entryId: string;
-      date: string;
-      mealSlot: string;
-    }) => {
-      const res = await fetch(
-        `/api/meal-plans/${planId}/entries/${entryId}/move`,
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ date, mealSlot, position: 0 }),
-        }
-      );
-      if (!res.ok) throw new Error("Failed to move");
-    },
-    onMutate: async ({ entryId, date, mealSlot }) => {
-      // Cancel outgoing refetches
-      await queryClient.cancelQueries({ queryKey: ["/api/meal-plans", planId] });
-      // Snapshot previous value
-      const previous = queryClient.getQueryData(["/api/meal-plans", planId]);
-      // Optimistically update the entry's date and mealSlot
-      queryClient.setQueryData(["/api/meal-plans", planId], (old: any) => {
-        if (!old?.entries) return old;
-        return {
-          ...old,
-          entries: old.entries.map((e: any) =>
-            e.id === entryId ? { ...e, date, mealSlot, position: 0 } : e
-          ),
-        };
-      });
       return { previous };
     },
-    onError: (_err, _vars, context) => {
-      // Roll back on error
-      if (context?.previous) {
-        queryClient.setQueryData(["/api/meal-plans", planId], context.previous);
-      }
+    onError: (_e, _v, ctx) => {
+      if (ctx?.previous) queryClient.setQueryData(planKey, ctx.previous);
+      failed("save that change")();
     },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/meal-plans", planId] });
+    onSettled: () => queryClient.invalidateQueries({ queryKey: planKey }),
+  });
+
+  const moveEntry = useMutation({
+    mutationFn: async ({ entryId, date, mealSlot }: { entryId: string; date: string; mealSlot: string }) =>
+      apiRequest("PATCH", `/api/meal-plans/${planId}/entries/${entryId}/move`, { date, mealSlot, position: 0 }),
+    onMutate: async ({ entryId, date, mealSlot }) => {
+      await queryClient.cancelQueries({ queryKey: planKey });
+      const previous = queryClient.getQueryData(planKey);
+      queryClient.setQueryData(planKey, (old: any) =>
+        old ? { ...old, entries: old.entries.map((e: any) => (e.id === entryId ? { ...e, date, mealSlot, position: 0 } : e)) } : old,
+      );
+      return { previous };
+    },
+    onError: (_e, _v, ctx) => {
+      if (ctx?.previous) queryClient.setQueryData(planKey, ctx.previous);
+      failed("move that meal")();
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: planKey }),
+  });
+
+  const generateGrocery = useMutation({
+    mutationFn: async () =>
+      (await apiRequest("POST", `/api/meal-plans/${planId}/generate-grocery-list`, {
+        excludeLeftovers: true,
+        excludePantryItems: groceryExcludePantry,
+        mode: groceryMode,
+      })).json(),
+    onSuccess: () => {
+      setGroceryOpen(false);
+      queryClient.invalidateQueries({ queryKey: ["/api/grocery-list"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/grocery-list/by-aisle"] });
+      toast({ title: "Grocery list ready" });
+      navigate("/kitchen?tab=grocery");
     },
   });
 
-  const generateGroceryMutation = useMutation({
-    mutationFn: async () => {
-      const res = await fetch(
-        `/api/meal-plans/${planId}/generate-grocery-list`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            excludeLeftovers: true,
-            excludePantryItems: groceryExcludePantry,
-            mode: groceryMode,
-          }),
-        }
-      );
-      if (!res.ok) throw new Error("Failed to generate");
-      return res.json();
-    },
+  const saveTemplate = useMutation({
+    mutationFn: async () => apiRequest("POST", `/api/meal-plans/${planId}/save-as-template`, { templateName: templateName.trim() }),
     onSuccess: () => {
-      setGroceryDialog(false);
-      toast({ title: "Grocery list generated!" });
-      navigate("/grocery-list");
-    },
-    onError: () => {
-      toast({
-        title: "Failed to generate grocery list",
-        variant: "destructive",
-      });
-    },
-  });
-
-  const saveTemplateMutation = useMutation({
-    mutationFn: async () => {
-      const res = await fetch(
-        `/api/meal-plans/${planId}/save-as-template`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ templateName }),
-        }
-      );
-      if (!res.ok) throw new Error("Failed to save");
-      return res.json();
-    },
-    onSuccess: () => {
-      setTemplateDialog(false);
+      setTemplateOpen(false);
       setTemplateName("");
-      toast({ title: "Saved as template!" });
+      queryClient.invalidateQueries({ queryKey: ["/api/meal-plans"] });
+      toast({ title: "Saved as a template", description: "Find it under Kitchen → Meal plans → Templates." });
     },
   });
 
-  // Drag handlers
-  const handleDragStart = (event: DragStartEvent) => {
-    setActiveEntryId(event.active.id as string);
+  const removeEntry = (entry: MealPlanEntry) => {
+    setOpenEntryId(null);
+    undoable({
+      message: `Removed ${entryTitle(entry)}`,
+      hide: () => hide([entry.id]),
+      restore: () => show([entry.id]),
+      commit: async () => {
+        await apiRequest("DELETE", `/api/meal-plans/${planId}/entries/${entry.id}`);
+        queryClient.invalidateQueries({ queryKey: planKey });
+      },
+    });
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
-    setActiveEntryId(null);
+    setDraggingId(null);
     const { active, over } = event;
-    if (!over || !active) return;
-
-    const entryId = active.id as string;
-    const dropId = over.id as string;
-
-    // Parse drop target: "date|slot"
-    const [date, mealSlot] = dropId.split("|");
-    if (!date || !mealSlot) return;
-
-    moveEntryMutation.mutate({ entryId, date, mealSlot });
+    if (!over) return;
+    const [date, mealSlot] = String(over.id).split("|");
+    const entry = plan?.entries.find((e) => e.id === active.id);
+    if (!date || !mealSlot || !entry) return;
+    if (dateKeyOf(entry.date) === date && entry.mealSlot === mealSlot) return;
+    moveEntry.mutate({ entryId: String(active.id), date, mealSlot });
   };
 
-  const handleAddRecipe = (date: string, slot: string) => {
-    setPickerSlot({ date, slot });
-    setPickerOpen(true);
+  const addCustom = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!customSlot || !customName.trim()) return;
+    addEntry.mutate({ date: customSlot.date, mealSlot: customSlot.slot, customMealName: customName.trim() });
+    setCustomSlot(null);
+    setCustomName("");
   };
 
-  const handleRecipeSelected = (recipeId: string, servings: number) => {
-    if (!pickerSlot) return;
-    addEntryMutation.mutate({
-      date: pickerSlot.date,
-      mealSlot: pickerSlot.slot,
-      recipeId,
-      scaledServings: servings,
-    });
-  };
+  const back = { href: "/kitchen?tab=meal-plans", label: "Meal plans" };
 
-  const handleAddCustomMeal = () => {
-    if (!customMealDialog || !customMealName.trim()) return;
-    addEntryMutation.mutate({
-      date: customMealDialog.date,
-      mealSlot: customMealDialog.slot,
-      customMealName: customMealName.trim(),
-    });
-    setCustomMealDialog(null);
-    setCustomMealName("");
-  };
-
-  const handleAdjustServings = (entryId: string, delta: number, currentServings: number) => {
-    const newServings = Math.max(1, currentServings + delta);
-    updateEntryMutation.mutate({
-      entryId,
-      updates: { scaledServings: newServings },
-    });
-  };
-
-  const handleToggleLeftover = (entryId: string, currentValue: boolean) => {
-    updateEntryMutation.mutate({
-      entryId,
-      updates: { isLeftover: !currentValue },
-    });
-  };
-
-  const handleAssign = (entryId: string, userId: string | null) => {
-    updateEntryMutation.mutate({
-      entryId,
-      updates: { assignedUserId: userId || undefined },
-    });
-  };
-
-  // Build collaborator list for assignment dropdown
-  const assignableUsers = useMemo(() => {
-    if (!plan) return [];
-    const users: { userId: string; displayName: string }[] = [];
-    // Add owner
-    if (user) {
-      const name = [user.firstName, user.lastName].filter(Boolean).join(" ") || user.email || "Me";
-      users.push({ userId: user.id, displayName: name });
-    }
-    // Add collaborators
-    if (plan.collaborators) {
-      plan.collaborators.forEach((c: any) => {
-        if (c.userId !== user?.id) {
-          users.push({
-            userId: c.userId,
-            displayName: c.user?.displayName || c.user?.email || "Collaborator",
-          });
-        }
-      });
-    }
-    return users;
-  }, [plan, user]);
-
-  const activeEntry = plan?.entries.find((e) => e.id === activeEntryId);
-  const selectedEntry = plan?.entries.find((e) => e.id === selectedEntryId) || null;
-
-  if (isLoading || !plan) {
+  if (!planId || isLoading) {
     return (
-      <div className="flex items-center justify-center min-h-[50vh]">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      <div className="container mx-auto max-w-6xl px-4 py-6">
+        <PageHeader title="Meal plan" back={back} />
+        <LoadingState label="Loading your meal plan" variant="cards" rows={3} />
       </div>
     );
   }
 
-  const dayLabels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  if (isError || !plan) {
+    const notFound = String((error as Error)?.message).startsWith("404");
+    return (
+      <div className="container mx-auto max-w-6xl px-4 py-6">
+        <PageHeader title="Meal plan" back={back} />
+        {notFound ? (
+          <EmptyState
+            icon={Utensils}
+            title="This meal plan isn't here"
+            description="It may have been deleted, or it hasn't been shared with you."
+            action={<Button asChild><Link href={back.href}>See your meal plans</Link></Button>}
+          />
+        ) : (
+          <ErrorState title="Couldn't load this meal plan" onRetry={() => refetch()} />
+        )}
+      </div>
+    );
+  }
+
+  const openEntry = plan.entries.find((e) => e.id === openEntryId && !hidden.has(e.id)) || null;
+  const draggingEntry = plan.entries.find((e) => e.id === draggingId);
+  const isEmpty = plan.entries.every((e) => hidden.has(e.id));
+  const others = onlineUsers.filter((u) => u.userId !== user?.id);
 
   return (
-    <div className="container max-w-full mx-auto px-4 py-4">
-      {/* Header */}
-      <div className="mb-4 space-y-2">
-        {/* Title row */}
-        <div className="flex items-center gap-2">
-          <Link href="/meal-plans">
-            <Button variant="ghost" size="icon" className="h-8 w-8">
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-          </Link>
-          <h1 className="font-serif text-lg font-bold">{plan.name}</h1>
-          <span className="text-sm text-muted-foreground">
-            {new Date(plan.startDate).toLocaleDateString(undefined, {
-              month: "short",
-              day: "numeric",
-            })}{" "}
-            –{" "}
-            {new Date(plan.endDate).toLocaleDateString(undefined, {
-              month: "short",
-              day: "numeric",
-              year: "numeric",
-            })}
-          </span>
-          {/* Online collaborators */}
-          {onlineUsers.length > 1 && (
-            <div className="flex -space-x-2 ml-2">
-              {onlineUsers.slice(0, 5).map((u) => (
-                <div
-                  key={u.userId}
-                  className="w-6 h-6 rounded-full bg-primary/10 border-2 border-background flex items-center justify-center text-[10px] font-medium"
-                  title={u.displayName}
-                >
-                  {u.displayName.charAt(0).toUpperCase()}
-                </div>
-              ))}
-              {onlineUsers.length > 5 && (
-                <div className="w-6 h-6 rounded-full bg-muted border-2 border-background flex items-center justify-center text-[10px]">
-                  +{onlineUsers.length - 5}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-        {/* Action buttons row */}
-        <div className="flex items-center gap-2 pl-10">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setNutritionDialog(true)}
-          >
-            <BarChart3 className="h-4 w-4 mr-1" />
-            Nutrition
+    <div className="container mx-auto max-w-6xl px-4 py-6">
+      <PageHeader
+        title={plan.name}
+        back={back}
+        description={
+          <>
+            {formatPlanDates(plan.startDate, plan.endDate)}
+            {others.length > 0 && <> · Also here now: {others.map((u) => u.displayName).join(", ")}</>}
+          </>
+        }
+        primaryAction={
+          <Button onClick={() => setGroceryOpen(true)} disabled={isEmpty} data-testid="button-generate-grocery">
+            <ShoppingCart aria-hidden /> Make grocery list
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setTemplateDialog(true)}
-          >
-            <BookTemplate className="h-4 w-4 mr-1" />
-            Save Template
-          </Button>
-          <Button size="sm" onClick={() => setGroceryDialog(true)}>
-            <ShoppingCart className="h-4 w-4 mr-1" />
-            Grocery List
-          </Button>
-          <MealPlanCollaborators
-            planId={planId!}
-            isOwner={plan?.ownerUserId === user?.id}
-          />
-        </div>
+        }
+        secondaryActions={
+          <>
+            <MealPlanCollaborators planId={planId} isOwner={plan.ownerUserId === user?.id} />
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="icon" aria-label="More for this meal plan">
+                  <MoreHorizontal aria-hidden />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem className="min-h-11 text-base" onClick={() => setNutritionOpen(true)}>
+                  <BarChart3 className="mr-2 h-4 w-4" aria-hidden /> Nutrition for the week
+                </DropdownMenuItem>
+                <DropdownMenuItem className="min-h-11 text-base" onClick={() => setTemplateOpen(true)}>
+                  <BookTemplate className="mr-2 h-4 w-4" aria-hidden /> Save as template
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </>
+        }
+      />
+
+      {isEmpty && (
+        <p className="mb-4 rounded-lg border border-dashed p-4 text-base text-muted-foreground">
+          Tap <span className="font-medium text-foreground">Add</span> under any meal to put a recipe or a note on that day.
+          When the week looks right, choose <span className="font-medium text-foreground">Make grocery list</span>.
+        </p>
+      )}
+
+      {/* Phone: one day after another (no sideways scrolling) */}
+      <div className="space-y-6 md:hidden">
+        {days.map((day) => {
+          const dateKey = dateKeyOf(day);
+          const isToday = dayLabel(day, { year: "numeric", month: "numeric", day: "numeric" }) === new Date().toLocaleDateString(undefined, { year: "numeric", month: "numeric", day: "numeric" });
+          return (
+            <section key={dateKey} aria-labelledby={`day-${dateKey}`} className="rounded-lg border bg-card">
+              <h2 id={`day-${dateKey}`} className={`rounded-t-lg px-4 py-2 text-lg font-semibold ${isToday ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
+                {dayLabel(day, { weekday: "long", month: "short", day: "numeric" })}
+                {isToday && " · Today"}
+              </h2>
+              <div className="divide-y">
+                {MEAL_SLOTS.map((slot) => {
+                  const entries = entriesByCell.get(`${dateKey}|${slot}`) || [];
+                  return (
+                    <div key={slot} className="space-y-2 px-4 py-3">
+                      <h3 className="text-sm font-semibold text-muted-foreground">{SLOT_LABELS[slot]}</h3>
+                      {entries.map((entry) => (
+                        <button
+                          key={entry.id}
+                          type="button"
+                          onClick={() => setOpenEntryId(entry.id)}
+                          className="flex min-h-12 w-full items-center gap-3 overflow-hidden rounded-lg border bg-background text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        >
+                          {entry.recipe?.dishImageThumbnail ? (
+                            <img src={entry.recipe.dishImageThumbnail} alt="" className="h-14 w-14 shrink-0 object-cover" />
+                          ) : (
+                            <span className="flex h-14 w-14 shrink-0 items-center justify-center bg-muted">
+                              <Utensils className="h-5 w-5 text-muted-foreground" aria-hidden />
+                            </span>
+                          )}
+                          <span className="min-w-0 flex-1"><EntryContent entry={entry} compact /></span>
+                        </button>
+                      ))}
+                      <AddMenu
+                        label={`Add to ${SLOT_LABELS[slot]}, ${dayLabel(day, { weekday: "long" })}`}
+                        onRecipe={() => setPickerSlot({ date: dateKey, slot })}
+                        onCustom={() => setCustomSlot({ date: dateKey, slot })}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          );
+        })}
       </div>
 
-      {/* Calendar Grid */}
+      {/* Desktop: the week as a grid; drag meals between cells, or open one and use "Move to" */}
       <DndContext
         sensors={sensors}
         collisionDetection={closestCenter}
-        onDragStart={handleDragStart}
+        onDragStart={(e: DragStartEvent) => setDraggingId(String(e.active.id))}
         onDragEnd={handleDragEnd}
+        onDragCancel={() => setDraggingId(null)}
       >
-        <div className="overflow-x-auto">
-          <div className="min-w-[700px]">
-            {/* Day headers */}
-            <div className="grid grid-cols-[80px_repeat(7,1fr)] gap-1 mb-1">
-              <div /> {/* Empty corner */}
-              {days.map((day, i) => {
-                const isToday =
-                  day.toDateString() === new Date().toDateString();
-                return (
-                  <div
-                    key={i}
-                    className={`text-center py-2 text-sm font-medium rounded-t-lg ${
-                      isToday
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-muted"
-                    }`}
-                  >
-                    <div>{dayLabels[i] || day.toLocaleDateString(undefined, { weekday: "short" })}</div>
-                    <div className="text-xs opacity-75">
-                      {day.toLocaleDateString(undefined, {
-                        month: "short",
-                        day: "numeric",
-                      })}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Meal slot rows */}
+        <div className="hidden md:block">
+          <div className="grid gap-1" style={{ gridTemplateColumns: `6rem repeat(${days.length}, minmax(0, 1fr))` }}>
+            <div />
+            {days.map((day) => (
+              <div key={dateKeyOf(day)} className="rounded-t-lg bg-muted py-2 text-center">
+                <div className="text-base font-semibold">{dayLabel(day, { weekday: "short" })}</div>
+                <div className="text-sm text-muted-foreground">{dayLabel(day, { month: "short", day: "numeric" })}</div>
+              </div>
+            ))}
             {MEAL_SLOTS.map((slot) => (
-              <div
-                key={slot}
-                className="grid grid-cols-[80px_repeat(7,1fr)] gap-1 mb-1"
-              >
-                {/* Slot label */}
-                <div className="flex items-center justify-center text-xs font-medium text-muted-foreground bg-muted/50 rounded-l-lg px-2">
-                  <span className="mr-1">{SLOT_ICONS[slot]}</span>
-                  {SLOT_LABELS[slot]}
-                </div>
-
-                {/* Day cells */}
+              <div key={slot} className="contents">
+                <div className="flex items-start justify-center rounded-l-lg bg-muted/50 px-2 pt-3 text-sm font-medium">{SLOT_LABELS[slot]}</div>
                 {days.map((day) => {
-                  const dateKey = day.toISOString().split("T")[0];
+                  const dateKey = dateKeyOf(day);
                   const cellKey = `${dateKey}|${slot}`;
-                  const cellEntries = entriesByCell.get(cellKey) || [];
-
                   return (
                     <DroppableCell key={cellKey} id={cellKey}>
                       <div className="space-y-1">
-                        {cellEntries.map((entry) => (
-                          <DraggableEntry
-                            key={entry.id}
-                            entry={entry}
-                            onRemove={() =>
-                              removeEntryMutation.mutate(entry.id)
-                            }
-                            onToggleLeftover={() =>
-                              handleToggleLeftover(entry.id, entry.isLeftover)
-                            }
-                            collaborators={assignableUsers}
-                            onAssign={(userId) =>
-                              handleAssign(entry.id, userId)
-                            }
-                            onClick={() => entry.recipe && setSelectedEntryId(entry.id)}
-                          />
+                        {(entriesByCell.get(cellKey) || []).map((entry) => (
+                          <DraggableEntry key={entry.id} entry={entry} onOpen={() => setOpenEntryId(entry.id)} />
                         ))}
-                        {/* Add buttons */}
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <button className="w-full h-6 border border-dashed rounded text-muted-foreground hover:border-primary hover:text-primary transition-colors flex items-center justify-center">
-                              <Plus className="h-3 w-3" />
-                            </button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent>
-                            <DropdownMenuItem
-                              onClick={() => handleAddRecipe(dateKey, slot)}
-                            >
-                              <Utensils className="h-4 w-4 mr-2" />
-                              Add Recipe
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() =>
-                                setCustomMealDialog({
-                                  date: dateKey,
-                                  slot,
-                                })
-                              }
-                            >
-                              <PenLine className="h-4 w-4 mr-2" />
-                              Custom Entry
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
+                        <AddMenu
+                          label={`Add to ${SLOT_LABELS[slot]}, ${dayLabel(day, { weekday: "long" })}`}
+                          onRecipe={() => setPickerSlot({ date: dateKey, slot })}
+                          onCustom={() => setCustomSlot({ date: dateKey, slot })}
+                          className="px-1"
+                        />
                       </div>
                     </DroppableCell>
                   );
@@ -948,194 +662,117 @@ export default function MealPlanDetailPage() {
             ))}
           </div>
         </div>
-
         <DragOverlay>
-          {activeEntry && (
-            <div className="bg-card border rounded-md p-2 text-xs shadow-lg opacity-90 max-w-[140px]">
-              <div className="font-medium truncate">
-                {activeEntry.recipe?.title || activeEntry.customMealName}
-              </div>
-            </div>
+          {draggingEntry && (
+            <div className="max-w-40 rounded-md border bg-card p-2 text-sm font-medium shadow-lg">{entryTitle(draggingEntry)}</div>
           )}
         </DragOverlay>
       </DndContext>
 
-      {/* Recipe Picker */}
+      <EntryDialog
+        entry={openEntry}
+        days={days}
+        assignable={assignable}
+        onClose={() => setOpenEntryId(null)}
+        onUpdate={(updates) => openEntry && updateEntry.mutate({ entryId: openEntry.id, updates })}
+        onMove={(date, mealSlot) => {
+          if (!openEntry) return;
+          moveEntry.mutate({ entryId: openEntry.id, date, mealSlot });
+          setOpenEntryId(null);
+        }}
+        onRemove={() => openEntry && removeEntry(openEntry)}
+      />
+
       <RecipePicker
-        open={pickerOpen}
-        onOpenChange={setPickerOpen}
-        onSelect={handleRecipeSelected}
+        open={!!pickerSlot}
+        onOpenChange={(open) => { if (!open) setPickerSlot(null); }}
+        onSelect={(recipeId, servings) => {
+          if (pickerSlot) addEntry.mutate({ date: pickerSlot.date, mealSlot: pickerSlot.slot, recipeId, scaledServings: servings });
+        }}
         mealSlot={pickerSlot?.slot}
         mealPlanId={planId}
       />
 
-      {/* Custom Meal Dialog */}
-      <Dialog
-        open={!!customMealDialog}
-        onOpenChange={(open) => !open && setCustomMealDialog(null)}
-      >
+      <Dialog open={!!customSlot} onOpenChange={(open) => { if (!open) setCustomSlot(null); }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Add Custom Entry</DialogTitle>
-            <DialogDescription>
-              Add a note like "Eating out", "Leftovers", etc.
-            </DialogDescription>
+            <DialogTitle>Add a note</DialogTitle>
+            <DialogDescription>For meals that aren't a recipe, like “Eating out” or “Pizza night”.</DialogDescription>
           </DialogHeader>
-          <Input
-            placeholder="e.g., Eating out with friends"
-            value={customMealName}
-            onChange={(e) => setCustomMealName(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleAddCustomMeal()}
-          />
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setCustomMealDialog(null)}>
-              Cancel
-            </Button>
-            <Button onClick={handleAddCustomMeal}>Add</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Generate Grocery List Dialog */}
-      <Dialog open={groceryDialog} onOpenChange={setGroceryDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <ShoppingCart className="h-5 w-5" />
-              Generate Grocery List
-            </DialogTitle>
-            <DialogDescription>
-              Create a consolidated grocery list from all recipes in this meal
-              plan.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-2">
-              <Label className="text-sm font-medium">List mode</Label>
-              <div className="flex gap-2">
-                <Button
-                  variant={groceryMode === "create_new" ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => setGroceryMode("create_new")}
-                >
-                  Create New List
-                </Button>
-                <Button
-                  variant={
-                    groceryMode === "add_to_existing" ? "default" : "outline"
-                  }
-                  size="sm"
-                  onClick={() => setGroceryMode("add_to_existing")}
-                >
-                  Add to Existing
-                </Button>
-              </div>
+          <form onSubmit={addCustom} className="space-y-4">
+            <div className="space-y-1">
+              <Label htmlFor="custom-meal">Note</Label>
+              <Input id="custom-meal" value={customName} onChange={(e) => setCustomName(e.target.value)} placeholder="e.g. Eating out with friends" className="h-11 text-base" />
             </div>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={groceryExcludePantry}
-                onChange={(e) => setGroceryExcludePantry(e.target.checked)}
-                className="rounded"
-              />
-              Exclude items I already have in my pantry
-            </label>
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setGroceryDialog(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={() => generateGroceryMutation.mutate()}
-              disabled={generateGroceryMutation.isPending}
-            >
-              {generateGroceryMutation.isPending ? (
-                <Loader2 className="h-4 w-4 animate-spin mr-2" />
-              ) : (
-                <ShoppingCart className="h-4 w-4 mr-2" />
-              )}
-              Generate
-            </Button>
-          </DialogFooter>
+            <DialogFooter className="gap-2">
+              <Button type="button" variant="outline" onClick={() => setCustomSlot(null)}>Cancel</Button>
+              <Button type="submit" disabled={!customName.trim()}>Add note</Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
 
-      {/* Nutrition Dashboard with Charts */}
-      <NutritionDashboard
-        planId={planId!}
-        open={nutritionDialog}
-        onOpenChange={setNutritionDialog}
-      />
-
-      {/* Save as Template Dialog */}
-      <Dialog open={templateDialog} onOpenChange={setTemplateDialog}>
+      <Dialog open={groceryOpen} onOpenChange={setGroceryOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Save as Template</DialogTitle>
-            <DialogDescription>
-              Save this meal plan as a reusable template.
-            </DialogDescription>
+            <DialogTitle>Make a grocery list for this week</DialogTitle>
+            <DialogDescription>Adds the ingredients for every recipe in this plan. Meals marked as leftovers are skipped.</DialogDescription>
           </DialogHeader>
-          <div className="py-4">
-            <Label htmlFor="template-name">Template Name</Label>
-            <Input
-              id="template-name"
-              placeholder="e.g., Healthy Week Plan"
-              value={templateName}
-              onChange={(e) => setTemplateName(e.target.value)}
-            />
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setTemplateDialog(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={() => saveTemplateMutation.mutate()}
-              disabled={!templateName.trim() || saveTemplateMutation.isPending}
-            >
-              {saveTemplateMutation.isPending ? (
-                <Loader2 className="h-4 w-4 animate-spin mr-2" />
-              ) : (
-                <BookTemplate className="h-4 w-4 mr-2" />
-              )}
-              Save Template
+          <fieldset className="space-y-2">
+            <legend className="text-base font-medium">Where should they go?</legend>
+            {([
+              ["add_to_existing", "Add to my current grocery list"],
+              ["create_new", "Start a new list (your current list is put away)"],
+            ] as const).map(([value, label]) => (
+              <label key={value} className="flex min-h-11 cursor-pointer items-center gap-3 text-base">
+                <input type="radio" name="grocery-mode" value={value} checked={groceryMode === value} onChange={() => setGroceryMode(value)} className="h-5 w-5 accent-[hsl(var(--primary))]" />
+                {label}
+              </label>
+            ))}
+          </fieldset>
+          <label className="flex min-h-11 cursor-pointer items-center gap-3 text-base">
+            <input type="checkbox" checked={groceryExcludePantry} onChange={(e) => setGroceryExcludePantry(e.target.checked)} className="h-5 w-5 accent-[hsl(var(--primary))]" />
+            Leave out things already in my pantry
+          </label>
+          {generateGrocery.isError && (
+            <p role="alert" className="text-sm text-destructive">Couldn't make the list. Check your connection and try again.</p>
+          )}
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setGroceryOpen(false)}>Cancel</Button>
+            <Button onClick={() => generateGrocery.mutate()} disabled={generateGrocery.isPending}>
+              {generateGrocery.isPending ? <Loader2 className="motion-safe:animate-spin" aria-hidden /> : <ShoppingCart aria-hidden />}
+              Make grocery list
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Recipe sidebar */}
-      {selectedEntry && selectedEntry.recipe && (
-        <>
-          <div
-            className="fixed inset-0 bg-black/20 z-40"
-            onClick={() => setSelectedEntryId(null)}
-          />
-          <RecipeSidebar
-            entry={selectedEntry}
-            onClose={() => setSelectedEntryId(null)}
-            onAdjustServings={(delta) =>
-              handleAdjustServings(
-                selectedEntry.id,
-                delta,
-                selectedEntry.scaledServings ||
-                  selectedEntry.recipe?.servings ||
-                  1
-              )
-            }
-            onRemove={() => {
-              removeEntryMutation.mutate(selectedEntry.id);
-              setSelectedEntryId(null);
-            }}
-          />
-        </>
-      )}
+      <NutritionDashboard planId={planId} open={nutritionOpen} onOpenChange={setNutritionOpen} />
+
+      <Dialog open={templateOpen} onOpenChange={setTemplateOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Save as template</DialogTitle>
+            <DialogDescription>Reuse this week later: start a new plan from it under Templates.</DialogDescription>
+          </DialogHeader>
+          <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); if (templateName.trim()) saveTemplate.mutate(); }}>
+            <div className="space-y-1">
+              <Label htmlFor="template-name">Template name</Label>
+              <Input id="template-name" value={templateName} onChange={(e) => setTemplateName(e.target.value)} placeholder="e.g. Busy weeknights" className="h-11 text-base" />
+            </div>
+            {saveTemplate.isError && (
+              <p role="alert" className="text-sm text-destructive">Couldn't save the template. Check your connection and try again.</p>
+            )}
+            <DialogFooter className="gap-2">
+              <Button type="button" variant="outline" onClick={() => setTemplateOpen(false)}>Cancel</Button>
+              <Button type="submit" disabled={!templateName.trim() || saveTemplate.isPending}>
+                {saveTemplate.isPending && <Loader2 className="motion-safe:animate-spin" aria-hidden />}
+                Save template
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

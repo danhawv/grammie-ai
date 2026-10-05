@@ -105,15 +105,15 @@ export function MealPlanCollaborators({ planId, isOwner }: MealPlanCollaborators
       {collaborators.length > 0 && (
         <div className="flex -space-x-2">
           {collaborators.slice(0, 4).map((c) => (
-            <Avatar key={c.id} className="h-7 w-7 border-2 border-background">
-              <AvatarFallback className="text-[10px] bg-primary/10 text-primary">
+            <Avatar key={c.id} className="h-8 w-8 border-2 border-background">
+              <AvatarFallback className="text-xs bg-primary/10 text-primary">
                 {getInitials(c.user.displayName || c.user.email)}
               </AvatarFallback>
             </Avatar>
           ))}
           {collaborators.length > 4 && (
-            <Avatar className="h-7 w-7 border-2 border-background">
-              <AvatarFallback className="text-[10px] bg-muted text-muted-foreground">
+            <Avatar className="h-8 w-8 border-2 border-background">
+              <AvatarFallback className="text-xs bg-muted text-muted-foreground">
                 +{collaborators.length - 4}
               </AvatarFallback>
             </Avatar>
@@ -124,7 +124,7 @@ export function MealPlanCollaborators({ planId, isOwner }: MealPlanCollaborators
       {/* Invite dialog */}
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogTrigger asChild>
-          <Button variant="outline" size="sm" className="gap-1.5">
+          <Button variant="outline" className="gap-1.5">
             <UserPlus className="h-4 w-4" />
             Invite
           </Button>
@@ -210,8 +210,8 @@ export function MealPlanCollaborators({ planId, isOwner }: MealPlanCollaborators
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-7 w-7"
                         onClick={() => removeMutation.mutate(c.userId)}
+                        aria-label={`Remove ${c.user.displayName || c.user.email} from this plan`}
                         disabled={removeMutation.isPending}
                       >
                         <X className="h-3.5 w-3.5" />

@@ -134,7 +134,7 @@ export function RecipePicker({
         <Button
           variant="ghost"
           size="icon"
-          className="h-7 w-7"
+          aria-label="Fewer servings"
           onClick={(e) => {
             e.stopPropagation();
             adjustServings(recipe.id, -1, recipe.servings || 4);
@@ -148,7 +148,7 @@ export function RecipePicker({
         <Button
           variant="ghost"
           size="icon"
-          className="h-7 w-7"
+          aria-label="More servings"
           onClick={(e) => {
             e.stopPropagation();
             adjustServings(recipe.id, 1, recipe.servings || 4);
