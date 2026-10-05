@@ -14,6 +14,7 @@ import { lazy, Suspense } from "react";
 import { Loader2 } from "lucide-react";
 import { ClerkProvider } from "@clerk/react";
 import { ErrorBoundary } from "@/components/error-boundary";
+import { DisplayPrefsApplier } from "@/hooks/use-display-prefs";
 
 const Home = lazy(() => import("@/pages/home"));
 const RecipeDetail = lazy(() => import("@/pages/recipe-detail"));
@@ -80,6 +81,7 @@ function AppCore() {
         <TooltipProvider>
           <UploadProgressProvider>
             <AddRecipeProvider>
+              <DisplayPrefsApplier />
               <AppShell />
               <Toaster />
               <main id="main">

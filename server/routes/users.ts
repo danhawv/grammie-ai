@@ -4,7 +4,8 @@ import { isAuthenticated } from "../clerkAuth";
 import { storage } from "../storage";
 import { db } from "../db";
 import { users } from "@shared/schema";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
+import { userPreferencesUpdateSchema, buildPreferencesPatch } from "@shared/food-profile";
 import { getUserId } from "./route-utils";
 
 const router = Router();
@@ -67,7 +68,9 @@ router.get("/user/preferences", isAuthenticated, async (req: any, res) => {
   }
 });
 
-// Update user preferences
+// Update user preferences. Partial: each key sent replaces that key, and
+// keys not sent are kept (earlier versions replaced the whole object and
+// dropped everything except quickFilters). See shared/food-profile.ts.
 router.put("/user/preferences", isAuthenticated, async (req: any, res) => {
   try {
     const userId = getUserId(req);
@@ -75,21 +78,22 @@ router.put("/user/preferences", isAuthenticated, async (req: any, res) => {
       return res.status(401).json({ message: "Unauthorized" });
     }
 
-    // Validate preferences structure
-    const preferencesSchema = z.object({
-      quickFilters: z.object({
-        enabled: z.array(z.string()).optional(),
-        order: z.array(z.string()).optional(),
-        showQuickFilters: z.boolean().optional(),
-      }).optional(),
-    });
+    const validated = userPreferencesUpdateSchema.parse(req.body ?? {});
 
-    const validated = preferencesSchema.parse(req.body);
+    const user = await storage.getUser(userId);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+    const patch = buildPreferencesPatch(user.preferences, validated);
 
-    // Update user preferences in database
+    // Shallow JSONB merge in one statement, so concurrent saves of different
+    // keys (Food profile vs. Display) don't overwrite each other.
     const [updatedUser] = await db
       .update(users)
-      .set({ preferences: validated, updatedAt: new Date() })
+      .set({
+        preferences: sql`coalesce(${users.preferences}, '{}'::jsonb) || ${JSON.stringify(patch)}::jsonb`,
+        updatedAt: new Date(),
+      })
       .where(eq(users.id, userId))
       .returning();
 
@@ -97,7 +101,7 @@ router.put("/user/preferences", isAuthenticated, async (req: any, res) => {
       return res.status(404).json({ message: "User not found" });
     }
 
-    res.json(updatedUser.preferences);
+    res.json(updatedUser.preferences || {});
   } catch (error) {
     console.error("Error updating preferences:", error);
     if (error instanceof z.ZodError) {
