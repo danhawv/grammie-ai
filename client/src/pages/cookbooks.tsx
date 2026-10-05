@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { CookbooksBrowser } from "@/components/cookbooks-browser";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import { BookOpen, Lock, Plus, Printer, Users } from "lucide-react";
@@ -107,6 +108,14 @@ export default function CookbooksPage() {
               ))}
             </ul>
           )}
+        </section>
+      )}
+
+      {/* Cookbooks you follow and public ones from other families */}
+      {user && (
+        <section aria-labelledby="discover-cookbooks" className="mt-10 space-y-4">
+          <h2 id="discover-cookbooks" className="text-xl font-semibold">Following and Discover</h2>
+          <CookbooksBrowser embedded />
         </section>
       )}
 

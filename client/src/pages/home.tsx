@@ -30,7 +30,6 @@ import { useAddRecipe } from "@/contexts/AddRecipeContext";
 import { AdvancedFilterSheet } from "@/components/advanced-filter-panel";
 import { QuickFilters } from "@/components/quick-filters";
 import { CookbookSelect } from "@/components/cookbook-select";
-import { CookbooksBrowser } from "@/components/cookbooks-browser";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState, ErrorState } from "@/components/page-states";
 import {
@@ -164,7 +163,6 @@ function ToggleButton({ pressed, onClick, children, testId }: { pressed: boolean
 
 export default function Home() {
   const [location] = useLocation();
-  if (location.startsWith("/cookbooks")) return <CookbooksBrowser />;
   return <RecipesHome />;
 }
 

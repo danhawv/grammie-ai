@@ -38,11 +38,16 @@ const SCOPES: { value: Scope; label: string }[] = [
   { value: "public", label: "Discover" },
 ];
 
-export function CookbooksBrowser() {
+/**
+ * Cookbook browser. `embedded` drops the page header and the "Mine" tab so the
+ * Cookbooks page can show Following / Discover under its own sections.
+ */
+export function CookbooksBrowser({ embedded = false }: { embedded?: boolean } = {}) {
   const { user } = useAuth();
   const { toast } = useToast();
   const [, navigate] = useLocation();
-  const [scope, setScope] = useState<Scope>("mine");
+  const [scope, setScope] = useState<Scope>(embedded ? "following" : "mine");
+  const scopes = embedded ? SCOPES.filter((s) => s.value !== "mine") : SCOPES;
   const [createOpen, setCreateOpen] = useState(false);
   const effectiveScope: Scope = user ? scope : "public";
 
@@ -104,8 +109,8 @@ export function CookbooksBrowser() {
   };
 
   return (
-    <div className="mx-auto max-w-7xl px-4 pb-20 pt-6 md:px-6 md:pb-10">
-      <PageHeader
+    <div className={embedded ? "" : "mx-auto max-w-7xl px-4 pb-20 pt-6 md:px-6 md:pb-10"}>
+      {!embedded && <PageHeader
         title="Cookbooks"
         description={!isLoading && !isError ? pluralize(cookbooks.length, "cookbook") : undefined}
         primaryAction={
@@ -115,11 +120,11 @@ export function CookbooksBrowser() {
             </Button>
           ) : undefined
         }
-      />
+      />}
 
       {user && (
         <div role="tablist" aria-label="Which cookbooks" className="mb-6 inline-flex rounded-lg border p-1">
-          {SCOPES.map((s) => (
+          {scopes.map((s) => (
             <button
               key={s.value}
               role="tab"
