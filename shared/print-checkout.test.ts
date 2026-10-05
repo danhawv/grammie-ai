@@ -70,3 +70,13 @@ describe("validateAddressField", () => {
     expect(validateAddressField("phone_number", { ...base, country_code: "GB", phone_number: "020 7946 0018" })).toBeNull();
   });
 });
+
+import { orderStatusLabel } from "./print-checkout";
+describe("orderStatusLabel", () => {
+  it("uses plain words", () => {
+    expect(orderStatusLabel("IN_PRODUCTION")).toBe("Printing");
+    expect(orderStatusLabel("UNPAID")).toBe("Order received");
+    expect(orderStatusLabel("SOMETHING_NEW")).toBe("Order placed");
+    expect(orderStatusLabel(null)).toBe("");
+  });
+});

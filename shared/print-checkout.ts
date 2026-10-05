@@ -160,3 +160,26 @@ export function validateAddress(address: ShippingAddressInput): Partial<Record<A
 export function aboutDollars(total: number): number {
   return Math.ceil(total);
 }
+
+/** Lulu print job status in plain words */
+export function orderStatusLabel(status: string | null | undefined): string {
+  switch (status) {
+    case "CREATED":
+    case "UNPAID":
+    case "PAYMENT_IN_PROGRESS":
+      return "Order received";
+    case "PRODUCTION_DELAYED":
+    case "PRODUCTION_READY":
+      return "Getting ready to print";
+    case "IN_PRODUCTION":
+      return "Printing";
+    case "SHIPPED":
+      return "Shipped";
+    case "CANCELED":
+      return "Canceled";
+    case "REJECTED":
+      return "Couldn't be printed";
+    default:
+      return status ? "Order placed" : "";
+  }
+}
