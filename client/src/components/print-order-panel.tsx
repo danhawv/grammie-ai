@@ -1,82 +1,93 @@
-import { useState, useEffect } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { AlertTriangle, BookOpen, CheckCircle2, Loader2, Minus, Package, Plus, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
+import { ErrorState } from "@/components/page-states";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useAuth } from "@/hooks/useAuth";
+import { cn } from "@/lib/utils";
+import { US_STATE_OPTIONS, normalizeUsState } from "@shared/us-states";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import {
-  AlertCircle,
-  Truck,
-  DollarSign,
-  Package,
-  Loader2,
-  Printer,
-  ExternalLink,
-} from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
+  DEFAULT_SHIPPING_LEVEL,
+  formatDateRange,
+  orderStatusLabel,
+  shippingLevelName,
+  validateAddress,
+  validateAddressField,
+  type AddressField,
+  type ShippingAddressInput,
+} from "@shared/print-checkout";
 import type { PrintLayoutData } from "@shared/schema";
-import { normalizeUsState, US_STATE_OPTIONS } from "@shared/us-states";
+
+// Checkout (docs/DESIGN_PRINCIPLES.md §5 and §8):
+//   1. Copies, with "about $X including shipping" and an arrival range before any form
+//   2. Shipping address, checked field by field when you leave it
+//   3. Review = confirmation: cover, copies, address, total, "Place order · $X"
+//   4. Confirmation with the order number and status (recorded on the project)
+
+interface BookOrderSpec {
+  layoutData: PrintLayoutData;
+  templateStyle: string;
+  customTemplateId: number | null;
+  trimSize: string;
+  bindingType: string;
+  paperType: string;
+  colorType: string;
+  coverFinish: string;
+}
 
 interface PrintOrderPanelProps {
   cookbookId: number;
-  layoutData: PrintLayoutData;
+  cookbookName: string;
+  coverImage?: string | null;
+  book: BookOrderSpec;
   estimatedPageCount: number;
-  pageSize: string;
+  /** Save any pending edits before quoting/ordering */
+  flushSave: () => Promise<void>;
+  /** "Needs attention" items from Ready to print (shown as a warning) */
+  attentionCount?: number;
+  onGoToReview?: () => void;
+  existingOrder?: { id: string; status: string | null } | null;
 }
 
-interface ShippingAddress {
+interface ShippingOptionQuote {
+  id: string;
   name: string;
-  street1: string;
-  street2?: string;
-  city: string;
-  state_code?: string;
-  country_code: string;
-  postcode: string;
-  phone_number: string;
-  email?: string;
+  shippingCost: number | null;
+  arrivalMin: string;
+  arrivalMax: string;
+  datesFromLulu: boolean;
 }
 
-interface PriceResponse {
+interface Quote {
   totalCost: number;
   printCost: number;
   shippingCost: number;
   currency: string;
+  pageCount: number;
+  quantity: number;
+  isEstimate: boolean;
+  shippingLevel: string;
+  shippingOptions: ShippingOptionQuote[];
+  suggestedAddress: { street1: string; street2?: string | null; city: string; state_code?: string | null; postcode: string; country_code: string } | null;
 }
 
 interface LuluStatus {
   configured: boolean;
-  shippingOptions: Array<{ id: string; name: string; description: string }>;
-  pageSizes: string[];
+  testMode?: boolean;
 }
 
-const SHIPPING_OPTIONS = [
-  { id: "MAIL", name: "Mail", description: "7-21 business days" },
-  { id: "PRIORITY_MAIL", name: "Priority Mail", description: "4-8 business days" },
-  { id: "GROUND_HD", name: "Ground", description: "5-10 business days" },
-  { id: "EXPEDITED", name: "Expedited", description: "3-5 business days" },
-  { id: "EXPRESS", name: "Express", description: "1-3 business days" },
-];
+interface OrderResult {
+  orderId: number;
+  status: string;
+  quantity: number;
+  arrival: { min: string; max: string };
+  total: number | null;
+}
 
-const COUNTRY_CODES = [
+const COUNTRIES = [
   { code: "US", name: "United States" },
   { code: "CA", name: "Canada" },
   { code: "GB", name: "United Kingdom" },
@@ -87,19 +98,28 @@ const COUNTRY_CODES = [
   { code: "ES", name: "Spain" },
 ];
 
+const money = (n: number) => `$${n.toFixed(2)}`;
+
+type Stage = "start" | "address" | "review" | "placed";
+
 export function PrintOrderPanel({
   cookbookId,
-  layoutData,
+  cookbookName,
+  coverImage,
+  book,
   estimatedPageCount,
-  pageSize,
+  flushSave,
+  attentionCount = 0,
+  onGoToReview,
+  existingOrder,
 }: PrintOrderPanelProps) {
-  const { toast } = useToast();
-  const [showOrderDialog, setShowOrderDialog] = useState(false);
+  const { user } = useAuth();
+  const [stage, setStage] = useState<Stage>("start");
   const [quantity, setQuantity] = useState(1);
-  const [colorOption, setColorOption] = useState<"color" | "bw">("color");
-  const [shippingLevel, setShippingLevel] = useState("GROUND_HD");
-  const [address, setAddress] = useState<ShippingAddress>({
-    name: "",
+  const [shippingLevel, setShippingLevel] = useState<string>(DEFAULT_SHIPPING_LEVEL);
+  const [address, setAddress] = useState<ShippingAddressInput>(() => ({
+    // Don't ask twice: start from what the account already knows
+    name: [user?.firstName, user?.lastName].filter(Boolean).join(" "),
     street1: "",
     street2: "",
     city: "",
@@ -107,455 +127,544 @@ export function PrintOrderPanel({
     country_code: "US",
     postcode: "",
     phone_number: "",
-    email: "",
-  });
-  const [pricing, setPricing] = useState<PriceResponse | null>(null);
+    email: user?.email ?? "",
+  }));
+  const [errors, setErrors] = useState<Partial<Record<AddressField, string>>>({});
+  const [showApt, setShowApt] = useState(false);
+  const [quote, setQuote] = useState<Quote | null>(null);
+  const [placed, setPlaced] = useState<OrderResult | null>(null);
+  const [orderError, setOrderError] = useState<string | null>(null);
+  const idempotencyKey = useRef<string>("");
+  const submitted = useRef(false);
 
-  // A quote is only valid for the address, shipping and quantity it was made for
-  useEffect(() => {
-    setPricing(null);
-  }, [address, shippingLevel, quantity, colorOption]);
-
-  const { data: luluStatus } = useQuery<LuluStatus>({
+  const { data: luluStatus, isLoading: statusLoading } = useQuery<LuluStatus>({
     queryKey: ["/api/print/lulu/status"],
-    staleTime: 60000,
+    staleTime: 60_000,
   });
 
-  const priceMutation = useMutation({
-    mutationFn: async () => {
-      // Server pads to the binding minimum and uses the cookbook's print specs
-      const response = await apiRequest("POST", "/api/print/lulu/calculate-price", {
-        cookbookId,
-        pageCount: estimatedPageCount,
-        pageSize,
-        colorOption,
-        quantity,
-        shippingAddress: address,
-        shippingLevel,
-      });
-      return response.json();
-    },
-    onSuccess: (data: PriceResponse) => {
-      setPricing(data);
-    },
-    onError: (error: Error) => {
-      toast({
-        title: "Error calculating price",
-        description: error.message,
-        variant: "destructive",
-      });
-    },
+  const quoteBody = (withAddress: boolean, level = shippingLevel, copies = quantity) => ({
+    cookbookId,
+    pageCount: estimatedPageCount,
+    quantity: copies,
+    shippingLevel: level,
+    trimSize: book.trimSize,
+    bindingType: book.bindingType,
+    paperType: book.paperType,
+    colorType: book.colorType,
+    coverFinish: book.coverFinish,
+    ...(withAddress ? { shippingAddress: address } : {}),
+  });
+
+  // "About $X" before any form, for a typical US address
+  const estimate = useQuery<Quote>({
+    queryKey: ["/api/print/lulu/calculate-price", "estimate", cookbookId, quantity, estimatedPageCount, book.trimSize, book.bindingType, book.paperType, book.colorType, book.coverFinish],
+    queryFn: async () => (await apiRequest("POST", "/api/print/lulu/calculate-price", quoteBody(false, DEFAULT_SHIPPING_LEVEL))).json(),
+    enabled: !!luluStatus?.configured && stage === "start" && estimatedPageCount > 0,
+    staleTime: 5 * 60_000,
+  });
+
+  const quoteMutation = useMutation({
+    mutationFn: async (level: string) => (await apiRequest("POST", "/api/print/lulu/calculate-price", quoteBody(true, level))).json() as Promise<Quote>,
+    onSuccess: (q) => setQuote(q),
   });
 
   const orderMutation = useMutation({
     mutationFn: async () => {
-      const response = await apiRequest("POST", `/api/cookbooks/${cookbookId}/print-order`, {
-        layoutData,
-        templateStyle: 'classic',
-        pageSize,
-        colorOption,
+      const res = await apiRequest("POST", `/api/cookbooks/${cookbookId}/print-order`, {
+        ...book,
         quantity,
         shippingAddress: address,
         shippingLevel,
+        idempotencyKey: idempotencyKey.current,
       });
-      return response.json();
+      return (await res.json()) as OrderResult;
     },
-    onSuccess: (data) => {
-      toast({
-        title: "Order submitted",
-        description: `Your print order has been submitted. Order ID: ${data.orderId}`,
-      });
-      setShowOrderDialog(false);
+    onSuccess: (r) => {
+      setPlaced(r);
+      setStage("placed");
+      queryClient.invalidateQueries({ queryKey: ["/api/cookbooks", cookbookId, "print-projects"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/print-projects"] });
     },
-    onError: (error: Error) => {
-      toast({
-        title: "Order failed",
-        description: error.message,
-        variant: "destructive",
-      });
+    onError: (err: Error) => {
+      // Allow another try with the same key: the server won't order twice
+      submitted.current = false;
+      const raw = err.message.replace(/^\d+:\s*/, "");
+      let msg = raw;
+      try { msg = JSON.parse(raw).error ?? raw; } catch { /* plain text */ }
+      setOrderError(msg || "The order didn't go through. Nothing was charged. Try again in a moment.");
     },
   });
 
-  const isAddressValid = address.name && address.street1 && address.city && 
-    address.country_code && address.postcode && address.phone_number;
+  // A quote is only good for the address, copies and shipping it was made for
+  useEffect(() => {
+    if (stage === "review") return;
+    setQuote(null);
+  }, [address, quantity, stage]);
 
-  const handleCalculatePrice = () => {
-    if (!isAddressValid) {
-      toast({
-        title: "Address required",
-        description: "Please fill in all required address fields.",
-        variant: "destructive",
-      });
+  const setField = (field: AddressField, value: string) => {
+    setAddress((a) => ({ ...a, [field]: value }));
+    // Clear an error as soon as it's fixed
+    if (errors[field]) {
+      const next = { ...address, [field]: value };
+      if (!validateAddressField(field, next)) setErrors((e) => ({ ...e, [field]: undefined }));
+    }
+  };
+  const blurField = (field: AddressField) => {
+    const msg = validateAddressField(field, address);
+    setErrors((e) => ({ ...e, [field]: msg ?? undefined }));
+  };
+
+  const goToReview = async () => {
+    const all = validateAddress(address);
+    setErrors(all);
+    const first = Object.keys(all)[0];
+    if (first) {
+      document.getElementById(`ship-${first}`)?.focus();
       return;
     }
     if (address.country_code === "US") {
-      const state = normalizeUsState(address.state_code);
-      if (!state) {
-        toast({
-          title: "Check the state",
-          description: "Enter a US state, like OH or Ohio.",
-          variant: "destructive",
-        });
-        return;
-      }
-      if (state !== address.state_code) setAddress({ ...address, state_code: state });
+      const st = normalizeUsState(address.state_code);
+      if (st && st !== address.state_code) setAddress((a) => ({ ...a, state_code: st }));
     }
-    priceMutation.mutate();
+    await flushSave().catch(() => {});
+    quoteMutation.mutate(shippingLevel, {
+      onSuccess: () => {
+        idempotencyKey.current = crypto.randomUUID();
+        submitted.current = false;
+        setOrderError(null);
+        setStage("review");
+      },
+    });
   };
+
+  const placeOrder = async () => {
+    if (submitted.current) return;
+    submitted.current = true;
+    setOrderError(null);
+    await flushSave().catch(() => {});
+    orderMutation.mutate();
+  };
+
+  const levelChoices = quote?.shippingOptions ?? estimate.data?.shippingOptions ?? [];
+  const selectedOption = levelChoices.find((o) => o.id === shippingLevel);
+
+  const cover = (
+    <div className="flex h-28 w-20 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-primary/10 shadow-sm">
+      {coverImage ? <img src={coverImage} alt="" className="h-full w-full object-cover" /> : <BookOpen className="h-8 w-8 text-primary" aria-hidden />}
+    </div>
+  );
+
+  const bookSummary = (
+    <div className="flex gap-4">
+      {cover}
+      <div className="min-w-0">
+        <p className="font-serif text-lg font-semibold break-words">{book.layoutData.title || cookbookName}</p>
+        <p className="text-sm text-muted-foreground">About {Math.max(estimatedPageCount, quote?.pageCount ?? 0)} pages</p>
+      </div>
+    </div>
+  );
+
+  if (statusLoading) {
+    return <div className="flex items-center gap-3 p-4" role="status"><Loader2 className="h-5 w-5 animate-spin" aria-hidden /> Getting prices…</div>;
+  }
 
   if (!luluStatus?.configured) {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg flex items-center gap-2">
-            <Printer className="h-5 w-5" />
-            Order Prints
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex items-start gap-3 p-3 bg-muted/50 rounded-md">
-            <AlertCircle className="h-5 w-5 text-muted-foreground flex-shrink-0 mt-0.5" />
-            <div className="space-y-1">
-              <p className="text-sm font-medium">Print API Not Configured</p>
-              <p className="text-xs text-muted-foreground">
-                To order printed copies of your cookbook, configure your Lulu Print API credentials 
-                (LULU_API_KEY and LULU_API_SECRET).
-              </p>
-              <a
-                href="https://developers.lulu.com/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-xs text-primary flex items-center gap-1 mt-2 hover:underline"
-              >
-                Get API keys <ExternalLink className="h-3 w-3" />
-              </a>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      <ErrorState
+        title="Ordering printed books isn't available right now"
+        description="You can still download the PDF from the Review step and print it yourself."
+      />
     );
   }
 
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-lg flex items-center gap-2">
-          <Printer className="h-5 w-5" />
-          Order Prints
-        </CardTitle>
-        <CardDescription>
-          Order professional printed copies of your cookbook
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="grid grid-cols-2 gap-3">
-          <div className="space-y-1.5">
-            <Label className="text-xs">Print Type</Label>
-            <Select value={colorOption} onValueChange={(v) => setColorOption(v as "color" | "bw")}>
-              <SelectTrigger data-testid="select-color-option">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="color">Full Color</SelectItem>
-                <SelectItem value="bw">Black & White</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs">Quantity</Label>
-            <Input
-              type="number"
-              min={1}
-              max={100}
-              value={quantity}
-              onChange={(e) => setQuantity(parseInt(e.target.value) || 1)}
-              data-testid="input-quantity"
-            />
+  const testBanner = luluStatus.testMode ? (
+    <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground" data-testid="print-test-mode">
+      Test mode: orders here are not printed, shipped or charged.
+    </p>
+  ) : null;
+
+  const lastOrder = existingOrder?.id && stage !== "placed" ? <OrderStatusCard orderId={existingOrder.id} status={existingOrder.status} heading="Your last order" /> : null;
+
+  // ---- 4. Confirmation ----
+  if (stage === "placed" && placed) {
+    return (
+      <div className="space-y-4" data-testid="order-confirmation">
+        <div className="flex items-start gap-3 rounded-lg border border-green-700/30 bg-green-50 p-4 dark:bg-green-950/30">
+          <CheckCircle2 className="mt-0.5 h-6 w-6 shrink-0 text-green-700 dark:text-green-400" aria-hidden />
+          <div>
+            <h2 className="text-xl font-semibold">Your book is ordered</h2>
+            <p className="mt-1">
+              Order #{placed.orderId} · {placed.quantity} {placed.quantity === 1 ? "copy" : "copies"}
+            </p>
+            <p className="mt-1">Arrives about {formatDateRange(placed.arrival.min, placed.arrival.max)}.</p>
+            {address.email && <p className="mt-1 text-sm text-muted-foreground">Updates go to {address.email}.</p>}
           </div>
         </div>
+        <OrderStatusCard orderId={String(placed.orderId)} status={placed.status} heading="Order status" />
+        {testBanner}
+      </div>
+    );
+  }
 
-        <div className="text-sm text-muted-foreground p-3 bg-muted/50 rounded-md">
-          <div className="flex justify-between">
-            <span>Est. Pages:</span>
-            <span className="font-medium">{Math.max(24, estimatedPageCount)}</span>
-          </div>
-          <div className="flex justify-between">
-            <span>Page Size:</span>
-            <span className="font-medium">{pageSize}</span>
-          </div>
+  // ---- 3. Review (this is the confirmation) ----
+  if (stage === "review" && quote) {
+    const opt = quote.shippingOptions.find((o) => o.id === shippingLevel);
+    const label = `Place order · ${money(quote.totalCost)}`;
+    return (
+      <div className="space-y-5" data-testid="order-review">
+        <h2 className="text-xl font-semibold">Check your order</h2>
+        {bookSummary}
+        <dl className="divide-y rounded-lg border">
+          <Row label="Copies" value={`${quantity}`} />
+          <Row
+            label="Ship to"
+            value={
+              <address className="not-italic">
+                {address.name}<br />
+                {address.street1}{address.street2 ? `, ${address.street2}` : ""}<br />
+                {address.city}{address.state_code ? `, ${address.state_code}` : ""} {address.postcode}<br />
+                {COUNTRIES.find((c) => c.code === address.country_code)?.name ?? address.country_code}
+              </address>
+            }
+            action={<Button variant="ghost" onClick={() => setStage("address")}>Change</Button>}
+          />
+          <Row
+            label="Shipping"
+            value={`${shippingLevelName(shippingLevel)}${opt ? ` · arrives about ${formatDateRange(opt.arrivalMin, opt.arrivalMax)}` : ""}`}
+            action={<Button variant="ghost" onClick={() => setStage("address")}>Change</Button>}
+          />
+          <Row label="Printing" value={money(quote.printCost)} />
+          <Row label="Shipping" value={money(quote.shippingCost)} />
+          <Row label={<span className="font-semibold">Total</span>} value={<span className="text-lg font-semibold">{money(quote.totalCost)} {quote.currency}</span>} />
+        </dl>
+        <p className="text-sm text-muted-foreground">Includes tax. Printing takes a few business days before the book ships.</p>
+
+        {quote.suggestedAddress && (
+          <SuggestedAddress
+            entered={address}
+            suggested={quote.suggestedAddress}
+            onUse={() => {
+              const s = quote.suggestedAddress!;
+              setAddress((a) => ({ ...a, street1: s.street1, street2: s.street2 ?? a.street2, city: s.city, state_code: s.state_code ?? a.state_code, postcode: s.postcode }));
+              setQuote({ ...quote, suggestedAddress: null });
+            }}
+            onKeep={() => setQuote({ ...quote, suggestedAddress: null })}
+          />
+        )}
+
+        {orderError && (
+          <p role="alert" className="flex items-start gap-2 rounded-md border border-destructive/50 p-3 text-sm">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" aria-hidden />
+            {orderError}
+          </p>
+        )}
+        {testBanner}
+
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <Button variant="outline" size="lg" onClick={() => setStage("address")} disabled={orderMutation.isPending}>Back</Button>
+          <Button
+            size="lg"
+            className="w-full sm:w-auto"
+            onClick={placeOrder}
+            disabled={orderMutation.isPending || submitted.current || !!quote.suggestedAddress}
+            data-testid="button-submit-order"
+          >
+            {orderMutation.isPending ? <><Loader2 className="animate-spin" aria-hidden /> Placing your order…</> : label}
+          </Button>
         </div>
+      </div>
+    );
+  }
 
-        <Dialog open={showOrderDialog} onOpenChange={setShowOrderDialog}>
-          <DialogTrigger asChild>
-            <Button className="w-full" data-testid="button-order-prints">
-              <Package className="h-4 w-4 mr-2" />
-              Get Price Quote
+  // ---- 2. Address ----
+  if (stage === "address") {
+    return (
+      <div className="space-y-5">
+        <h2 className="text-xl font-semibold">Where should we send it?</h2>
+        <form
+          className="space-y-4"
+          autoComplete="on"
+          noValidate
+          onSubmit={(e) => { e.preventDefault(); void goToReview(); }}
+        >
+          <Field id="name" label="Full name" error={errors.name}>
+            <Input id="ship-name" name="name" autoComplete="shipping name" value={address.name} onChange={(e) => setField("name", e.target.value)} onBlur={() => blurField("name")} aria-invalid={!!errors.name} aria-describedby={errors.name ? "err-name" : undefined} data-testid="input-shipping-name" />
+          </Field>
+
+          <Field id="country_code" label="Country">
+            <select
+              id="ship-country_code"
+              name="country"
+              autoComplete="shipping country"
+              value={address.country_code}
+              onChange={(e) => setField("country_code", e.target.value)}
+              className="flex h-11 w-full rounded-md border border-input bg-background px-3 text-base"
+              data-testid="select-shipping-country"
+            >
+              {COUNTRIES.map((c) => <option key={c.code} value={c.code}>{c.name}</option>)}
+            </select>
+          </Field>
+
+          <Field id="street1" label="Street address" error={errors.street1}>
+            <Input id="ship-street1" name="address-line1" autoComplete="shipping address-line1" placeholder="e.g. 12 Oak Street" value={address.street1} onChange={(e) => setField("street1", e.target.value)} onBlur={() => blurField("street1")} aria-invalid={!!errors.street1} aria-describedby={errors.street1 ? "err-street1" : undefined} data-testid="input-shipping-street1" />
+          </Field>
+
+          {showApt || address.street2 ? (
+            <Field id="street2" label="Apartment, suite or unit (optional)">
+              <Input id="ship-street2" name="address-line2" autoComplete="shipping address-line2" value={address.street2} onChange={(e) => setField("street2", e.target.value)} autoFocus={showApt && !address.street2} data-testid="input-shipping-street2" />
+            </Field>
+          ) : (
+            <button type="button" className="min-h-11 text-sm font-medium text-primary underline-offset-4 hover:underline" onClick={() => setShowApt(true)}>
+              + Add apartment or suite
+            </button>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <Field id="city" label="City" error={errors.city}>
+              <Input id="ship-city" name="city" autoComplete="shipping address-level2" value={address.city} onChange={(e) => setField("city", e.target.value)} onBlur={() => blurField("city")} aria-invalid={!!errors.city} aria-describedby={errors.city ? "err-city" : undefined} data-testid="input-shipping-city" />
+            </Field>
+            <Field id="state_code" label={address.country_code === "US" ? "State" : "State or province (optional)"} error={errors.state_code}>
+              {address.country_code === "US" ? (
+                <select
+                  id="ship-state_code"
+                  name="state"
+                  autoComplete="shipping address-level1"
+                  value={address.state_code}
+                  onChange={(e) => setField("state_code", e.target.value)}
+                  onBlur={() => blurField("state_code")}
+                  aria-invalid={!!errors.state_code}
+                  aria-describedby={errors.state_code ? "err-state_code" : undefined}
+                  className="flex h-11 w-full rounded-md border border-input bg-background px-3 text-base"
+                  data-testid="select-shipping-state"
+                >
+                  <option value="">Choose a state</option>
+                  {US_STATE_OPTIONS.map((s) => <option key={s.code} value={s.code}>{s.name}</option>)}
+                </select>
+              ) : (
+                <Input id="ship-state_code" name="state" autoComplete="shipping address-level1" value={address.state_code} onChange={(e) => setField("state_code", e.target.value)} data-testid="input-shipping-state" />
+              )}
+            </Field>
+            <Field id="postcode" label={address.country_code === "US" ? "ZIP code" : "Postal code"} error={errors.postcode}>
+              <Input
+                id="ship-postcode"
+                name="postal-code"
+                autoComplete="shipping postal-code"
+                inputMode={address.country_code === "US" ? "numeric" : "text"}
+                autoCapitalize="characters"
+                autoCorrect="off"
+                value={address.postcode}
+                onChange={(e) => setField("postcode", e.target.value)}
+                onBlur={() => blurField("postcode")}
+                aria-invalid={!!errors.postcode}
+                aria-describedby={errors.postcode ? "err-postcode" : undefined}
+                data-testid="input-shipping-postcode"
+              />
+            </Field>
+          </div>
+
+          <Field id="phone_number" label="Phone" hint="Only for the delivery driver, if they need to reach you." error={errors.phone_number}>
+            <Input id="ship-phone_number" name="tel" type="tel" inputMode="tel" autoComplete="shipping tel" value={address.phone_number} onChange={(e) => setField("phone_number", e.target.value)} onBlur={() => blurField("phone_number")} aria-invalid={!!errors.phone_number} aria-describedby={`hint-phone_number${errors.phone_number ? " err-phone_number" : ""}`} data-testid="input-shipping-phone" />
+          </Field>
+
+          <Field id="email" label="Email for order updates" hint={user?.email ? "We'll use your account email if you leave this blank." : undefined} error={errors.email}>
+            <Input id="ship-email" name="email" type="email" inputMode="email" autoComplete="email" autoCapitalize="off" autoCorrect="off" spellCheck={false} value={address.email} onChange={(e) => setField("email", e.target.value)} onBlur={() => blurField("email")} aria-invalid={!!errors.email} aria-describedby={errors.email ? "err-email" : undefined} data-testid="input-shipping-email" />
+          </Field>
+
+          <fieldset className="space-y-2">
+            <legend className="font-medium">Shipping</legend>
+            {(levelChoices.length ? levelChoices : [{ id: DEFAULT_SHIPPING_LEVEL, name: shippingLevelName(DEFAULT_SHIPPING_LEVEL), shippingCost: null, arrivalMin: "", arrivalMax: "", datesFromLulu: false }]).map((o) => (
+              <label
+                key={o.id}
+                className={cn("flex min-h-11 cursor-pointer items-center gap-3 rounded-md border p-3", shippingLevel === o.id ? "border-primary bg-primary/5" : "hover:bg-accent/50")}
+              >
+                <input type="radio" name="shipping" value={o.id} checked={shippingLevel === o.id} onChange={() => setShippingLevel(o.id)} className="h-5 w-5 accent-[hsl(26_85%_38%)]" />
+                <span className="flex-1">
+                  <span className="block font-medium">{o.name}</span>
+                  {o.arrivalMin && <span className="block text-sm text-muted-foreground">Arrives about {formatDateRange(o.arrivalMin, o.arrivalMax)}</span>}
+                </span>
+                {o.shippingCost != null && <span className="text-sm">{money(o.shippingCost)}</span>}
+              </label>
+            ))}
+            <p className="text-sm text-muted-foreground">Shipping prices are before tax; the review shows your exact total.</p>
+          </fieldset>
+
+          {quoteMutation.isError && (
+            <p role="alert" className="rounded-md border border-destructive/50 p-3 text-sm">
+              We couldn't get a price for this address. Check it and try again.
+            </p>
+          )}
+
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button type="button" variant="outline" size="lg" onClick={() => setStage("start")}>Back</Button>
+            <Button type="submit" size="lg" className="w-full sm:w-auto" disabled={quoteMutation.isPending} data-testid="button-calculate-price">
+              {quoteMutation.isPending ? <><Loader2 className="animate-spin" aria-hidden /> Getting your price…</> : "Review order"}
             </Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-lg">
-            <DialogHeader>
-              <DialogTitle>Order Printed Cookbook</DialogTitle>
-              <DialogDescription>
-                Enter your shipping details to get a price quote
-              </DialogDescription>
-            </DialogHeader>
+          </div>
+        </form>
+      </div>
+    );
+  }
 
-            <div className="space-y-4 py-4 max-h-[60vh] overflow-y-auto">
-              {/* A real <form> with autocomplete tokens lets the browser autofill the address */}
-              <form
-                className="space-y-3"
-                autoComplete="on"
-                onSubmit={(e) => { e.preventDefault(); handleCalculatePrice(); }}
-              >
-                <h4 className="font-medium text-sm">Shipping Address</h4>
-                
-                <div className="space-y-1.5">
-                  <Label htmlFor="name" className="text-xs">Full Name *</Label>
-                  <Input
-                    id="name"
-                    name="name"
-                    autoComplete="shipping name"
-                    value={address.name}
-                    onChange={(e) => setAddress({ ...address, name: e.target.value })}
-                    placeholder="John Doe"
-                    data-testid="input-shipping-name"
-                  />
-                </div>
+  // ---- 1. Start: copies and an early estimate ----
+  const est = estimate.data;
+  const estOpt = est?.shippingOptions.find((o) => o.id === DEFAULT_SHIPPING_LEVEL) ?? est?.shippingOptions[0];
+  return (
+    <div className="space-y-5">
+      {lastOrder}
+      {attentionCount > 0 && (
+        <div className="flex flex-col gap-3 rounded-lg border border-destructive/50 p-4 sm:flex-row sm:items-center">
+          <p className="flex-1 text-sm">
+            {attentionCount} {attentionCount === 1 ? "thing needs" : "things need"} attention before printing.
+          </p>
+          {onGoToReview && <Button variant="outline" onClick={onGoToReview}>See what to fix</Button>}
+        </div>
+      )}
 
-                <div className="space-y-1.5">
-                  <Label htmlFor="street1" className="text-xs">Street Address *</Label>
-                  <Input
-                    id="street1"
-                    name="address-line1"
-                    autoComplete="shipping address-line1"
-                    value={address.street1}
-                    onChange={(e) => setAddress({ ...address, street1: e.target.value })}
-                    placeholder="123 Main Street"
-                    data-testid="input-shipping-street1"
-                  />
-                </div>
+      {bookSummary}
 
-                <div className="space-y-1.5">
-                  <Label htmlFor="street2" className="text-xs">Apt/Suite (optional)</Label>
-                  <Input
-                    id="street2"
-                    name="address-line2"
-                    autoComplete="shipping address-line2"
-                    value={address.street2}
-                    onChange={(e) => setAddress({ ...address, street2: e.target.value })}
-                    placeholder="Apt 4B"
-                    data-testid="input-shipping-street2"
-                  />
-                </div>
+      <div className="space-y-2">
+        <Label htmlFor="copies">Copies</Label>
+        <div className="flex items-center gap-2">
+          <Button type="button" variant="outline" size="icon" aria-label="One fewer copy" onClick={() => setQuantity((q) => Math.max(1, q - 1))} disabled={quantity <= 1}>
+            <Minus aria-hidden />
+          </Button>
+          <Input
+            id="copies"
+            type="number"
+            inputMode="numeric"
+            min={1}
+            max={100}
+            value={quantity}
+            onChange={(e) => setQuantity(Math.min(100, Math.max(1, parseInt(e.target.value) || 1)))}
+            className="h-11 w-20 text-center"
+            data-testid="input-quantity"
+          />
+          <Button type="button" variant="outline" size="icon" aria-label="One more copy" onClick={() => setQuantity((q) => Math.min(100, q + 1))} disabled={quantity >= 100}>
+            <Plus aria-hidden />
+          </Button>
+        </div>
+      </div>
 
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="city" className="text-xs">City *</Label>
-                    <Input
-                      id="city"
-                      name="city"
-                      autoComplete="shipping address-level2"
-                      value={address.city}
-                      onChange={(e) => setAddress({ ...address, city: e.target.value })}
-                      placeholder="New York"
-                      data-testid="input-shipping-city"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="state" className="text-xs">{address.country_code === "US" ? "State *" : "State/Province"}</Label>
-                    {address.country_code === "US" ? (
-                      // Native select so browser autofill can choose the state
-                      <select
-                        id="state"
-                        name="state"
-                        autoComplete="shipping address-level1"
-                        value={address.state_code}
-                        onChange={(e) => setAddress({ ...address, state_code: e.target.value })}
-                        className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-base ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 md:text-sm"
-                        data-testid="select-shipping-state"
-                      >
-                        <option value="">Select state</option>
-                        {US_STATE_OPTIONS.map((s) => (
-                          <option key={s.code} value={s.code}>{s.name}</option>
-                        ))}
-                      </select>
-                    ) : (
-                      <Input
-                        id="state"
-                        name="state"
-                        autoComplete="shipping address-level1"
-                        value={address.state_code}
-                        onChange={(e) => setAddress({ ...address, state_code: e.target.value })}
-                        placeholder="Province / region"
-                        data-testid="input-shipping-state"
-                      />
-                    )}
-                  </div>
-                </div>
+      {quantity > 1 && (
+        <div className="rounded-lg border p-4">
+          <p className="font-medium">Order a single proof copy first?</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Check one printed book before ordering {quantity} copies. You can order the rest once you're happy with it.
+          </p>
+          <Button variant="outline" className="mt-3" onClick={() => setQuantity(1)} data-testid="button-proof-copy">
+            Order 1 proof copy
+          </Button>
+        </div>
+      )}
 
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="postcode" className="text-xs">ZIP/Postal Code *</Label>
-                    <Input
-                      id="postcode"
-                      name="postal-code"
-                      autoComplete="shipping postal-code"
-                      value={address.postcode}
-                      onChange={(e) => setAddress({ ...address, postcode: e.target.value })}
-                      placeholder="10001"
-                      data-testid="input-shipping-postcode"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="country" className="text-xs">Country *</Label>
-                    <Select 
-                      value={address.country_code}
-                      onValueChange={(v) => setAddress({ ...address, country_code: v })}
-                    >
-                      <SelectTrigger data-testid="select-shipping-country">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {COUNTRY_CODES.map((country) => (
-                          <SelectItem key={country.code} value={country.code}>
-                            {country.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
+      <div className="rounded-lg bg-muted/50 p-4" aria-live="polite">
+        {estimate.isLoading ? (
+          <p className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Working out the price…</p>
+        ) : estimate.isError ? (
+          <p className="text-sm">We couldn't estimate the price right now. You'll see the exact total before you order.</p>
+        ) : est ? (
+          <>
+            <p className="text-lg font-semibold" data-testid="text-estimated-total">
+              About ${Math.ceil(est.totalCost)} including shipping
+            </p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              For {quantity} {quantity === 1 ? "copy" : "copies"} shipped by {shippingLevelName(DEFAULT_SHIPPING_LEVEL).toLowerCase()} within the US
+              {estOpt ? `, arriving about ${formatDateRange(estOpt.arrivalMin, estOpt.arrivalMax)}` : ""}. Tax and shipping depend on your address.
+            </p>
+          </>
+        ) : null}
+      </div>
+      {testBanner}
 
-                <div className="space-y-1.5">
-                  <Label htmlFor="phone" className="text-xs">Phone Number *</Label>
-                  <Input
-                    id="phone"
-                    name="tel"
-                    type="tel"
-                    autoComplete="shipping tel"
-                    value={address.phone_number}
-                    onChange={(e) => setAddress({ ...address, phone_number: e.target.value })}
-                    placeholder="+1 555 123 4567"
-                    data-testid="input-shipping-phone"
-                  />
-                </div>
+      <Button size="lg" className="w-full sm:w-auto" onClick={() => setStage("address")} data-testid="button-order-prints">
+        <Package aria-hidden /> Continue to shipping
+      </Button>
+    </div>
+  );
+}
 
-                <div className="space-y-1.5">
-                  <Label htmlFor="email" className="text-xs">Email (optional)</Label>
-                  <Input
-                    id="email"
-                    name="email"
-                    autoComplete="email"
-                    type="email"
-                    value={address.email}
-                    onChange={(e) => setAddress({ ...address, email: e.target.value })}
-                    placeholder="you@example.com"
-                    data-testid="input-shipping-email"
-                  />
-                </div>
-              </form>
-
-              <Separator />
-
-              <div className="space-y-3">
-                <h4 className="font-medium text-sm">Shipping Method</h4>
-                <Select value={shippingLevel} onValueChange={setShippingLevel}>
-                  <SelectTrigger data-testid="select-shipping-method">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {SHIPPING_OPTIONS.map((option) => (
-                      <SelectItem key={option.id} value={option.id}>
-                        <div className="flex flex-col">
-                          <span>{option.name}</span>
-                          <span className="text-xs text-muted-foreground">{option.description}</span>
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <Separator />
-
-              <div className="space-y-3">
-                <h4 className="font-medium text-sm">Order Summary</h4>
-                <div className="space-y-2 text-sm p-3 bg-muted/50 rounded-md">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Print Type:</span>
-                    <span>{colorOption === "color" ? "Full Color" : "Black & White"}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Quantity:</span>
-                    <span>{quantity} {quantity === 1 ? "copy" : "copies"}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Page Size:</span>
-                    <span>{pageSize}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Est. Pages:</span>
-                    <span>{Math.max(24, estimatedPageCount)}</span>
-                  </div>
-                </div>
-
-                {pricing && (
-                  <div className="space-y-2 p-3 border-2 border-primary/20 rounded-md bg-primary/5">
-                    <div className="flex justify-between text-sm">
-                      <span>Print Cost:</span>
-                      <span>${pricing.printCost.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span>Shipping:</span>
-                      <span>${pricing.shippingCost.toFixed(2)}</span>
-                    </div>
-                    <Separator />
-                    <div className="flex justify-between font-medium">
-                      <span>Total:</span>
-                      <span className="text-primary">${pricing.totalCost.toFixed(2)} {pricing.currency}</span>
-                    </div>
-                    <div className="text-xs text-muted-foreground">
-                      Shipping time: {SHIPPING_OPTIONS.find((o) => o.id === shippingLevel)?.description ?? "varies"}, plus a few days to print
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <DialogFooter className="gap-2">
-              <Button
-                variant="outline"
-                onClick={handleCalculatePrice}
-                disabled={priceMutation.isPending || !isAddressValid}
-                data-testid="button-calculate-price"
-              >
-                {priceMutation.isPending ? (
-                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                ) : (
-                  <DollarSign className="h-4 w-4 mr-2" />
-                )}
-                Calculate Price
-              </Button>
-              <Button
-                onClick={() => orderMutation.mutate()}
-                disabled={!pricing || orderMutation.isPending}
-                data-testid="button-submit-order"
-              >
-                {orderMutation.isPending ? (
-                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                ) : (
-                  <Truck className="h-4 w-4 mr-2" />
-                )}
-                Place Order
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
-        <p className="text-xs text-muted-foreground text-center">
-          Powered by Lulu Print-on-Demand
+function Field({ id, label, hint, error, children }: { id: string; label: string; hint?: string; error?: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-1.5">
+      <Label htmlFor={`ship-${id}`}>{label}</Label>
+      {children}
+      {hint && <p id={`hint-${id}`} className="text-sm text-muted-foreground">{hint}</p>}
+      {error && (
+        <p id={`err-${id}`} className="flex items-start gap-1.5 text-sm text-destructive">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden /> {error}
         </p>
-      </CardContent>
-    </Card>
+      )}
+    </div>
+  );
+}
+
+function Row({ label, value, action }: { label: React.ReactNode; value: React.ReactNode; action?: React.ReactNode }) {
+  return (
+    <div className="flex items-start gap-3 p-3">
+      <dt className="w-24 shrink-0 text-sm text-muted-foreground">{label}</dt>
+      <dd className="min-w-0 flex-1">{value}</dd>
+      {action}
+    </div>
+  );
+}
+
+function SuggestedAddress({
+  entered,
+  suggested,
+  onUse,
+  onKeep,
+}: {
+  entered: ShippingAddressInput;
+  suggested: NonNullable<Quote["suggestedAddress"]>;
+  onUse: () => void;
+  onKeep: () => void;
+}) {
+  return (
+    <div className="space-y-3 rounded-lg border border-primary/40 p-4" role="group" aria-label="Check your address">
+      <p className="font-medium">The post office suggests a small change to the address.</p>
+      <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
+        <div>
+          <p className="text-muted-foreground">You entered</p>
+          <p>{entered.street1}{entered.street2 ? `, ${entered.street2}` : ""}<br />{entered.city}, {entered.state_code} {entered.postcode}</p>
+        </div>
+        <div>
+          <p className="text-muted-foreground">Suggested</p>
+          <p>{suggested.street1}{suggested.street2 ? `, ${suggested.street2}` : ""}<br />{suggested.city}, {suggested.state_code} {suggested.postcode}</p>
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <Button variant="secondary" onClick={onUse}>Use suggested</Button>
+        <Button variant="outline" onClick={onKeep}>Keep what I entered</Button>
+      </div>
+    </div>
+  );
+}
+
+function OrderStatusCard({ orderId, status, heading }: { orderId: string; status: string | null; heading: string }) {
+  const live = useQuery<{ status: string; estimatedShipping?: { arrival_min: string; arrival_max: string } }>({
+    queryKey: ["/api/print/orders", orderId, "status"],
+    enabled: false,
+  });
+  const current = live.data?.status ?? status;
+  const arrival = live.data?.estimatedShipping;
+  const range = useMemo(
+    () => (arrival?.arrival_min && arrival?.arrival_max ? formatDateRange(arrival.arrival_min.slice(0, 10), arrival.arrival_max.slice(0, 10)) : ""),
+    [arrival],
+  );
+  return (
+    <div className="flex flex-col gap-3 rounded-lg border p-4 sm:flex-row sm:items-center" data-testid="order-status-card">
+      <Package className="h-6 w-6 shrink-0 text-primary" aria-hidden />
+      <div className="flex-1">
+        <p className="font-medium">{heading}: #{orderId}</p>
+        <p className="text-sm">
+          {orderStatusLabel(current)}
+          {range ? ` · arrives about ${range}` : ""}
+        </p>
+        {live.isError && <p className="text-sm text-destructive">Couldn't get the latest status. Try again in a moment.</p>}
+      </div>
+      <Button variant="outline" onClick={() => live.refetch()} disabled={live.isFetching}>
+        <RefreshCw className={live.isFetching ? "animate-spin" : ""} aria-hidden /> Check status
+      </Button>
+    </div>
   );
 }

@@ -16,6 +16,7 @@ import {
 import { CHAPTERS, chapterForTags, buildCoursePlan } from "@shared/courses";
 import { normalizeUsState } from "@shared/us-states";
 import { validateAddress, estimateArrival } from "@shared/print-checkout";
+import { checkReadiness, type RecipePrintFacts } from "@shared/print-readiness";
 import { isGeminiAvailable, parseQueryWithGemini } from "../gemini";
 import { generateInteriorPdf, generateCoverPdf, measureRecipeGaps, type CookbookPrintData } from "../lib/pdf/generator";
 import { planFamilyPhotos } from "@shared/family-photos";
@@ -780,198 +781,63 @@ router.delete("/print-projects/:projectId", isAuthenticated, async (req: any, re
 // PRINT PREFLIGHT CHECK
 // ============================================================================
 
+// "Ready to print?": gathers facts about each recipe in the layout and
+// returns plain-language findings (see shared/print-readiness.ts)
 router.post("/cookbooks/:id/preflight", isAuthenticated, async (req: any, res) => {
   try {
-    const { id } = req.params;
-    const cookbookId = parseInt(id);
+    const cookbookId = parseInt(req.params.id);
     const userId = getUserId(req);
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
-    const { layoutData, templateStyle } = req.body;
-
-    if (!layoutData || !layoutData.sections) {
-      return res.status(400).json({ error: "Layout data is required" });
-    }
+    const parsed = printLayoutDataSchema.safeParse(req.body.layoutData);
+    if (!parsed.success) return res.status(400).json({ error: "Layout data is required" });
+    const layoutData = parsed.data;
 
     const cookbook = await storage.getCookbook(cookbookId, userId);
     if (!cookbook || cookbook.ownerUserId !== userId) {
       return res.status(403).json({ error: "Access denied" });
     }
 
-    // Get all recipe IDs from sections
-    const allRecipeIds: string[] = [];
-    for (const section of layoutData.sections) {
-      if (section.recipeIds && Array.isArray(section.recipeIds)) {
-        allRecipeIds.push(...section.recipeIds);
-      }
-    }
+    const allRecipeIds = layoutData.sections.flatMap((s) => s.recipeIds);
+    const bindingType = typeof req.body.bindingType === "string" ? req.body.bindingType : "PB";
+    const trimSize = typeof req.body.trimSize === "string" ? req.body.trimSize : "0600X0900";
 
-    if (allRecipeIds.length === 0) {
-      return res.json({
-        status: 'error',
-        message: 'No recipes in project',
-        issues: [{ type: 'error', category: 'content', message: 'Add at least one recipe to your cookbook' }],
-        stats: { totalRecipes: 0, estimatedPages: 0, recipesWithImages: 0, recipesWithoutImages: 0 }
+    const facts: RecipePrintFacts[] = [];
+    for (let i = 0; i < allRecipeIds.length; i += 10) {
+      const batch = await Promise.all(allRecipeIds.slice(i, i + 10).map((rid) => storage.getRecipe(rid, userId)));
+      batch.forEach((recipe, j) => {
+        const rid = allRecipeIds[i + j];
+        if (!recipe) {
+          facts.push({ id: rid, title: "", found: false, hasPhoto: false, hasIngredients: false, hasInstructions: false });
+          return;
+        }
+        const image = recipe.dishImage || "";
+        let photoKB: number | undefined;
+        if (image.startsWith("data:image")) {
+          photoKB = Math.round(((image.length - image.indexOf(",") - 1) * 3) / 4 / 1024);
+        }
+        facts.push({
+          id: recipe.id,
+          title: recipe.title,
+          found: true,
+          hasPhoto: !!image,
+          photoKB,
+          hasIngredients: !!(recipe.ingredients?.length || (recipe as any).normalizedIngredients?.length),
+          hasInstructions: !!recipe.instructions?.length,
+          status: (recipe as any).status ?? null,
+        });
       });
     }
 
-    // Fetch all recipes with full data including images
-    const recipesList = await Promise.all(
-      allRecipeIds.map(id => storage.getRecipe(id, userId))
-    );
-    const validRecipes = recipesList.filter(Boolean);
-
-    const issues: Array<{ type: 'error' | 'warning' | 'info'; category: string; message: string; recipeId?: string; recipeName?: string }> = [];
-
-    let recipesWithImages = 0;
-    let recipesWithoutImages = 0;
-    let lowQualityImages = 0;
-
-    for (const recipe of validRecipes) {
-      if (!recipe) continue;
-
-      if (recipe.dishImage) {
-        recipesWithImages++;
-
-        if (recipe.dishImage.startsWith('data:image')) {
-          const base64Length = recipe.dishImage.length - recipe.dishImage.indexOf(',') - 1;
-          const estimatedBytes = (base64Length * 3) / 4;
-          const estimatedKB = Math.round(estimatedBytes / 1024);
-
-          if (estimatedKB < 100) {
-            lowQualityImages++;
-            issues.push({
-              type: 'warning',
-              category: 'image',
-              message: `Image may be too small for print (${estimatedKB}KB) - recommend regenerating`,
-              recipeId: recipe.id,
-              recipeName: recipe.title
-            });
-          }
-        } else if (recipe.dishImage.startsWith('http')) {
-          issues.push({
-            type: 'info',
-            category: 'image',
-            message: 'External image URL - quality cannot be verified',
-            recipeId: recipe.id,
-            recipeName: recipe.title
-          });
-        }
-      } else {
-        recipesWithoutImages++;
-        issues.push({
-          type: 'warning',
-          category: 'image',
-          message: 'No dish image - a placeholder will be used',
-          recipeId: recipe.id,
-          recipeName: recipe.title
-        });
-      }
-
-      if (!recipe.title || recipe.title.trim() === '') {
-        issues.push({ type: 'error', category: 'content', message: 'Recipe is missing a title', recipeId: recipe.id, recipeName: recipe.title || 'Untitled' });
-      }
-
-      if (!recipe.instructions || recipe.instructions.length === 0) {
-        issues.push({ type: 'warning', category: 'content', message: 'Recipe has no instructions', recipeId: recipe.id, recipeName: recipe.title });
-      }
-
-      if (!recipe.ingredients || recipe.ingredients.length === 0) {
-        issues.push({ type: 'warning', category: 'content', message: 'Recipe has no ingredients', recipeId: recipe.id, recipeName: recipe.title });
-      }
-
-      if ((recipe as any).status === 'pending' || (recipe as any).status === 'processing') {
-        issues.push({ type: 'warning', category: 'status', message: 'Recipe is still processing - wait for completion', recipeId: recipe.id, recipeName: recipe.title });
-      }
-
-      if ((recipe as any).status === 'failed') {
-        issues.push({ type: 'error', category: 'status', message: 'Recipe processing failed - re-enrich or remove', recipeId: recipe.id, recipeName: recipe.title });
-      }
-    }
-
-    if (!layoutData.title || layoutData.title.trim() === '') {
-      issues.push({ type: 'info', category: 'layout', message: 'Consider adding a title for your cookbook cover' });
-    }
-
-    if (!layoutData.authorName || layoutData.authorName.trim() === '') {
-      issues.push({ type: 'info', category: 'layout', message: 'Consider adding an author name' });
-    }
-
-    const emptySections = layoutData.sections.filter((s: any) => !s.recipeIds || s.recipeIds.length === 0);
-    if (emptySections.length > 0) {
-      issues.push({ type: 'warning', category: 'layout', message: `${emptySections.length} empty section(s) will appear blank in print` });
-    }
-
-    const pageSize = layoutData.customizations?.pageSize || '6x9';
-
-    let pagesPerRecipe: number;
-    let minPages: number;
-    let maxPages: number;
-
-    switch (pageSize) {
-      case '6x9':
-        pagesPerRecipe = 2.5;
-        minPages = 24;
-        maxPages = 800;
-        break;
-      case '8.5x11':
-        pagesPerRecipe = 2;
-        minPages = 24;
-        maxPages = 600;
-        break;
-      case 'a4':
-        pagesPerRecipe = 2;
-        minPages = 24;
-        maxPages = 600;
-        break;
-      default:
-        pagesPerRecipe = 2;
-        minPages = 24;
-        maxPages = 600;
-    }
-
-    const frontMatterPages = 4;
-    const sectionDividerPages = layoutData.sections.length;
-    const estimatedPages = Math.ceil(validRecipes.length * pagesPerRecipe + frontMatterPages + sectionDividerPages);
-
-    if (estimatedPages > maxPages) {
-      issues.push({ type: 'error', category: 'pages', message: `Estimated ${estimatedPages} pages exceeds maximum ${maxPages} for ${pageSize} format - split into volumes` });
-    } else if (estimatedPages > maxPages * 0.9) {
-      issues.push({ type: 'warning', category: 'pages', message: `Estimated ${estimatedPages} pages is near the ${maxPages} page limit` });
-    }
-
-    if (estimatedPages < minPages) {
-      issues.push({ type: 'warning', category: 'pages', message: `Estimated ${estimatedPages} pages - print services require minimum ${minPages} pages. Add more recipes or content.` });
-    }
-
-    issues.push({ type: 'info', category: 'bleed', message: `Using ${pageSize} format with 0.5" safety margins for print binding` });
-
-    const hasErrors = issues.some(i => i.type === 'error');
-    const hasWarnings = issues.some(i => i.type === 'warning');
-    let status: 'ready' | 'warnings' | 'error' = 'ready';
-    if (hasErrors) status = 'error';
-    else if (hasWarnings) status = 'warnings';
-
-    res.json({
-      status,
-      message: status === 'ready'
-        ? 'Your cookbook is ready for printing!'
-        : status === 'warnings'
-          ? 'Your cookbook has some issues to review'
-          : 'Your cookbook has errors that need to be fixed',
-      issues,
-      stats: {
-        totalRecipes: validRecipes.length,
-        estimatedPages,
-        recipesWithImages,
-        recipesWithoutImages,
-        lowQualityImages,
-        pageSize,
-        templateStyle: templateStyle || 'classic',
-        minPages,
-        maxPages
-      }
+    const result = checkReadiness({
+      recipes: facts,
+      sections: layoutData.sections,
+      title: layoutData.title,
+      authorName: layoutData.authorName,
+      trimSize,
+      pageLimits: BINDING_PAGE_LIMITS[bindingType] || { min: 32, max: 800 },
     });
+    res.json(result);
   } catch (error) {
     console.error("Error running preflight check:", error);
     res.status(500).json({ error: "Failed to run preflight check" });

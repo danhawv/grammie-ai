@@ -1,176 +1,61 @@
-import { useState, useMemo, useCallback, useEffect, useRef, Component, ErrorInfo, ReactNode } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
-import { useParams, Link, useLocation } from "wouter";
-import {
-  DndContext,
-  DragOverlay,
-  closestCenter,
-  KeyboardSensor,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  DragStartEvent,
-  DragEndEvent,
-  DragOverEvent,
-} from "@dnd-kit/core";
-import {
-  arrayMove,
-  SortableContext,
-  sortableKeyboardCoordinates,
-  useSortable,
-  verticalListSortingStrategy,
-} from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Component, useCallback, useEffect, useMemo, useRef, useState, type ErrorInfo, type ReactNode } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useParams } from "wouter";
+import { Download, Loader2, MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Separator } from "@/components/ui/separator";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
-import {
-  ArrowLeft,
-  BookOpen,
-  GripVertical,
-  Plus,
-  Trash2,
-  Edit,
-  Save,
-  Eye,
-  ChevronDown,
-  ChevronRight,
-  FileText,
-  Image,
-  Loader2,
-  AlertCircle,
-  Check,
-  Download,
-  Palette,
-  Sparkles,
-  Pencil,
-  ListChecks,
-} from "lucide-react";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { ToastAction } from "@/components/ui/toast";
+import { PageHeader } from "@/components/page-header";
+import { ErrorState, LoadingState } from "@/components/page-states";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
-import { queryClient, apiRequest } from "@/lib/queryClient";
 import { CookbookPrintPreview } from "@/components/cookbook-print-preview";
 import { RecipeReviewDialog } from "@/components/recipe-review-dialog";
-import { OrganizeByCourse } from "@/components/organize-by-course";
-import { PreflightCheckPanel } from "@/components/preflight-check-panel";
 import { PrintOrderPanel } from "@/components/print-order-panel";
-import type { PrintLayoutData, CookbookPrintProject, CustomTemplate } from "@shared/schema";
-import { TemplateDesigner } from "@/components/template-designer";
-import { PrintDetailsNotice } from "@/components/print-details-notice";
-import { FamilyPhotosPanel } from "@/components/family-photos-panel";
-import { TemplateFromPhotos } from "@/components/template-from-photos";
+import { RecipesStep } from "@/components/print/recipes-step";
+import { LookStep } from "@/components/print/look-step";
+import { PersonalizeStep } from "@/components/print/personalize-step";
+import { ReadyToPrint } from "@/components/print/ready-to-print";
+import { SaveStatus, StepBar, StepList } from "@/components/print/step-nav";
+import { usePrintAutosave } from "@/components/print/use-print-autosave";
+import { STEPS, isStepId, type BookDraft, type RecipeSummary, type Section, type StepId } from "@/components/print/types";
+import { estimateBookPages } from "@shared/print-readiness";
+import type { CookbookPrintProject, CustomTemplate, PrintLayoutData } from "@shared/schema";
+import type { BindingTypeId, ColorTypeId, CoverFinishId, PaperTypeId, TrimSizeId } from "@/lib/print-constants";
 
-interface CookbookWithOwner {
+// The print builder, as a short guided flow (docs/DESIGN_PRINCIPLES.md §8):
+// 1 Recipes & chapters · 2 Look · 3 Personalize · 4 Ready to print? · 5 Order.
+// Every change autosaves; the preview is one tap away on every step.
+
+interface CookbookInfo {
   id: number;
   name: string;
-  description: string | null;
-  isPublic: boolean;
   ownerUserId: string;
+  coverImage: string | null;
 }
 
-interface RecipeCard {
-  id: string;
-  title: string;
-  dishImageThumbnail: string | null;
-}
-
-interface Section {
-  id: string;
-  title: string;
-  recipeIds: string[];
-}
-
-const TEMPLATE_STYLES = [
-  { id: "classic", name: "Classic", description: "Traditional cookbook layout with elegant typography" },
-  { id: "modern", name: "Modern", description: "Clean, minimalist design with bold imagery" },
-  { id: "rustic", name: "Rustic", description: "Warm, homey feel with textured backgrounds" },
-  { id: "elegant", name: "Elegant", description: "Sophisticated design with refined typography" },
-  { id: "card", name: "Recipe Card", description: "Photo beside the title, icon badges, nutrition and tips on every page" },
-] as const;
-
-import {
-  BOOK_SIZES,
-  BINDING_TYPES,
-  PAPER_TYPES,
-  COLOR_TYPES,
-  COVER_FINISHES,
-  BINDING_PAPER_COMPATIBILITY,
-  BINDING_PAGE_LIMITS,
-  type TrimSizeId,
-  type BindingTypeId,
-  type PaperTypeId,
-  type ColorTypeId,
-  type CoverFinishId,
-} from "@/lib/print-constants";
-
-class PrintEditorErrorBoundary extends Component<
-  { children: ReactNode },
-  { hasError: boolean; error: Error | null }
-> {
-  constructor(props: { children: ReactNode }) {
-    super(props);
-    this.state = { hasError: false, error: null };
-  }
-
+class PrintEditorErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  state = { error: null as Error | null };
   static getDerivedStateFromError(error: Error) {
-    return { hasError: true, error };
+    return { error };
   }
-
-  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error('[PrintEditorErrorBoundary] Caught error:', error, errorInfo);
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error("[PrintEditor] crashed:", error, info);
   }
-
   render() {
-    if (this.state.hasError) {
+    if (this.state.error) {
       return (
-        <div className="container max-w-2xl mx-auto py-8 px-4">
-          <Card>
-            <CardContent className="py-12 text-center">
-              <AlertCircle className="h-12 w-12 mx-auto text-destructive mb-4" />
-              <h2 className="text-xl font-semibold mb-2">Something went wrong</h2>
-              <p className="text-muted-foreground mb-4">
-                There was an error loading the print editor.
-              </p>
-              <pre className="text-left bg-muted p-4 rounded text-xs overflow-auto max-h-48 mb-4">
-                {this.state.error?.message}
-                {'\n\n'}
-                {this.state.error?.stack}
-              </pre>
-              <Link href="/">
-                <Button variant="outline">
-                  <ArrowLeft className="h-4 w-4 mr-2" />
-                  Back to Home
-                </Button>
-              </Link>
-            </CardContent>
-          </Card>
+        <div className="mx-auto max-w-2xl px-4 py-8">
+          <ErrorState
+            title="The print builder hit a problem"
+            description="Changes save automatically as you go. Reload the page to keep working."
+            onRetry={() => window.location.reload()}
+          />
         </div>
       );
     }
@@ -178,1400 +63,334 @@ class PrintEditorErrorBoundary extends Component<
   }
 }
 
-function SortableRecipeItem({ 
-  recipe, 
-  onRemove 
-}: { 
-  recipe: RecipeCard; 
-  onRemove: () => void;
-}) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: recipe.id });
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.5 : 1,
+function draftFromProject(project: CookbookPrintProject): BookDraft {
+  return {
+    layoutData: project.layoutData,
+    templateStyle: project.templateStyle,
+    customTemplateId: project.customTemplateId ?? null,
+    trimSize: (project.trimSize || "0600X0900") as TrimSizeId,
+    bindingType: (project.bindingType || "PB") as BindingTypeId,
+    paperType: (project.paperType || "080CW444") as PaperTypeId,
+    colorType: (project.colorType || "FC") as ColorTypeId,
+    coverFinish: (project.coverFinish || "M") as CoverFinishId,
   };
-
-  return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      className="flex items-center gap-3 p-3 bg-background border rounded-md group"
-      data-testid={`sortable-recipe-${recipe.id}`}
-    >
-      <button
-        {...attributes}
-        {...listeners}
-        className="cursor-grab touch-none p-1 hover-elevate rounded"
-        data-testid={`drag-handle-${recipe.id}`}
-      >
-        <GripVertical className="h-4 w-4 text-muted-foreground" />
-      </button>
-      {recipe.dishImageThumbnail ? (
-        <img
-          src={recipe.dishImageThumbnail}
-          alt={recipe.title}
-          className="w-12 h-12 rounded object-cover flex-shrink-0"
-        />
-      ) : (
-        <div className="w-12 h-12 rounded bg-muted flex items-center justify-center flex-shrink-0">
-          <BookOpen className="h-5 w-5 text-muted-foreground" />
-        </div>
-      )}
-      <span className="flex-1 text-sm font-medium truncate">{recipe.title}</span>
-      <Button
-        variant="ghost"
-        size="icon"
-        onClick={onRemove}
-        className="opacity-0 group-hover:opacity-100 transition-opacity"
-        data-testid={`remove-recipe-${recipe.id}`}
-      >
-        <Trash2 className="h-4 w-4 text-destructive" />
-      </Button>
-    </div>
-  );
-}
-
-function SectionEditor({
-  section,
-  recipes,
-  allRecipes,
-  onUpdateTitle,
-  onRemoveSection,
-  onRemoveRecipe,
-  onAddRecipes,
-  isExpanded,
-  onToggleExpand,
-}: {
-  section: Section;
-  recipes: RecipeCard[];
-  allRecipes: RecipeCard[];
-  onUpdateTitle: (title: string) => void;
-  onRemoveSection: () => void;
-  onRemoveRecipe: (recipeId: string) => void;
-  onAddRecipes: (recipeIds: string[]) => void;
-  isExpanded: boolean;
-  onToggleExpand: () => void;
-}) {
-  const [isEditing, setIsEditing] = useState(false);
-  const [editTitle, setEditTitle] = useState(section.title);
-  const [showAddDialog, setShowAddDialog] = useState(false);
-  const [selectedRecipes, setSelectedRecipes] = useState<string[]>([]);
-
-  const availableRecipes = useMemo(() => {
-    const usedIds = new Set(section.recipeIds);
-    return allRecipes.filter(r => !usedIds.has(r.id));
-  }, [allRecipes, section.recipeIds]);
-
-  const handleSaveTitle = () => {
-    onUpdateTitle(editTitle);
-    setIsEditing(false);
-  };
-
-  const handleAddRecipes = () => {
-    if (selectedRecipes.length > 0) {
-      onAddRecipes(selectedRecipes);
-      setSelectedRecipes([]);
-      setShowAddDialog(false);
-    }
-  };
-
-  return (
-    <Card className="mb-4" data-testid={`section-${section.id}`}>
-      <Collapsible open={isExpanded} onOpenChange={onToggleExpand}>
-        <CollapsibleTrigger asChild>
-          <CardHeader className="cursor-pointer hover-elevate py-3">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2 flex-1 min-w-0">
-                {isExpanded ? (
-                  <ChevronDown className="h-4 w-4 flex-shrink-0" />
-                ) : (
-                  <ChevronRight className="h-4 w-4 flex-shrink-0" />
-                )}
-                {isEditing ? (
-                  <div className="flex items-center gap-2 flex-1" onClick={e => e.stopPropagation()}>
-                    <Input
-                      value={editTitle}
-                      onChange={(e) => setEditTitle(e.target.value)}
-                      className="h-8"
-                      data-testid={`input-section-title-${section.id}`}
-                    />
-                    <Button size="icon" variant="ghost" onClick={handleSaveTitle} data-testid={`save-section-title-${section.id}`}>
-                      <Check className="h-4 w-4" />
-                    </Button>
-                  </div>
-                ) : (
-                  <>
-                    <CardTitle className="text-base truncate">{section.title}</CardTitle>
-                    <Badge variant="secondary" className="text-xs flex-shrink-0">
-                      {recipes.length} recipe{recipes.length !== 1 ? "s" : ""}
-                    </Badge>
-                  </>
-                )}
-              </div>
-              <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
-                {!isEditing && (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => {
-                      setEditTitle(section.title);
-                      setIsEditing(true);
-                    }}
-                    data-testid={`edit-section-${section.id}`}
-                  >
-                    <Edit className="h-4 w-4" />
-                  </Button>
-                )}
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={onRemoveSection}
-                  data-testid={`remove-section-${section.id}`}
-                >
-                  <Trash2 className="h-4 w-4 text-destructive" />
-                </Button>
-              </div>
-            </div>
-          </CardHeader>
-        </CollapsibleTrigger>
-        <CollapsibleContent>
-          <CardContent className="pt-0">
-            <SortableContext items={section.recipeIds} strategy={verticalListSortingStrategy}>
-              <div className="space-y-2">
-                {recipes.map((recipe) => (
-                  <SortableRecipeItem
-                    key={recipe.id}
-                    recipe={recipe}
-                    onRemove={() => onRemoveRecipe(recipe.id)}
-                  />
-                ))}
-              </div>
-            </SortableContext>
-            
-            {recipes.length === 0 && (
-              <div className="text-center py-6 text-muted-foreground">
-                <FileText className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                <p className="text-sm">No recipes in this section</p>
-              </div>
-            )}
-
-            <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
-              <DialogTrigger asChild>
-                <Button variant="outline" className="w-full mt-4" data-testid={`add-recipes-${section.id}`}>
-                  <Plus className="h-4 w-4 mr-2" />
-                  Add Recipes
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="max-w-md">
-                <DialogHeader>
-                  <DialogTitle>Add Recipes to {section.title}</DialogTitle>
-                  <DialogDescription>
-                    Select recipes to add to this section.
-                  </DialogDescription>
-                </DialogHeader>
-                <ScrollArea className="h-[300px] pr-4">
-                  <div className="space-y-2">
-                    {availableRecipes.length === 0 ? (
-                      <p className="text-center text-muted-foreground py-8">
-                        All recipes are already in this section.
-                      </p>
-                    ) : (
-                      availableRecipes.map((recipe) => (
-                        <div
-                          key={recipe.id}
-                          className={`flex items-center gap-3 p-3 border rounded-md cursor-pointer transition-colors ${
-                            selectedRecipes.includes(recipe.id)
-                              ? "border-primary bg-primary/5"
-                              : "hover-elevate"
-                          }`}
-                          onClick={() => {
-                            setSelectedRecipes(prev =>
-                              prev.includes(recipe.id)
-                                ? prev.filter(id => id !== recipe.id)
-                                : [...prev, recipe.id]
-                            );
-                          }}
-                          data-testid={`select-recipe-${recipe.id}`}
-                        >
-                          {recipe.dishImageThumbnail ? (
-                            <img
-                              src={recipe.dishImageThumbnail}
-                              alt={recipe.title}
-                              className="w-10 h-10 rounded object-cover"
-                            />
-                          ) : (
-                            <div className="w-10 h-10 rounded bg-muted flex items-center justify-center">
-                              <BookOpen className="h-4 w-4 text-muted-foreground" />
-                            </div>
-                          )}
-                          <span className="flex-1 text-sm font-medium truncate">{recipe.title}</span>
-                          {selectedRecipes.includes(recipe.id) && (
-                            <Check className="h-4 w-4 text-primary" />
-                          )}
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </ScrollArea>
-                <DialogFooter>
-                  <Button variant="outline" onClick={() => setShowAddDialog(false)}>
-                    Cancel
-                  </Button>
-                  <Button
-                    onClick={handleAddRecipes}
-                    disabled={selectedRecipes.length === 0}
-                    data-testid="confirm-add-recipes"
-                  >
-                    Add {selectedRecipes.length} Recipe{selectedRecipes.length !== 1 ? "s" : ""}
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
-          </CardContent>
-        </CollapsibleContent>
-      </Collapsible>
-    </Card>
-  );
-}
-
-function RecipeOverlay({ recipe }: { recipe: RecipeCard | null }) {
-  if (!recipe) return null;
-
-  return (
-    <div className="flex items-center gap-3 p-3 bg-background border rounded-md shadow-lg">
-      <GripVertical className="h-4 w-4 text-muted-foreground" />
-      {recipe.dishImageThumbnail ? (
-        <img
-          src={recipe.dishImageThumbnail}
-          alt={recipe.title}
-          className="w-12 h-12 rounded object-cover"
-        />
-      ) : (
-        <div className="w-12 h-12 rounded bg-muted flex items-center justify-center">
-          <BookOpen className="h-5 w-5 text-muted-foreground" />
-        </div>
-      )}
-      <span className="text-sm font-medium">{recipe.title}</span>
-    </div>
-  );
 }
 
 function CookbookPrintEditorInner() {
   const { id } = useParams<{ id: string }>();
-  const [, navigate] = useLocation();
+  const cookbookId = parseInt(id || "0");
   const { user, isLoading: userLoading } = useAuth();
   const { toast } = useToast();
-  const cookbookId = parseInt(id || "0");
 
-  const [layoutData, setLayoutData] = useState<PrintLayoutData>({
-    sections: [],
+  const [step, setStepState] = useState<StepId>(() => {
+    const s = new URLSearchParams(window.location.search).get("step");
+    return isStepId(s) ? s : "recipes";
   });
-  const [templateStyle, setTemplateStyle] = useState<'classic' | 'modern' | 'rustic' | 'elegant' | 'card'>('classic');
-  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
-  const [activeRecipe, setActiveRecipe] = useState<RecipeCard | null>(null);
-  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-  const [showNewSectionDialog, setShowNewSectionDialog] = useState(false);
-  const [newSectionTitle, setNewSectionTitle] = useState("");
+  const [draft, setDraft] = useState<BookDraft | null>(null);
+  const draftRef = useRef<BookDraft | null>(null);
   const [showPreview, setShowPreview] = useState(false);
-  const [showRecipeReview, setShowRecipeReview] = useState(false);
+  const [showIngredientReview, setShowIngredientReview] = useState(false);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
-  const [trimSize, setTrimSize] = useState<TrimSizeId>('0600X0900');
-  const [bindingType, setBindingType] = useState<BindingTypeId>('PB');
-  const [paperType, setPaperType] = useState<PaperTypeId>('080CW444');
-  const [colorType, setColorType] = useState<ColorTypeId>('FC');
-  const [coverFinish, setCoverFinish] = useState<CoverFinishId>('M');
-  const [showTemplateDesigner, setShowTemplateDesigner] = useState(false);
-  const [editingCustomTemplate, setEditingCustomTemplate] = useState<CustomTemplate | null>(null);
-  const [selectedCustomTemplateId, setSelectedCustomTemplateId] = useState<number | null>(null);
-  const isInitialized = useRef(false);
+  const [attentionCount, setAttentionCount] = useState(0);
 
-  // Fetch user's custom templates
-  const { data: customTemplates = [] } = useQuery<CustomTemplate[]>({
-    queryKey: ["/api/templates"],
+  const cookbookQuery = useQuery<CookbookInfo>({
+    queryKey: ["/api/cookbooks", cookbookId],
+    enabled: cookbookId > 0,
   });
+  const cookbook = cookbookQuery.data;
+  const isOwner = !!user && user.id === cookbook?.ownerUserId;
 
-  const handleDeleteTemplate = async (ct: CustomTemplate) => {
-    if (!confirm(`Delete "${ct.name}"?`)) return;
-    try {
-      let res = await fetch(`/api/templates/${ct.id}`, { method: 'DELETE', credentials: 'include' });
-      if (res.status === 409) {
-        // Template is used by print projects — surface the server's warning
-        const body = await res.json();
-        if (!confirm(`${body.message}\n\nDelete anyway?`)) return;
-        res = await fetch(`/api/templates/${ct.id}?force=true`, { method: 'DELETE', credentials: 'include' });
+  const recipesQuery = useQuery<{ recipes: RecipeSummary[] }>({
+    queryKey: ["/api/cookbooks", cookbookId, "recipes", "all"],
+    queryFn: async () => {
+      const res = await fetch(`/api/cookbooks/${cookbookId}/recipes?limit=500`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load recipes");
+      return res.json();
+    },
+    enabled: cookbookId > 0 && isOwner,
+  });
+  const projectsQuery = useQuery<CookbookPrintProject[]>({
+    queryKey: ["/api/cookbooks", cookbookId, "print-projects"],
+    enabled: cookbookId > 0 && isOwner,
+  });
+  const { data: customTemplates = [] } = useQuery<CustomTemplate[]>({ queryKey: ["/api/templates"], enabled: isOwner });
+
+  const allRecipes = useMemo(() => recipesQuery.data?.recipes ?? [], [recipesQuery.data]);
+  const recipeTitles = useMemo(() => new Map(allRecipes.map((r) => [r.id, r.title])), [allRecipes]);
+  const currentProject = projectsQuery.data?.[0];
+
+  const autosave = usePrintAutosave(cookbookId, currentProject?.id);
+
+  // Load the saved book once; a new book starts with every recipe in one
+  // chapter. Loading never counts as a change, so nothing saves until an edit.
+  useEffect(() => {
+    if (draftRef.current || !cookbook || !recipesQuery.isSuccess || !projectsQuery.isSuccess) return;
+    const initial: BookDraft = currentProject?.layoutData?.sections
+      ? draftFromProject(currentProject)
+      : {
+          layoutData: {
+            sections: allRecipes.length ? [{ id: crypto.randomUUID(), title: "Recipes", recipeIds: allRecipes.map((r) => r.id) }] : [],
+            title: cookbook.name,
+            authorName: [user?.firstName, user?.lastName].filter(Boolean).join(" ") || undefined,
+          },
+          templateStyle: "classic",
+          customTemplateId: null,
+          trimSize: "0600X0900",
+          bindingType: "PB",
+          paperType: "080CW444",
+          colorType: "FC",
+          coverFinish: "M",
+        };
+    draftRef.current = initial;
+    setDraft(initial);
+  }, [cookbook, recipesQuery.isSuccess, projectsQuery.isSuccess, currentProject, allRecipes, user]);
+
+  /** Every edit goes through here: update, autosave, and offer Undo when asked */
+  const apply = useCallback(
+    (change: (d: BookDraft) => BookDraft, undoMessage?: string) => {
+      const prev = draftRef.current;
+      if (!prev) return;
+      const next = change(prev);
+      draftRef.current = next;
+      setDraft(next);
+      autosave.schedule(next);
+      if (undoMessage) {
+        toast({
+          title: undoMessage,
+          duration: 10_000,
+          action: (
+            <ToastAction
+              altText="Undo"
+              onClick={() => {
+                draftRef.current = prev;
+                setDraft(prev);
+                autosave.schedule(prev);
+              }}
+            >
+              Undo
+            </ToastAction>
+          ),
+        });
       }
-      if (!res.ok && res.status !== 204) throw new Error('Delete failed');
-      if (selectedCustomTemplateId === ct.id) setSelectedCustomTemplateId(null);
-      queryClient.invalidateQueries({ queryKey: ["/api/templates"] });
-      toast({ title: "Template deleted", description: `"${ct.name}" has been removed.` });
-    } catch {
-      toast({ title: "Couldn't delete template", variant: "destructive" });
-    }
-  };
+    },
+    [autosave, toast],
+  );
 
-  // Get compatible paper types for current binding
-  const compatiblePapers = BINDING_PAPER_COMPATIBILITY[bindingType] || [];
-  const pageLimits = BINDING_PAGE_LIMITS[bindingType] || { min: 32, max: 800 };
+  const update = useCallback((c: Partial<BookDraft>) => apply((d) => ({ ...d, ...c })), [apply]);
+  const updateLayout = useCallback(
+    (c: Partial<PrintLayoutData>, undoMessage?: string) => apply((d) => ({ ...d, layoutData: { ...d.layoutData, ...c } }), undoMessage),
+    [apply],
+  );
+  const updateCustomization = useCallback(
+    (field: string, value: unknown) =>
+      apply((d) => ({
+        ...d,
+        layoutData: {
+          ...d.layoutData,
+          customizations: {
+            showNutrition: false,
+            showTips: false,
+            showVariations: false,
+            showPageNumbers: true,
+            pageSize: "6x9",
+            ...d.layoutData.customizations,
+            [field]: value,
+          },
+        },
+      })),
+    [apply],
+  );
+  const setSections = useCallback(
+    (sections: Section[], undoMessage?: string) => updateLayout({ sections }, undoMessage),
+    [updateLayout],
+  );
+
+  const setStep = useCallback((s: StepId) => {
+    setStepState(s);
+    const url = new URL(window.location.href);
+    url.searchParams.set("step", s);
+    window.history.replaceState(window.history.state, "", url.toString());
+    window.scrollTo({ top: 0 });
+  }, []);
 
   const handleDownloadPdf = async () => {
-    if (!cookbookId) return;
+    if (!draft) return;
     setIsGeneratingPdf(true);
     try {
       const response = await fetch(`/api/cookbooks/${cookbookId}/generate-pdf`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          layoutData,
-          templateStyle,
-          customTemplateId: selectedCustomTemplateId,
-        }),
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ layoutData: draft.layoutData, templateStyle: draft.templateStyle, customTemplateId: draft.customTemplateId }),
       });
-      
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to generate PDF');
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.error || "Couldn't make the PDF");
       }
-      
       const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
       a.href = url;
-      a.download = `${(layoutData.title || 'cookbook').replace(/[^a-zA-Z0-9]/g, '_')}.pdf`;
+      a.download = `${(draft.layoutData.title || "cookbook").replace(/[^a-zA-Z0-9]/g, "_")}.pdf`;
       document.body.appendChild(a);
       a.click();
-      document.body.removeChild(a);
-      window.URL.revokeObjectURL(url);
-      
-      toast({ title: "PDF Generated", description: "Your cookbook PDF has been downloaded." });
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast({ title: "PDF downloaded" });
     } catch (error) {
-      console.error('PDF generation error:', error);
-      toast({ 
-        title: "PDF Generation Failed", 
-        description: error instanceof Error ? error.message : "Could not generate PDF",
-        variant: "destructive"
+      toast({
+        title: "Couldn't make the PDF",
+        description: error instanceof Error ? error.message : "Try again in a moment.",
+        variant: "destructive",
       });
     } finally {
       setIsGeneratingPdf(false);
     }
   };
 
-  const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: {
-        distance: 5,
-      },
-    }),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
-    })
-  );
+  const container = "mx-auto max-w-4xl px-4 py-6 md:px-6 [--print-bar-bottom:calc(4.5rem+env(safe-area-inset-bottom,0px))] md:[--print-bar-bottom:0px]";
 
-  // Fetch cookbook
-  const { data: cookbook, isLoading: cookbookLoading, error: cookbookError } = useQuery<CookbookWithOwner>({
-    queryKey: ['/api/cookbooks', cookbookId],
-    queryFn: async () => {
-      const response = await fetch(`/api/cookbooks/${cookbookId}`);
-      if (!response.ok) throw new Error('Failed to load cookbook');
-      return response.json();
-    },
-    enabled: cookbookId > 0,
-  });
-
-  // Fetch cookbook recipes
-  const { data: recipesData, isLoading: recipesLoading } = useQuery<{ recipes: RecipeCard[] }>({
-    queryKey: ['/api/cookbooks', cookbookId, 'recipes', 'all'],
-    queryFn: async () => {
-      const response = await fetch(`/api/cookbooks/${cookbookId}/recipes?limit=500`);
-      if (!response.ok) throw new Error('Failed to load recipes');
-      return response.json();
-    },
-    enabled: cookbookId > 0 && !!cookbook,
-  });
-
-  const allRecipes = useMemo(() => recipesData?.recipes || [], [recipesData?.recipes]);
-  const recipesById = useMemo(() => {
-    const map = new Map<string, RecipeCard>();
-    allRecipes.forEach(r => map.set(r.id, r));
-    return map;
-  }, [allRecipes]);
-
-  const recipeTitles = useMemo(() => new Map(allRecipes.map(r => [r.id, r.title])), [allRecipes]);
-
-  // Fetch or create print project
-  const { data: printProjects, isLoading: projectsLoading } = useQuery<CookbookPrintProject[]>({
-    queryKey: ['/api/cookbooks', cookbookId, 'print-projects'],
-    enabled: cookbookId > 0 && !!cookbook,
-  });
-
-  const currentProject = printProjects?.[0];
-
-  // Initialize layout from existing project or create default
-  const initializeLayout = useCallback(() => {
-    if (isInitialized.current) return;
-    
-    if (currentProject && currentProject.layoutData && currentProject.layoutData.sections) {
-      setLayoutData(currentProject.layoutData);
-      setTemplateStyle(currentProject.templateStyle);
-      isInitialized.current = true;
-    } else if (allRecipes.length > 0) {
-      // Create default layout with all recipes in one section
-      setLayoutData({
-        sections: [{
-          id: crypto.randomUUID(),
-          title: cookbook?.name || "All Recipes",
-          recipeIds: allRecipes.map(r => r.id),
-        }],
-        title: cookbook?.name,
-        authorName: user?.firstName && user?.lastName 
-          ? `${user.firstName} ${user.lastName}` 
-          : user?.username || undefined,
-      });
-      setHasUnsavedChanges(true);
-      isInitialized.current = true;
-    }
-  }, [currentProject, allRecipes, cookbook, user]);
-
-  // Initialize on data load
-  useEffect(() => {
-    if (!recipesLoading && !projectsLoading) {
-      initializeLayout();
-    }
-  }, [recipesLoading, projectsLoading, initializeLayout]);
-
-  // Create print project mutation
-  const createProjectMutation = useMutation({
-    mutationFn: async (data: { layoutData: PrintLayoutData; templateStyle: string }) => {
-      return apiRequest("POST", `/api/cookbooks/${cookbookId}/print-projects`, data);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/cookbooks', cookbookId, 'print-projects'] });
-      setHasUnsavedChanges(false);
-      toast({ title: "Project created", description: "Your print project has been created." });
-    },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to create project.", variant: "destructive" });
-    },
-  });
-
-  // Update print project mutation
-  const updateProjectMutation = useMutation({
-    mutationFn: async (data: { layoutData: PrintLayoutData; templateStyle: string }) => {
-      return apiRequest("PATCH", `/api/print-projects/${currentProject!.id}`, data);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/cookbooks', cookbookId, 'print-projects'] });
-      setHasUnsavedChanges(false);
-      toast({ title: "Saved", description: "Your changes have been saved." });
-    },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to save changes.", variant: "destructive" });
-    },
-  });
-
-  const handleSave = () => {
-    const data = { layoutData, templateStyle };
-    if (currentProject) {
-      updateProjectMutation.mutate(data);
-    } else {
-      createProjectMutation.mutate(data);
-    }
-  };
-
-  const isSaving = createProjectMutation.isPending || updateProjectMutation.isPending;
-
-  // Section management
-  const handleAddSection = () => {
-    if (!newSectionTitle.trim()) return;
-    
-    const newSection: Section = {
-      id: crypto.randomUUID(),
-      title: newSectionTitle.trim(),
-      recipeIds: [],
-    };
-    
-    setLayoutData(prev => ({
-      ...prev,
-      sections: [...prev.sections, newSection],
-    }));
-    setExpandedSections(prev => new Set([...Array.from(prev), newSection.id]));
-    setNewSectionTitle("");
-    setShowNewSectionDialog(false);
-    setHasUnsavedChanges(true);
-  };
-
-  const handleRemoveSection = (sectionId: string) => {
-    setLayoutData(prev => ({
-      ...prev,
-      sections: prev.sections.filter(s => s.id !== sectionId),
-    }));
-    setHasUnsavedChanges(true);
-  };
-
-  const handleUpdateSectionTitle = (sectionId: string, title: string) => {
-    setLayoutData(prev => ({
-      ...prev,
-      sections: prev.sections.map(s =>
-        s.id === sectionId ? { ...s, title } : s
-      ),
-    }));
-    setHasUnsavedChanges(true);
-  };
-
-  const handleRemoveRecipe = (sectionId: string, recipeId: string) => {
-    setLayoutData(prev => ({
-      ...prev,
-      sections: prev.sections.map(s =>
-        s.id === sectionId
-          ? { ...s, recipeIds: s.recipeIds.filter(id => id !== recipeId) }
-          : s
-      ),
-    }));
-    setHasUnsavedChanges(true);
-  };
-
-  const handleAddRecipes = (sectionId: string, recipeIds: string[]) => {
-    setLayoutData(prev => ({
-      ...prev,
-      sections: prev.sections.map(s =>
-        s.id === sectionId
-          ? { ...s, recipeIds: [...s.recipeIds, ...recipeIds] }
-          : s
-      ),
-    }));
-    setHasUnsavedChanges(true);
-  };
-
-  // Drag and drop handlers
-  const handleDragStart = (event: DragStartEvent) => {
-    const { active } = event;
-    const recipe = recipesById.get(active.id as string);
-    setActiveRecipe(recipe || null);
-  };
-
-  const handleDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event;
-    setActiveRecipe(null);
-
-    if (!over || active.id === over.id) return;
-
-    // Find which section contains the active item
-    let activeSectionIndex = -1;
-    let activeIndex = -1;
-    let overSectionIndex = -1;
-    let overIndex = -1;
-
-    (layoutData?.sections || []).forEach((section, sIdx) => {
-      const aIdx = section.recipeIds.indexOf(active.id as string);
-      const oIdx = section.recipeIds.indexOf(over.id as string);
-      if (aIdx !== -1) {
-        activeSectionIndex = sIdx;
-        activeIndex = aIdx;
-      }
-      if (oIdx !== -1) {
-        overSectionIndex = sIdx;
-        overIndex = oIdx;
-      }
-    });
-
-    if (activeSectionIndex === -1) return;
-
-    // Same section reorder
-    if (activeSectionIndex === overSectionIndex && overIndex !== -1) {
-      setLayoutData(prev => ({
-        ...prev,
-        sections: prev.sections.map((s, idx) =>
-          idx === activeSectionIndex
-            ? { ...s, recipeIds: arrayMove(s.recipeIds, activeIndex, overIndex) }
-            : s
-        ),
-      }));
-      setHasUnsavedChanges(true);
-    }
-  };
-
-  const handleDragOver = (event: DragOverEvent) => {
-    // Could implement cross-section drag here if needed
-  };
-
-  // Cover details handlers
-  const updateLayoutField = (field: keyof PrintLayoutData, value: any) => {
-    setLayoutData(prev => ({ ...prev, [field]: value }));
-    setHasUnsavedChanges(true);
-  };
-
-  const updateCustomization = (field: string, value: any) => {
-    setLayoutData(prev => ({
-      ...prev,
-      customizations: {
-        showNutrition: prev.customizations?.showNutrition ?? false,
-        showTips: prev.customizations?.showTips ?? false,
-        showVariations: prev.customizations?.showVariations ?? false,
-        showPageNumbers: prev.customizations?.showPageNumbers ?? true,
-        pageSize: prev.customizations?.pageSize ?? '6x9',
-        ...prev.customizations,
-        [field]: value,
-      },
-    }));
-    setHasUnsavedChanges(true);
-  };
-
-  // Calculate estimated page count
-  const estimatedPageCount = useMemo(() => {
-    const sections = layoutData?.sections || [];
-    const totalRecipes = sections.reduce((sum, s) => sum + s.recipeIds.length, 0);
-    // Rough estimate: 2 pages per recipe + front matter + section dividers
-    return Math.ceil(totalRecipes * 2 + sections.length + 4);
-  }, [layoutData?.sections]);
-
-  // Check authorization
-  const isOwner = user?.id === cookbook?.ownerUserId;
-
-  if (cookbookLoading || recipesLoading || projectsLoading || userLoading) {
+  if (cookbookQuery.isLoading || userLoading || (isOwner && (recipesQuery.isLoading || projectsQuery.isLoading)) || (isOwner && !draft && !recipesQuery.isError && !projectsQuery.isError)) {
     return (
-      <div className="container max-w-6xl mx-auto py-8 px-4">
-        <Skeleton className="h-8 w-48 mb-6" />
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2">
-            <Skeleton className="h-[400px] rounded-lg" />
-          </div>
-          <div>
-            <Skeleton className="h-[300px] rounded-lg" />
-          </div>
-        </div>
+      <div className={container}>
+        <LoadingState label="Opening your book" rows={5} />
       </div>
     );
   }
 
-  if (cookbookError || !cookbook) {
+  if (cookbookQuery.isError || !cookbook) {
     return (
-      <div className="container max-w-2xl mx-auto py-8 px-4">
-        <Card>
-          <CardContent className="py-12 text-center">
-            <AlertCircle className="h-12 w-12 mx-auto text-destructive mb-4" />
-            <h2 className="text-xl font-semibold mb-2">Cookbook Not Found</h2>
-            <p className="text-muted-foreground mb-6">
-              The cookbook you're looking for doesn't exist or you don't have access to it.
-            </p>
-            <Link href="/">
-              <Button variant="outline" data-testid="button-back-home">
-                <ArrowLeft className="h-4 w-4 mr-2" />
-                Back to Recipes
-              </Button>
-            </Link>
-          </CardContent>
-        </Card>
+      <div className={container}>
+        <PageHeader title="Print your cookbook" back={{ href: "/cookbooks", label: "Cookbooks" }} />
+        <ErrorState title="Can't open this cookbook" description="It doesn't exist, or you don't have access to it." onRetry={() => cookbookQuery.refetch()} />
       </div>
     );
   }
 
   if (!isOwner) {
     return (
-      <div className="container max-w-2xl mx-auto py-8 px-4">
-        <Card>
-          <CardContent className="py-12 text-center">
-            <AlertCircle className="h-12 w-12 mx-auto text-destructive mb-4" />
-            <h2 className="text-xl font-semibold mb-2">Access Denied</h2>
-            <p className="text-muted-foreground mb-6">
-              Only the cookbook owner can create print projects.
-            </p>
-            <Link href={`/cookbook/${cookbookId}`}>
-              <Button variant="outline" data-testid="button-back-cookbook">
-                <ArrowLeft className="h-4 w-4 mr-2" />
-                Back to Cookbook
-              </Button>
-            </Link>
-          </CardContent>
-        </Card>
+      <div className={container}>
+        <PageHeader title="Print your cookbook" back={{ href: `/cookbook/${cookbookId}`, label: cookbook.name }} />
+        <ErrorState title="Only the cookbook's owner can print it" description="Ask them to make the printed book, or make a copy of the recipes in your own cookbook." />
       </div>
     );
   }
 
+  if (recipesQuery.isError || projectsQuery.isError || !draft) {
+    return (
+      <div className={container}>
+        <PageHeader title="Print your cookbook" back={{ href: `/cookbook/${cookbookId}`, label: cookbook.name }} />
+        <ErrorState
+          title="Couldn't load your book"
+          onRetry={() => {
+            recipesQuery.refetch();
+            projectsQuery.refetch();
+          }}
+        />
+      </div>
+    );
+  }
+
+  const layout = draft.layoutData;
+  const hasRecipes = layout.sections.some((s) => s.recipeIds.length > 0);
+  const recipeCount = layout.sections.reduce((n, s) => n + s.recipeIds.length, 0);
+  const estimatedPageCount = estimateBookPages(recipeCount, layout.sections.filter((s) => s.recipeIds.length).length, draft.trimSize);
+  const selectedTemplate = draft.customTemplateId ? customTemplates.find((t) => t.id === draft.customTemplateId) : undefined;
+  const stepInfo = STEPS.find((s) => s.id === step)!;
+
   return (
-    <div className="container max-w-6xl mx-auto py-6 px-4">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-        <div className="flex items-center gap-3">
-          <Link href={`/cookbook/${cookbookId}`}>
-            <Button variant="ghost" size="icon" data-testid="button-back">
-              <ArrowLeft className="h-4 w-4" />
+    <div className={container}>
+      <PageHeader
+        title="Print your cookbook"
+        description={cookbook.name}
+        back={{ href: `/cookbook/${cookbookId}`, label: cookbook.name }}
+        secondaryActions={
+          <>
+            <SaveStatus state={autosave.state} onRetry={() => void autosave.retry()} />
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="icon" aria-label="More actions" title="More actions">
+                  <MoreHorizontal aria-hidden />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={handleDownloadPdf} disabled={isGeneratingPdf || !hasRecipes} data-testid="button-download-pdf">
+                  <Download className="mr-2 h-4 w-4" aria-hidden /> Download PDF
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setShowIngredientReview(true)} data-testid="button-review-recipes">
+                  Check ingredient amounts
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </>
+        }
+      />
+
+      <StepList current={step} onSelect={setStep} />
+
+      <h2 className="mb-4 font-serif text-2xl font-bold">{stepInfo.title}</h2>
+
+      {step === "recipes" && (
+        <RecipesStep cookbookId={cookbookId} sections={layout.sections} allRecipes={allRecipes} onChange={setSections} />
+      )}
+
+      {step === "look" && (
+        <LookStep cookbookId={cookbookId} draft={draft} update={update} updateCustomization={updateCustomization} />
+      )}
+
+      {step === "personalize" && (
+        <PersonalizeStep cookbookId={cookbookId} draft={draft} updateLayout={updateLayout} recipeTitles={recipeTitles} />
+      )}
+
+      {step === "review" && (
+        <div className="space-y-6">
+          <ReadyToPrint
+            cookbookId={cookbookId}
+            draft={draft}
+            updateLayout={updateLayout}
+            goToStep={setStep}
+            onOpenPreview={() => setShowPreview(true)}
+            onReviewIngredients={() => setShowIngredientReview(true)}
+            onResult={setAttentionCount}
+          />
+          <div className="flex flex-col gap-3 rounded-lg border p-4 sm:flex-row sm:items-center">
+            <p className="flex-1 text-sm text-muted-foreground">Want to print it yourself? Download the pages as a PDF.</p>
+            <Button variant="outline" onClick={handleDownloadPdf} disabled={isGeneratingPdf || !hasRecipes}>
+              {isGeneratingPdf ? <Loader2 className="animate-spin" aria-hidden /> : <Download aria-hidden />}
+              {isGeneratingPdf ? "Making the PDF…" : "Download PDF"}
             </Button>
-          </Link>
-          <div>
-            <h1 className="text-2xl font-bold">Print Cookbook</h1>
-            <p className="text-muted-foreground text-sm">{cookbook.name}</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          {hasUnsavedChanges && (
-            <Badge variant="secondary" className="text-xs">
-              Unsaved changes
-            </Badge>
-          )}
-          <Button
-            onClick={handleSave}
-            disabled={isSaving || !hasUnsavedChanges}
-            data-testid="button-save"
-          >
-            {isSaving ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            ) : (
-              <Save className="h-4 w-4 mr-2" />
-            )}
-            Save
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => setShowRecipeReview(true)}
-            data-testid="button-review-recipes"
-          >
-            <ListChecks className="h-4 w-4 mr-2" />
-            Review
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => setShowPreview(true)}
-            disabled={!layoutData?.sections?.length || layoutData.sections.every(s => s.recipeIds.length === 0)}
-            data-testid="button-preview"
-          >
-            <Eye className="h-4 w-4 mr-2" />
-            Preview
-          </Button>
-          <Button 
-            onClick={handleDownloadPdf}
-            disabled={isGeneratingPdf || !layoutData?.sections?.length || layoutData.sections.every(s => s.recipeIds.length === 0)}
-            data-testid="button-download-pdf"
-          >
-            {isGeneratingPdf ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            ) : (
-              <Download className="h-4 w-4 mr-2" />
-            )}
-            {isGeneratingPdf ? "Generating..." : "Download PDF"}
-          </Button>
-        </div>
-      </div>
+      )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Main Editor */}
-        <div className="lg:col-span-2 space-y-6">
-          {/* Cover Details */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">Cover Details</CardTitle>
-              <CardDescription>Customize the title page of your cookbook</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="title">Title</Label>
-                  <Input
-                    id="title"
-                    placeholder="My Cookbook"
-                    value={layoutData.title || ""}
-                    onChange={(e) => updateLayoutField("title", e.target.value)}
-                    data-testid="input-title"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="subtitle">Subtitle</Label>
-                  <Input
-                    id="subtitle"
-                    placeholder="A collection of family recipes"
-                    value={layoutData.subtitle || ""}
-                    onChange={(e) => updateLayoutField("subtitle", e.target.value)}
-                    data-testid="input-subtitle"
-                  />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="author">Author Name</Label>
-                <Input
-                  id="author"
-                  placeholder="Your name"
-                  value={layoutData.authorName || ""}
-                  onChange={(e) => updateLayoutField("authorName", e.target.value)}
-                  data-testid="input-author"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="dedication">Dedication (Optional)</Label>
-                <Textarea
-                  id="dedication"
-                  placeholder="For my grandmother, who taught me to love cooking..."
-                  value={layoutData.dedication || ""}
-                  onChange={(e) => updateLayoutField("dedication", e.target.value)}
-                  className="resize-none"
-                  rows={3}
-                  data-testid="input-dedication"
-                />
-              </div>
-            </CardContent>
-          </Card>
+      {step === "order" && (
+        <PrintOrderPanel
+          cookbookId={cookbookId}
+          cookbookName={cookbook.name}
+          coverImage={cookbook.coverImage}
+          book={draft}
+          estimatedPageCount={estimatedPageCount}
+          flushSave={autosave.flush}
+          attentionCount={attentionCount}
+          onGoToReview={() => setStep("review")}
+          existingOrder={currentProject?.luluOrderId ? { id: currentProject.luluOrderId, status: currentProject.luluOrderStatus } : null}
+        />
+      )}
 
-          {/* Sections & Recipes */}
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between gap-2">
-                <div>
-                  <CardTitle className="text-lg">Sections & Recipes</CardTitle>
-                  <CardDescription>
-                    Organize your cookbook into sections. Drag to reorder recipes.
-                  </CardDescription>
-                </div>
-                <Dialog open={showNewSectionDialog} onOpenChange={setShowNewSectionDialog}>
-                  <DialogTrigger asChild>
-                    <Button size="sm" data-testid="button-add-section">
-                      <Plus className="h-4 w-4 mr-2" />
-                      Add Section
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent>
-                    <DialogHeader>
-                      <DialogTitle>Add New Section</DialogTitle>
-                      <DialogDescription>
-                        Create a new section to organize your recipes.
-                      </DialogDescription>
-                    </DialogHeader>
-                    <div className="space-y-4 py-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="section-title">Section Title</Label>
-                        <Input
-                          id="section-title"
-                          placeholder="e.g., Appetizers, Main Courses, Desserts"
-                          value={newSectionTitle}
-                          onChange={(e) => setNewSectionTitle(e.target.value)}
-                          data-testid="input-new-section-title"
-                        />
-                      </div>
-                    </div>
-                    <DialogFooter>
-                      <Button variant="outline" onClick={() => setShowNewSectionDialog(false)}>
-                        Cancel
-                      </Button>
-                      <Button
-                        onClick={handleAddSection}
-                        disabled={!newSectionTitle.trim()}
-                        data-testid="confirm-add-section"
-                      >
-                        Add Section
-                      </Button>
-                    </DialogFooter>
-                  </DialogContent>
-                </Dialog>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <DndContext
-                sensors={sensors}
-                collisionDetection={closestCenter}
-                onDragStart={handleDragStart}
-                onDragEnd={handleDragEnd}
-                onDragOver={handleDragOver}
-              >
-                {(!layoutData?.sections || layoutData.sections.length === 0) ? (
-                  <div className="text-center py-12 text-muted-foreground">
-                    <BookOpen className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                    <p className="font-medium">No sections yet</p>
-                    <p className="text-sm">Add a section to start organizing your cookbook.</p>
-                  </div>
-                ) : (
-                  layoutData.sections.map((section) => (
-                    <SectionEditor
-                      key={section.id}
-                      section={section}
-                      recipes={section.recipeIds
-                        .map(id => recipesById.get(id))
-                        .filter((r): r is RecipeCard => !!r)}
-                      allRecipes={allRecipes}
-                      onUpdateTitle={(title) => handleUpdateSectionTitle(section.id, title)}
-                      onRemoveSection={() => handleRemoveSection(section.id)}
-                      onRemoveRecipe={(recipeId) => handleRemoveRecipe(section.id, recipeId)}
-                      onAddRecipes={(recipeIds) => handleAddRecipes(section.id, recipeIds)}
-                      isExpanded={expandedSections.has(section.id)}
-                      onToggleExpand={() => {
-                        setExpandedSections(prev => {
-                          const next = new Set(prev);
-                          if (next.has(section.id)) {
-                            next.delete(section.id);
-                          } else {
-                            next.add(section.id);
-                          }
-                          return next;
-                        });
-                      }}
-                    />
-                  ))
-                )}
-                <DragOverlay>
-                  <RecipeOverlay recipe={activeRecipe} />
-                </DragOverlay>
-              </DndContext>
-            </CardContent>
-          </Card>
-        </div>
+      <StepBar current={step} onSelect={setStep} onPreview={() => setShowPreview(true)} previewDisabled={!hasRecipes} />
 
-        {/* Sidebar - Settings & Preview */}
-        <div className="space-y-6">
-          <OrganizeByCourse
-            cookbookId={cookbookId}
-            hasExistingSections={(layoutData?.sections?.length ?? 0) > 1}
-            onApply={(sections) => {
-              setLayoutData(prev => ({ ...prev, sections }));
-              setHasUnsavedChanges(true);
-            }}
-          />
-
-          {/* Template Style */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">Template Style</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {/* Built-in templates */}
-              {TEMPLATE_STYLES.map((style) => (
-                <div
-                  key={style.id}
-                  className={`p-3 border rounded-md cursor-pointer transition-colors ${
-                    templateStyle === style.id && !selectedCustomTemplateId
-                      ? "border-primary bg-primary/5"
-                      : "hover-elevate"
-                  }`}
-                  onClick={() => {
-                    setTemplateStyle(style.id);
-                    setSelectedCustomTemplateId(null);
-                    setHasUnsavedChanges(true);
-                  }}
-                  data-testid={`template-${style.id}`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-medium text-sm">{style.name}</span>
-                    {templateStyle === style.id && !selectedCustomTemplateId && (
-                      <Check className="h-4 w-4 text-primary" />
-                    )}
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {style.description}
-                  </p>
-                </div>
-              ))}
-
-              {/* My Custom Templates */}
-              {customTemplates.length > 0 && (
-                <>
-                  <Separator className="my-2" />
-                  <div className="flex items-center gap-1.5 mb-1">
-                    <Palette className="w-3.5 h-3.5 text-muted-foreground" />
-                    <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">My Templates</span>
-                  </div>
-                  {customTemplates.map((ct: CustomTemplate) => (
-                    <div
-                      key={ct.id}
-                      className={`p-3 border rounded-md cursor-pointer transition-colors ${
-                        selectedCustomTemplateId === ct.id
-                          ? "border-primary bg-primary/5"
-                          : "hover-elevate"
-                      }`}
-                      onClick={() => {
-                        setSelectedCustomTemplateId(ct.id);
-                        setHasUnsavedChanges(true);
-                      }}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="font-medium text-sm">{ct.name}</span>
-                        <div className="flex items-center gap-1">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setEditingCustomTemplate(ct);
-                              setShowTemplateDesigner(true);
-                            }}
-                            className="p-1 rounded hover:bg-accent"
-                            title="Edit template"
-                          >
-                            <Pencil className="w-3 h-3 text-muted-foreground" />
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDeleteTemplate(ct);
-                            }}
-                            className="p-1 rounded hover:bg-accent"
-                            title="Delete template"
-                            data-testid={`delete-template-${ct.id}`}
-                          >
-                            <Trash2 className="w-3 h-3 text-muted-foreground" />
-                          </button>
-                          {selectedCustomTemplateId === ct.id && (
-                            <Check className="h-4 w-4 text-primary" />
-                          )}
-                        </div>
-                      </div>
-                      {ct.description && (
-                        <p className="text-xs text-muted-foreground mt-1">{ct.description}</p>
-                      )}
-                    </div>
-                  ))}
-                </>
-              )}
-
-              {/* Card-style templates print nutrition and tips on every recipe */}
-              {((templateStyle === "card" && !selectedCustomTemplateId) ||
-                (selectedCustomTemplateId != null &&
-                  !!(customTemplates.find((t: CustomTemplate) => t.id === selectedCustomTemplateId)?.templateData as any)?.layout)) && (
-                <PrintDetailsNotice cookbookId={cookbookId} />
-              )}
-
-              {/* Build a template from photos of an existing cookbook */}
-              <TemplateFromPhotos
-                onCreated={(t) => {
-                  setSelectedCustomTemplateId(t.id);
-                  setHasUnsavedChanges(true);
-                }}
-              />
-
-              {/* Design Custom Template button */}
-              <Button
-                variant="outline"
-                size="sm"
-                className="w-full gap-1.5 mt-2"
-                data-testid="design-custom-template"
-                onClick={() => {
-                  setEditingCustomTemplate(null);
-                  setShowTemplateDesigner(true);
-                }}
-              >
-                <Sparkles className="w-3.5 h-3.5" />
-                Design Custom Template
-              </Button>
-            </CardContent>
-          </Card>
-
-          {/* Family photos placed in the space under recipes */}
-          <FamilyPhotosPanel
-            cookbookId={cookbookId}
-            layoutData={layoutData}
-            onChange={(familyPhotos) => {
-              setLayoutData(prev => ({ ...prev, familyPhotos }));
-              setHasUnsavedChanges(true);
-            }}
-            templateStyle={templateStyle}
-            customTemplateId={selectedCustomTemplateId}
-            recipeTitles={recipeTitles}
-          />
-
-          {/* Template Designer Dialog */}
-          <TemplateDesigner
-            open={showTemplateDesigner}
-            onOpenChange={setShowTemplateDesigner}
-            editingTemplate={editingCustomTemplate}
-            onSaved={(template) => {
-              setSelectedCustomTemplateId(template.id);
-              setHasUnsavedChanges(true);
-            }}
-          />
-
-          {/* Print Specifications */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">Print Specifications</CardTitle>
-              <CardDescription>Configure book size, binding, and paper</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label>Trim Size</Label>
-                <Select
-                  value={trimSize}
-                  onValueChange={(value) => {
-                    setTrimSize(value as TrimSizeId);
-                    setHasUnsavedChanges(true);
-                  }}
-                >
-                  <SelectTrigger data-testid="select-trim-size">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {Object.entries(BOOK_SIZES).map(([id, size]) => (
-                      <SelectItem key={id} value={id}>
-                        {size.name} ({size.description})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label>Binding Type</Label>
-                <Select
-                  value={bindingType}
-                  onValueChange={(value) => {
-                    const bt = value as BindingTypeId;
-                    setBindingType(bt);
-                    // Reset paper if not compatible
-                    const compat = BINDING_PAPER_COMPATIBILITY[bt] || [];
-                    if (!compat.includes(paperType)) {
-                      setPaperType(compat[0] as PaperTypeId);
-                    }
-                    setHasUnsavedChanges(true);
-                  }}
-                >
-                  <SelectTrigger data-testid="select-binding-type">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {Object.entries(BINDING_TYPES).map(([id, info]) => (
-                      <SelectItem key={id} value={id}>
-                        {info.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">
-                  {BINDING_TYPES[bindingType].description}
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <Label>Paper Type</Label>
-                <Select
-                  value={paperType}
-                  onValueChange={(value) => {
-                    setPaperType(value as PaperTypeId);
-                    setHasUnsavedChanges(true);
-                  }}
-                >
-                  <SelectTrigger data-testid="select-paper-type">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {compatiblePapers.map((id) => (
-                      <SelectItem key={id} value={id}>
-                        {PAPER_TYPES[id]?.name || id}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">
-                  {PAPER_TYPES[paperType]?.description}
-                </p>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-2">
-                  <Label>Color</Label>
-                  <Select
-                    value={colorType}
-                    onValueChange={(value) => {
-                      setColorType(value as ColorTypeId);
-                      setHasUnsavedChanges(true);
-                    }}
-                  >
-                    <SelectTrigger data-testid="select-color-type">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {Object.entries(COLOR_TYPES).map(([id, info]) => (
-                        <SelectItem key={id} value={id}>
-                          {info.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Cover Finish</Label>
-                  <Select
-                    value={coverFinish}
-                    onValueChange={(value) => {
-                      setCoverFinish(value as CoverFinishId);
-                      setHasUnsavedChanges(true);
-                    }}
-                  >
-                    <SelectTrigger data-testid="select-cover-finish">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {Object.entries(COVER_FINISHES).map(([id, info]) => (
-                        <SelectItem key={id} value={id}>
-                          {info.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              <Separator />
-
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="show-page-numbers">Show Page Numbers</Label>
-                  <input
-                    type="checkbox"
-                    id="show-page-numbers"
-                    checked={layoutData.customizations?.showPageNumbers !== false}
-                    onChange={(e) => updateCustomization("showPageNumbers", e.target.checked)}
-                    className="h-4 w-4"
-                    data-testid="checkbox-page-numbers"
-                  />
-                </div>
-              </div>
-
-              <Separator />
-
-              <div className="space-y-1">
-                <Label className="text-sm font-medium">Extra Pages (per recipe)</Label>
-                <p className="text-xs text-muted-foreground mb-2">
-                  These appear on a second page after each recipe to keep the main recipe page clean and easy to read.
-                </p>
-                <div className="space-y-2 pl-1">
-                  <div className="flex items-center justify-between">
-                    <Label htmlFor="show-nutrition" className="text-sm font-normal">Nutrition Info</Label>
-                    <input
-                      type="checkbox"
-                      id="show-nutrition"
-                      checked={layoutData.customizations?.showNutrition === true}
-                      onChange={(e) => updateCustomization("showNutrition", e.target.checked)}
-                      className="h-4 w-4"
-                      data-testid="checkbox-nutrition"
-                    />
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <Label htmlFor="show-tips" className="text-sm font-normal">Tips</Label>
-                    <input
-                      type="checkbox"
-                      id="show-tips"
-                      checked={layoutData.customizations?.showTips === true}
-                      onChange={(e) => updateCustomization("showTips", e.target.checked)}
-                      className="h-4 w-4"
-                      data-testid="checkbox-tips"
-                    />
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <Label htmlFor="show-variations" className="text-sm font-normal">Variations</Label>
-                    <input
-                      type="checkbox"
-                      id="show-variations"
-                      checked={layoutData.customizations?.showVariations === true}
-                      onChange={(e) => updateCustomization("showVariations", e.target.checked)}
-                      className="h-4 w-4"
-                      data-testid="checkbox-variations"
-                    />
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-2 pl-1">
-                    Enabled extras will appear on a second page after each recipe that has the corresponding data.
-                  </p>
-                </div>
-              </div>
-
-              <div>
-                <Label className="text-sm font-medium">Ingredient Units</Label>
-                <p className="text-xs text-muted-foreground mb-2">
-                  Print every recipe's measurements in one system, regardless of how it was written.
-                </p>
-                <select
-                  value={layoutData.customizations?.unitSystem || 'original'}
-                  onChange={(e) => updateCustomization("unitSystem", e.target.value)}
-                  className="w-full h-9 rounded-md border bg-background px-3 text-sm"
-                  data-testid="select-unit-system"
-                >
-                  <option value="original">As written (keep each recipe's units)</option>
-                  <option value="us">US (oz, lb, cups)</option>
-                  <option value="metric">Metric (g, kg, ml)</option>
-                </select>
-              </div>
-
-              <div className="text-xs text-muted-foreground p-2 bg-muted rounded">
-                Page limits: {pageLimits.min}–{pageLimits.max} pages for {BINDING_TYPES[bindingType].name}
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Project Info */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">Project Info</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3 text-sm">
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Sections</span>
-                  <span className="font-medium" data-testid="text-section-count">{layoutData?.sections?.length || 0}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Total Recipes</span>
-                  <span className="font-medium" data-testid="text-recipe-count">
-                    {(layoutData?.sections || []).reduce((sum, s) => sum + s.recipeIds.length, 0)}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Est. Pages</span>
-                  <span className="font-medium" data-testid="text-page-estimate">~{estimatedPageCount}</span>
-                </div>
-                <Separator />
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Status</span>
-                  <Badge variant={currentProject ? "secondary" : "outline"} data-testid="badge-status">
-                    {currentProject ? "Saved" : "New"}
-                  </Badge>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Preflight Check */}
-          <PreflightCheckPanel
-            cookbookId={cookbookId}
-            layoutData={layoutData}
-            templateStyle={templateStyle}
-          />
-
-          {/* Print Order */}
-          <PrintOrderPanel
-            cookbookId={cookbookId}
-            layoutData={layoutData}
-            estimatedPageCount={estimatedPageCount}
-            pageSize={layoutData.customizations?.pageSize || "6x9"}
-          />
-        </div>
-      </div>
-
-      {/* Print Preview Modal */}
       <CookbookPrintPreview
         open={showPreview}
         onClose={() => setShowPreview(false)}
-        layoutData={layoutData}
-        templateStyle={templateStyle}
+        layoutData={layout}
+        templateStyle={draft.templateStyle}
         cookbookId={cookbookId}
-        trimSize={trimSize}
-        customTemplateData={
-          selectedCustomTemplateId
-            ? (customTemplates.find(ct => ct.id === selectedCustomTemplateId)?.templateData as any) || null
-            : null
-        }
-        customFonts={
-          selectedCustomTemplateId
-            ? (customTemplates.find(ct => ct.id === selectedCustomTemplateId)?.customFonts as any) || null
-            : null
-        }
+        trimSize={draft.trimSize}
+        customTemplateData={(selectedTemplate?.templateData as any) || null}
+        customFonts={(selectedTemplate?.customFonts as any) || null}
       />
 
-      {/* Pre-print recipe review */}
-      <RecipeReviewDialog
-        cookbookId={cookbookId}
-        open={showRecipeReview}
-        onClose={() => setShowRecipeReview(false)}
-      />
+      <RecipeReviewDialog cookbookId={cookbookId} open={showIngredientReview} onClose={() => setShowIngredientReview(false)} />
     </div>
   );
 }

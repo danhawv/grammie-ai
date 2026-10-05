@@ -39,6 +39,8 @@ router.get("/api/print/lulu/status", isAuthenticated, async (req: any, res) => {
   const configured = Boolean(process.env.LULU_CLIENT_ID && process.env.LULU_CLIENT_SECRET);
   res.json({
     configured,
+    // Sandbox orders are never printed or charged; the checkout says so
+    testMode: (process.env.LULU_ENVIRONMENT || 'sandbox') !== 'production',
     shippingOptions: SHIPPING_OPTIONS,
     bookSizes: BOOK_SIZES,
     bindingTypes: BINDING_TYPE_INFO,
