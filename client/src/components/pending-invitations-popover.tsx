@@ -6,7 +6,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { Bell, BookOpen, Check, X, Loader2 } from "lucide-react";
+import { Mail, BookOpen, Check, X, Loader2 } from "lucide-react";
 import { useLocation } from "wouter";
 
 interface CookbookInvitationWithDetails {
@@ -91,9 +91,11 @@ export function PendingInvitationsPopover() {
           variant="ghost" 
           size="icon" 
           className="relative"
+          aria-label={pendingCount > 0 ? `Cookbook invitations (${pendingCount} new)` : "Cookbook invitations"}
+          title="Cookbook invitations"
           data-testid="button-pending-invitations"
         >
-          <Bell className="h-5 w-5" />
+          <Mail className="h-5 w-5" aria-hidden />
           {pendingCount > 0 && (
             <Badge 
               variant="destructive" 
