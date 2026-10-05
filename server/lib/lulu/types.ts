@@ -153,4 +153,46 @@ export interface CostCalculationResult {
   total_cost_excl_tax: string;
   total_cost_incl_tax: string;
   currency: string;
+  /** Lulu's address check; present when it corrected the address */
+  shipping_address?: {
+    warnings?: Array<{ type: string; code: string; message: string }>;
+    suggested_address?: {
+      country_code: string;
+      state_code?: string | null;
+      postcode: string;
+      city: string;
+      street1: string;
+      street2?: string | null;
+    };
+  };
+}
+
+export interface ShippingOptionsRequest {
+  currency: string;
+  line_items: Array<{ pod_package_id: string; page_count: number; quantity: number }>;
+  shipping_address: {
+    city?: string;
+    country: string;
+    postcode?: string;
+    state_code?: string;
+    street1?: string;
+  };
+}
+
+/** One row of POST /shipping-options/ (checked against the sandbox, Oct 2026) */
+export interface ShippingOption {
+  id: number;
+  level: ShippingLevel;
+  carrier_service_name?: string;
+  cost_excl_tax?: number;
+  currency?: string;
+  transit_time?: number;
+  total_days_min?: number;
+  total_days_max?: number;
+  min_dispatch_date?: string;
+  max_dispatch_date?: string;
+  min_delivery_date?: string;
+  max_delivery_date?: string;
+  home_only?: boolean;
+  postbox_ok?: boolean;
 }

@@ -15,11 +15,13 @@ import {
 } from "@shared/schema";
 import { CHAPTERS, chapterForTags, buildCoursePlan } from "@shared/courses";
 import { normalizeUsState } from "@shared/us-states";
+import { validateAddress, estimateArrival } from "@shared/print-checkout";
 import { isGeminiAvailable, parseQueryWithGemini } from "../gemini";
 import { generateInteriorPdf, generateCoverPdf, measureRecipeGaps, type CookbookPrintData } from "../lib/pdf/generator";
 import { planFamilyPhotos } from "@shared/family-photos";
 import { transformRecipe } from "../lib/pdf/recipe-transformer";
-import { buildPodPackageId, BINDING_PAGE_LIMITS } from "../lib/lulu/pod-package";
+import { buildPodPackageId, BINDING_PAGE_LIMITS, BINDING_PAPER_COMPATIBILITY } from "../lib/lulu/pod-package";
+import { BOOK_SIZES as LULU_BOOK_SIZES } from "../lib/lulu/book-sizes";
 import { createPrintJob } from "../lib/lulu/client";
 import type { BookConfig, LuluPrintJobRequest, ShippingLevel } from "../lib/lulu/types";
 import { getUserId, upload, storePdf } from "./route-utils";
@@ -60,6 +62,21 @@ async function fetchPrintRecipesByIds(ids: string[]) {
   return rows.map(r => ({ ...r, dishImage: null, handwrittenImage: null, dishImages: null })) as (typeof recipes.$inferSelect)[];
 }
 
+// The public parts of a cookbook owner's profile, for "by Grandma Jean".
+// The client used to expect this on GET /cookbooks/:id but it was never sent,
+// so every cookbook showed "by Unknown".
+async function ownerSummary(ownerUserId: string) {
+  const owner = await storage.getUser(ownerUserId);
+  if (!owner) return undefined;
+  return {
+    id: owner.id,
+    username: owner.username ?? null,
+    firstName: owner.firstName ?? null,
+    lastName: owner.lastName ?? null,
+    avatar: owner.profileImageUrl ?? null,
+  };
+}
+
 router.get("/cookbooks", optionalAuth, async (req: any, res) => {
   try {
     const userId = getUserId(req);
@@ -68,6 +85,13 @@ router.get("/cookbooks", optionalAuth, async (req: any, res) => {
 
     if (scope === 'public') {
       cookbooksList = await storage.getPublicCookbooks();
+    } else if (scope === 'shared') {
+      // Cookbooks other people shared with this user (collaborator), with owners
+      if (!userId) return res.status(401).json({ error: "Unauthorized" });
+      const shared = await storage.getCollaboratingCookbooks(userId);
+      const owners = new Map<string, Awaited<ReturnType<typeof ownerSummary>>>();
+      for (const id of Array.from(new Set(shared.map((c) => c.ownerUserId)))) owners.set(id, await ownerSummary(id));
+      return res.json(shared.map((c) => ({ ...c, owner: owners.get(c.ownerUserId) })));
     } else if (scope === 'following') {
       if (!userId) return res.status(401).json({ error: "Unauthorized" });
       cookbooksList = await storage.getFollowedCookbooks(userId);
@@ -109,7 +133,7 @@ router.get("/cookbooks/:id", optionalAuth, async (req: any, res) => {
     const userId = getUserId(req);
     const cookbook = await storage.getCookbook(Number(id), userId);
     if (!cookbook) return res.status(404).json({ error: "Cookbook not found" });
-    res.json(cookbook);
+    res.json({ ...cookbook, owner: await ownerSummary(cookbook.ownerUserId) });
   } catch (error) {
     console.error("Error fetching cookbook:", error);
     res.status(500).json({ error: "Failed to fetch cookbook" });
@@ -565,6 +589,51 @@ router.delete("/cookbooks/:id/invitations/:invitationId", isAuthenticated, async
 // COOKBOOK PRINT PROJECTS
 // ============================================================================
 
+// Everything about the book besides the layout: template and print specs.
+// The editor autosaves these with the layout so the order uses exactly what
+// the person chose (they used to live only in the page and were lost).
+const TEMPLATE_STYLES = ['classic', 'modern', 'rustic', 'elegant', 'card'] as const;
+type TemplateStyle = typeof TEMPLATE_STYLES[number];
+
+async function parseBookSettings(body: any, userId: string): Promise<{ error: string } | { updates: Record<string, any> }> {
+  const updates: Record<string, any> = {};
+  if (body.templateStyle !== undefined) {
+    if (!TEMPLATE_STYLES.includes(body.templateStyle)) return { error: "Invalid template style" };
+    updates.templateStyle = body.templateStyle as TemplateStyle;
+  }
+  if (body.customTemplateId !== undefined) {
+    if (body.customTemplateId === null) {
+      updates.customTemplateId = null;
+    } else {
+      const template = await storage.getCustomTemplate(Number(body.customTemplateId));
+      if (!template || (template.ownerUserId !== userId && !template.isPublic)) return { error: "Template not found" };
+      updates.customTemplateId = template.id;
+    }
+  }
+  if (body.trimSize !== undefined) {
+    if (!(body.trimSize in LULU_BOOK_SIZES)) return { error: "Invalid book size" };
+    updates.trimSize = body.trimSize;
+  }
+  if (body.bindingType !== undefined) {
+    if (!(body.bindingType in BINDING_PAPER_COMPATIBILITY)) return { error: "Invalid binding" };
+    updates.bindingType = body.bindingType;
+  }
+  if (body.paperType !== undefined) {
+    const binding = updates.bindingType ?? body.bindingType ?? 'PB';
+    if (!(BINDING_PAPER_COMPATIBILITY[binding] || []).includes(body.paperType)) return { error: "That paper doesn't work with this binding" };
+    updates.paperType = body.paperType;
+  }
+  if (body.colorType !== undefined) {
+    if (!['BW', 'FC'].includes(body.colorType)) return { error: "Invalid color option" };
+    updates.colorType = body.colorType;
+  }
+  if (body.coverFinish !== undefined) {
+    if (!['M', 'G'].includes(body.coverFinish)) return { error: "Invalid cover finish" };
+    updates.coverFinish = body.coverFinish;
+  }
+  return { updates };
+}
+
 router.post("/cookbooks/:id/print-projects", isAuthenticated, async (req: any, res) => {
   try {
     const { id } = req.params;
@@ -579,18 +648,25 @@ router.post("/cookbooks/:id/print-projects", isAuthenticated, async (req: any, r
       return res.status(403).json({ error: "Not authorized to create print project for this cookbook" });
     }
 
-    const { layoutData, templateStyle } = req.body;
+    // One project per cookbook: a second create (e.g. two tabs autosaving at
+    // once) updates the existing one instead of forking the book
+    const existing = (await storage.getPrintProjectsByCookbook(Number(id), userId))[0];
 
-    const validatedLayout = printLayoutDataSchema.parse(layoutData || { sections: [] });
+    const validatedLayout = printLayoutDataSchema.parse(req.body.layoutData || { sections: [] });
+    const settings = await parseBookSettings(req.body, userId);
+    if ("error" in settings) return res.status(400).json({ error: settings.error });
 
-    const validStyles = ['classic', 'modern', 'rustic', 'elegant', 'card'] as const;
-    const validTemplateStyle = validStyles.includes(templateStyle) ? templateStyle : 'classic';
+    if (existing) {
+      const project = await storage.updatePrintProject(existing.id, { layoutData: validatedLayout, ...settings.updates }, userId);
+      return res.json(project);
+    }
 
     const project = await storage.createPrintProject({
       cookbookId: Number(id),
       ownerUserId: userId,
       layoutData: validatedLayout,
-      templateStyle: validTemplateStyle,
+      templateStyle: 'classic',
+      ...settings.updates,
     });
 
     res.status(201).json(project);
@@ -662,19 +738,13 @@ router.patch("/print-projects/:projectId", isAuthenticated, async (req: any, res
     const userId = getUserId(req);
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
-    const { layoutData, templateStyle } = req.body;
-    const updates: any = {};
+    const { layoutData } = req.body;
+    const settings = await parseBookSettings(req.body, userId);
+    if ("error" in settings) return res.status(400).json({ error: settings.error });
+    const updates: any = { ...settings.updates };
 
     if (layoutData !== undefined) {
       updates.layoutData = printLayoutDataSchema.parse(layoutData);
-    }
-
-    if (templateStyle !== undefined) {
-      const validStyles = ['classic', 'modern', 'rustic', 'elegant', 'card'] as const;
-      if (!validStyles.includes(templateStyle)) {
-        return res.status(400).json({ error: "Invalid template style" });
-      }
-      updates.templateStyle = templateStyle;
     }
 
     const project = await storage.updatePrintProject(Number(projectId), updates, userId);
@@ -1299,6 +1369,15 @@ router.post("/cookbooks/:id/photos/place", isAuthenticated, async (req: any, res
   }
 });
 
+// Orders in flight or just placed, by person + idempotency key. A double tap,
+// a retry after a dropped connection, or a second tab gets the first
+// attempt's result instead of placing a second order. In memory, like the
+// staged PDFs; an hour is far longer than any retry.
+type OrderReply = { status: number; body: any };
+const orderAttempts = new Map<string, { at: number; result: Promise<OrderReply> }>();
+const ORDER_ATTEMPT_TTL_MS = 60 * 60 * 1000;
+const reply = (status: number, body: any): OrderReply => ({ status, body });
+
 // Create a print job order (auto-generates PDFs)
 router.post("/cookbooks/:id/print-order", isAuthenticated, async (req: any, res) => {
   try {
@@ -1320,6 +1399,33 @@ router.post("/cookbooks/:id/print-order", isAuthenticated, async (req: any, res)
       return res.status(403).json({ error: "Not authorized to order prints for this cookbook" });
     }
 
+    const now = Date.now();
+    orderAttempts.forEach((v, k) => { if (now - v.at > ORDER_ATTEMPT_TTL_MS) orderAttempts.delete(k); });
+
+    const key = typeof req.body.idempotencyKey === "string" && req.body.idempotencyKey.length >= 8
+      ? `${userId}:${cookbookId}:${req.body.idempotencyKey.slice(0, 100)}`
+      : null;
+    const previous = key ? orderAttempts.get(key) : undefined;
+    if (previous) {
+      const r = await previous.result;
+      return res.status(r.status).json({ ...r.body, repeated: true });
+    }
+
+    const result = placePrintOrder(req, userId, cookbook, cookbookId);
+    if (key) {
+      orderAttempts.set(key, { at: now, result });
+      // A failed attempt can be tried again with the same key
+      result.then((r) => { if (r.status >= 400) orderAttempts.delete(key); }, () => orderAttempts.delete(key));
+    }
+    const r = await result;
+    res.status(r.status).json(r.body);
+  } catch (error: any) {
+    console.error("Error creating print order:", error);
+    res.status(500).json({ error: error.message || "Failed to create print order" });
+  }
+});
+
+async function placePrintOrder(req: any, userId: string, cookbook: { id: number; name: string }, cookbookId: number): Promise<OrderReply> {
     const {
       layoutData,
       quantity,
@@ -1328,16 +1434,22 @@ router.post("/cookbooks/:id/print-order", isAuthenticated, async (req: any, res)
     } = req.body;
 
     if (!layoutData) {
-      return res.status(400).json({ error: "Layout data is required" });
+      return reply(400, { error: "Layout data is required" });
     }
+    if (!shippingAddress) return reply(400, { error: "Enter a shipping address." });
+    const addressErrors = validateAddress(shippingAddress);
+    const firstAddressError = Object.values(addressErrors)[0];
+    if (firstAddressError) return reply(400, { error: firstAddressError, fieldErrors: addressErrors });
+    const copies = Math.floor(Number(quantity) || 1);
+    if (copies < 1 || copies > 100) return reply(400, { error: "Order between 1 and 100 copies." });
     if (shippingAddress?.country_code === 'US') {
       const state = normalizeUsState(shippingAddress.state_code);
-      if (!state) return res.status(400).json({ error: "Enter a valid US state, like OH or Ohio." });
+      if (!state) return reply(400, { error: "Enter a valid US state, like OH or Ohio." });
       shippingAddress.state_code = state;
     }
     const validatedLayout = printLayoutDataSchema.safeParse(layoutData);
     if (!validatedLayout.success) {
-      return res.status(400).json({ error: "Invalid layout data", details: validatedLayout.error.issues });
+      return reply(400, { error: "Invalid layout data", details: validatedLayout.error.issues });
     }
 
     const allRecipeIds = validatedLayout.data.sections
@@ -1345,7 +1457,7 @@ router.post("/cookbooks/:id/print-order", isAuthenticated, async (req: any, res)
       .filter((rid): rid is string => typeof rid === 'string' && rid.length > 0);
 
     if (allRecipeIds.length === 0) {
-      return res.status(400).json({ error: "No recipes in layout" });
+      return reply(400, { error: "No recipes in layout" });
     }
 
     // Backfill print-resolution derivatives (no-op once generated), then fetch
@@ -1353,12 +1465,26 @@ router.post("/cookbooks/:id/print-order", isAuthenticated, async (req: any, res)
     const recipesResult = await fetchPrintRecipesByIds(allRecipeIds);
 
     if (recipesResult.length === 0) {
-      return res.status(400).json({ error: "No recipes found in database for this layout" });
+      return reply(400, { error: "No recipes found in database for this layout" });
     }
 
-    // Get print project for specs
-    const printProjects = await storage.getPrintProjectsByCookbook(cookbookId, userId);
-    const printProject = printProjects[0];
+    // The print project holds the specs and template, and is where the order
+    // is recorded. Save the book exactly as ordered (creating the project if
+    // the editor never saved one) so the order shows up in the app.
+    const settings = await parseBookSettings(req.body, userId);
+    if ("error" in settings) return reply(400, { error: settings.error });
+    let printProject = (await storage.getPrintProjectsByCookbook(cookbookId, userId))[0];
+    if (printProject) {
+      printProject = (await storage.updatePrintProject(printProject.id, { layoutData: validatedLayout.data, ...settings.updates }, userId)) ?? printProject;
+    } else {
+      printProject = await storage.createPrintProject({
+        cookbookId,
+        ownerUserId: userId,
+        layoutData: validatedLayout.data,
+        templateStyle: 'classic',
+        ...settings.updates,
+      });
+    }
 
     const trimSize = printProject?.trimSize || '0600X0900';
     const bindingType = printProject?.bindingType || 'PB';
@@ -1431,7 +1557,7 @@ router.post("/cookbooks/:id/print-order", isAuthenticated, async (req: any, res)
     // Validate page count
     const limits = BINDING_PAGE_LIMITS[bindingType] || { min: 32, max: 800 };
     if (pdfResult.pageCount > limits.max) {
-      return res.status(400).json({
+      return reply(400, {
         error: `Cookbook has ${pdfResult.pageCount} pages but maximum is ${limits.max} for this binding type. Please reduce the number of recipes.`
       });
     }
@@ -1473,7 +1599,7 @@ router.post("/cookbooks/:id/print-order", isAuthenticated, async (req: any, res)
     // Lulu requires a contact email; fall back to the account's email when the form field is blank
     const contactEmail = shippingAddress.email?.trim() || (await storage.getUser(userId))?.email || '';
     if (!contactEmail) {
-      return res.status(400).json({ error: "Please enter an email address for order updates." });
+      return reply(400, { error: "Please enter an email address for order updates." });
     }
 
     const orderRequest: LuluPrintJobRequest = {
@@ -1483,7 +1609,7 @@ router.post("/cookbooks/:id/print-order", isAuthenticated, async (req: any, res)
         cover: coverUrl,
         interior: interiorUrl,
         pod_package_id: podPackageId,
-        quantity: quantity || 1,
+        quantity: copies,
       }],
       shipping_address: shippingAddress,
       shipping_level: (shippingLevel || 'GROUND_HD') as ShippingLevel,
@@ -1492,22 +1618,30 @@ router.post("/cookbooks/:id/print-order", isAuthenticated, async (req: any, res)
 
     const order = await createPrintJob(orderRequest);
 
-    if (printProjects.length > 0) {
-      await storage.updatePrintProjectLuluOrder(printProjects[0].id, String(order.id), order.status.name);
+    // Record it; if this fails the order still exists at Lulu, so report
+    // success with the number rather than inviting a duplicate order
+    try {
+      await storage.updatePrintProjectLuluOrder(printProject.id, String(order.id), order.status.name);
+    } catch (err) {
+      console.error(`[Print Order] Order ${order.id} placed but not recorded on project ${printProject.id}:`, err);
     }
 
-    res.json({
+    const arrival = order.estimated_shipping_dates?.arrival_min && order.estimated_shipping_dates?.arrival_max
+      ? { min: order.estimated_shipping_dates.arrival_min.slice(0, 10), max: order.estimated_shipping_dates.arrival_max.slice(0, 10) }
+      : estimateArrival(orderRequest.shipping_level);
+
+    return reply(200, {
       success: true,
       orderId: order.id,
       status: order.status.name,
+      quantity: copies,
+      arrival,
+      total: order.costs?.total_cost_incl_tax ? parseFloat(order.costs.total_cost_incl_tax) : null,
+      projectId: printProject.id,
       message: "Print order submitted successfully",
       podPackageId,
       pdfUrls: { interior: interiorUrl, cover: coverUrl },
     });
-  } catch (error: any) {
-    console.error("Error creating print order:", error);
-    res.status(500).json({ error: error.message || "Failed to create print order" });
-  }
-});
+}
 
 export default router;

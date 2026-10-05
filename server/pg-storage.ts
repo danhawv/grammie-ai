@@ -158,6 +158,7 @@ export interface IStorage {
   getUserCookbooks(userId: string): Promise<CookbookWithCount[]>;
   getPublicCookbooks(): Promise<CookbookWithCount[]>;
   getFollowedCookbooks(userId: string): Promise<CookbookWithCount[]>;
+  getCollaboratingCookbooks(userId: string): Promise<CookbookWithCount[]>;
   createCookbook(cookbook: InsertCookbook): Promise<Cookbook>;
   updateCookbook(id: number, cookbook: Partial<InsertCookbook>, userId: string): Promise<Cookbook | undefined>;
   deleteCookbook(id: number, userId: string): Promise<boolean>;
@@ -1417,9 +1418,9 @@ export class PostgresStorage implements IStorage {
     
     if (!cookbook) return undefined;
     
-    // Check access permissions
+    // Check access permissions: public, the owner, or someone it's shared with
     if (!cookbook.isPublic && cookbook.ownerUserId !== userId) {
-      return undefined;
+      if (!userId || !(await this.isCookbookCollaborator(id, userId))) return undefined;
     }
     
     return cookbook;
@@ -1475,6 +1476,24 @@ export class PostgresStorage implements IStorage {
       .orderBy(desc(cookbookFollows.followedAt));
     
     return followed as CookbookWithCount[];
+  }
+
+  /** Cookbooks someone else owns that this user was added to as a collaborator */
+  async getCollaboratingCookbooks(userId: string): Promise<CookbookWithCount[]> {
+    const result = await db
+      .select({
+        ...getTableColumns(cookbooks),
+        recipeCount: sql<number>`CAST(COUNT(DISTINCT ${recipes.id}) AS INTEGER)`,
+      })
+      .from(cookbookCollaborators)
+      .innerJoin(cookbooks, eq(cookbookCollaborators.cookbookId, cookbooks.id))
+      .leftJoin(cookbookRecipes, eq(cookbooks.id, cookbookRecipes.cookbookId))
+      .leftJoin(recipes, eq(cookbookRecipes.recipeId, recipes.id))
+      .where(eq(cookbookCollaborators.userId, userId))
+      .groupBy(cookbooks.id, cookbookCollaborators.createdAt)
+      .orderBy(desc(cookbookCollaborators.createdAt));
+
+    return result as CookbookWithCount[];
   }
 
   async createCookbook(insertCookbook: InsertCookbook): Promise<Cookbook> {
