@@ -48,7 +48,7 @@ function timerLength(minutes: number): string {
 function SwitchPill({ on }: { on: boolean }) {
   return (
     <span aria-hidden className={cn("relative h-6 w-10 shrink-0 rounded-full transition-colors", on ? "bg-primary" : "bg-muted-foreground/40")}>
-      <span className={cn("absolute top-0.5 h-5 w-5 rounded-full bg-background shadow transition-transform", on ? "translate-x-[1.125rem]" : "translate-x-0.5")} />
+      <span className={cn("absolute left-0 top-0.5 h-5 w-5 rounded-full bg-background shadow transition-transform", on ? "translate-x-[1.125rem]" : "translate-x-0.5")} />
     </span>
   );
 }
@@ -72,7 +72,7 @@ export function TimerChips({
           <li
             key={t.id}
             className={cn(
-              "flex items-center rounded-full border text-base",
+              "flex shrink-0 items-center rounded-full border text-base",
               t.done ? "border-destructive bg-destructive text-destructive-foreground motion-safe:animate-pulse" : "bg-background",
             )}
             data-testid={`timer-${t.id}`}
@@ -112,11 +112,11 @@ export function CookingTimerTray({ timers, onOpen }: { timers: CookingTimers; on
       role="region"
       aria-label="Cooking timers"
     >
-      <div className="mx-auto flex max-w-3xl flex-wrap items-center gap-2 rounded-xl border bg-card p-2 shadow-lg">
-        <TimerChips timers={timers} className="flex-1" />
+      <div className="mx-auto flex max-w-3xl items-center gap-2 rounded-xl border bg-card p-2 shadow-lg">
+        <TimerChips timers={timers} className="min-w-0 flex-1 flex-nowrap overflow-x-auto" />
         <Button onClick={onOpen} className="shrink-0" data-testid="button-back-to-cooking">
           <ChefHat aria-hidden />
-          Back to cooking
+          Cooking
         </Button>
       </div>
     </div>
@@ -301,7 +301,7 @@ export function CookingMode({
       <div className="flex shrink-0 items-center gap-2 border-b px-4 py-2">
         <div className="min-w-0 flex-1">
           <p className="text-sm text-muted-foreground">Cooking</p>
-          <h2 id={titleId} className="truncate text-lg font-semibold">{title}</h2>
+          <h2 id={titleId} className="line-clamp-2 text-lg font-semibold leading-tight">{title}</h2>
         </div>
         <Button variant="outline" className="md:hidden" onClick={() => setShowIngredients(true)} data-testid="cooking-mode-ingredients">
           <ListChecks aria-hidden />

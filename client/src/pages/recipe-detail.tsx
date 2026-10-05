@@ -45,9 +45,15 @@ import { getDisplayIngredients, getDisplayInstructions } from "@/components/reci
 
 /** Same width and order as the page, so nothing jumps when it loads */
 function RecipeDetailSkeleton() {
+  // Say what's happening if it takes more than a moment
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setSlow(true), 2000);
+    return () => clearTimeout(t);
+  }, []);
   return (
     <main className="mx-auto max-w-3xl px-4 pb-12 pt-4 md:px-6 md:pt-6" role="status" aria-label="Loading recipe">
-      <Skeleton className="mb-3 h-6 w-24" />
+      {slow ? <p className="mb-3 h-6 text-sm text-muted-foreground">Opening the recipe…</p> : <Skeleton className="mb-3 h-6 w-24" />}
       <Skeleton className="mb-4 h-9 w-3/4" />
       <Skeleton className="h-[30vh] max-h-[26rem] min-h-[11rem] w-full rounded-lg sm:h-[35vh]" />
       <Skeleton className="mt-4 h-24 w-full rounded-lg" />
@@ -382,7 +388,7 @@ export default function RecipeDetail() {
               <ChefHat className="!size-5" aria-hidden />
               Start cooking
             </Button>
-            <div className="grid grid-cols-2 gap-2 sm:flex">
+            <div className="flex flex-wrap gap-2 [&>*]:flex-auto sm:[&>*]:flex-none">
               <Button
                 variant="outline"
                 onClick={() => addToGroceryListMutation.mutate()}
