@@ -1,31 +1,17 @@
-import { useState, useMemo, useReducer, useEffect, useRef } from "react";
-import { Link, useLocation } from "wouter";
+import { useState, useMemo, useReducer, useEffect, useRef, useCallback } from "react";
+import { useLocation } from "wouter";
 import { useQuery, useMutation, useInfiniteQuery } from "@tanstack/react-query";
-import { RecipeCardData, PaginatedRecipes } from "@shared/schema";
-import { 
-  Search, Upload, Clock, Users, ChefHat, Loader2, AlertTriangle, Trash2, BookOpen, X, 
-  LayoutGrid, Folder, Share2, Bookmark, BookmarkCheck, MoreVertical, Heart, HeartOff, Eye, Globe, ShoppingCart, Printer,
-  ArrowUpDown, ArrowUpAZ, ArrowDownAZ, CalendarArrowUp, CalendarArrowDown, Copy as CopyIcon
+import { PaginatedRecipes, RecipeCardData } from "@shared/schema";
+import { pluralize } from "@shared/format";
+import {
+  Search, Camera, Link2, Type, X, BookOpen, ShoppingCart, Trash2, Heart, HeartOff, Share2,
+  ArrowUpDown, SlidersHorizontal, MoreHorizontal, CheckSquare, Copy as CopyIcon, SearchX, UserRound, Loader2,
 } from "lucide-react";
 import { DuplicateRecipesDialog } from "@/components/duplicate-recipes-dialog";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Checkbox } from "@/components/ui/checkbox";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import {
   Dialog,
   DialogContent,
@@ -41,101 +27,114 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useAddRecipe } from "@/contexts/AddRecipeContext";
-import { AdvancedFilterTrigger, AdvancedFilterSheet } from "@/components/advanced-filter-panel";
+import { AdvancedFilterSheet } from "@/components/advanced-filter-panel";
 import { QuickFilters } from "@/components/quick-filters";
 import { CookbookSelect } from "@/components/cookbook-select";
-import { CookbookMultiSelect } from "@/components/cookbook-multi-select";
-import { QuickLinkImport } from "@/components/quick-link-import";
+import { CookbooksBrowser } from "@/components/cookbooks-browser";
+import { PageHeader } from "@/components/page-header";
+import { EmptyState, ErrorState } from "@/components/page-states";
+import {
+  RecipeCard,
+  RecipeCardSkeleton,
+  RECIPE_GRID_CLASS,
+  contributorName,
+  type RecipeCardAction,
+} from "@/components/recipe-card";
 import { filtersReducer, defaultFilters, countActiveFilters, type FiltersState } from "@/lib/filters";
 import { loadHomeState, saveHomeState, restoreFilters } from "@/lib/list-state";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
+import { useUndoable } from "@/hooks/use-undoable";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import heroImage from "@assets/generated_images/Recipe_app_hero_banner_95a212be.png";
-import grammieImage from "@assets/image_1763329917086.png";
+import { cn } from "@/lib/utils";
 
-const isPlaceholderImage = (imageUrl?: string | null): boolean => {
-  return !!imageUrl && imageUrl.startsWith("data:image/svg");
-};
+type CollectionFilter = "all" | "yours" | "public" | "shared" | "bookmarked";
 
-const formatTime = (minutes?: number | null): string => {
-  if (minutes == null) return "N/A";
-  
-  const hours = Math.floor(minutes / 60);
-  const mins = minutes % 60;
-  
-  if (hours > 0 && mins > 0) {
-    return `${hours} hr ${mins} mins`;
-  } else if (hours > 0) {
-    return `${hours} hr`;
-  } else {
-    return `${mins} mins`;
-  }
-};
-
-const parsePrepTime = (timeStr?: string | null): number => {
-  if (!timeStr) return 0;
-  
-  let totalMinutes = 0;
-  
-  // Match hours (e.g., "1 hour", "2 hours", "1hr", "2hrs")
-  const hourMatch = timeStr.match(/(\d+)\s*(hour|hours|hr|hrs)/i);
-  if (hourMatch) {
-    totalMinutes += parseInt(hourMatch[1]) * 60;
-  }
-  
-  // Match minutes (e.g., "30 minutes", "45 mins", "30min")
-  const minuteMatch = timeStr.match(/(\d+)\s*(minute|minutes|min|mins)/i);
-  if (minuteMatch) {
-    totalMinutes += parseInt(minuteMatch[1]);
-  }
-  
-  // If no match found, try to extract just a number (fallback)
-  if (totalMinutes === 0) {
-    const numMatch = timeStr.match(/(\d+)/);
-    if (numMatch) {
-      totalMinutes = parseInt(numMatch[1]);
-    }
-  }
-  
-  return totalMinutes;
-};
-
-type CollectionFilter = 'all' | 'yours' | 'public' | 'shared' | 'bookmarked';
-type ViewMode = 'recipes' | 'cookbooks';
-type CookbookViewMode = 'mine' | 'following' | 'public';
-
-const sortOptions = [
-  { value: "newest", label: "Newest First", icon: CalendarArrowDown },
-  { value: "oldest", label: "Oldest First", icon: CalendarArrowUp },
-  { value: "a-z", label: "A - Z", icon: ArrowUpAZ },
-  { value: "z-a", label: "Z - A", icon: ArrowDownAZ },
-  { value: "quickest", label: "Quickest", icon: Clock },
-  { value: "longest", label: "Longest", icon: Clock },
+const COLLECTIONS: { value: CollectionFilter; label: string; chip: string }[] = [
+  { value: "all", label: "All recipes", chip: "All recipes" },
+  { value: "yours", label: "My recipes", chip: "My recipes" },
+  { value: "shared", label: "Shared with me", chip: "Shared with me" },
+  { value: "bookmarked", label: "Favorites", chip: "Favorites" },
+  { value: "public", label: "Public recipes", chip: "Public only" },
 ];
 
-function SortPopover({ sortBy, onSortChange }: { sortBy: string; onSortChange: (value: string) => void }) {
-  const [open, setOpen] = useState(false);
-  const currentLabel = sortOptions.find(o => o.value === sortBy)?.label || "Sort by";
+const sortOptions = [
+  { value: "newest", label: "Newest first" },
+  { value: "oldest", label: "Oldest first" },
+  { value: "a-z", label: "A to Z" },
+  { value: "z-a", label: "Z to A" },
+  { value: "quickest", label: "Quickest" },
+  { value: "longest", label: "Longest" },
+];
 
+const DIETARY_LABELS: Record<string, string> = {
+  vegetarian: "Vegetarian", vegan: "Vegan", pescatarian: "Pescatarian",
+  glutenFree: "Gluten-free", dairyFree: "Dairy-free", keto: "Keto",
+  paleo: "Paleo", lowCarb: "Low carb", highProtein: "High protein",
+  lowCalorie: "Low calorie", highFiber: "High fiber", mediterranean: "Mediterranean",
+};
+
+const HANDY_FILTERS = [
+  { key: "fewIngredients", label: "5 or fewer ingredients" },
+  { key: "onePot", label: "One-pot" },
+  { key: "budgetFriendly", label: "Budget-friendly" },
+  { key: "airFryer", label: "Air fryer" },
+] as const;
+
+function errorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message) return error.message.replace(/^\d{3}:\s*/, "");
+  return fallback;
+}
+
+function serializeFiltersToParams(f: FiltersState): Record<string, string> {
+  const params: Record<string, string> = {};
+  if (f.mealTypes.length > 0) params.mealTypes = f.mealTypes.join(",");
+  if (f.cuisines.length > 0) params.cuisines = f.cuisines.join(",");
+  if (f.cookingMethods.length > 0) params.cookingMethods = f.cookingMethods.join(",");
+  if (f.skillLevels.length > 0) params.skillLevels = f.skillLevels.join(",");
+  if (f.seasons.length > 0) params.seasons = f.seasons.join(",");
+  if (f.excludeAllergens.length > 0) params.excludeAllergens = f.excludeAllergens.join(",");
+  if (f.timeConvenience.length > 0) params.timeConvenience = f.timeConvenience.join(",");
+  if (f.search) params.search = f.search;
+  for (const [key, value] of Object.entries(f.dietary)) {
+    if (value) params[`dietary_${key}`] = "true";
+  }
+  if (f.budgetFriendly) params.budgetFriendly = "true";
+  if (f.fewIngredients) params.fewIngredients = "true";
+  if (f.onePot) params.onePot = "true";
+  if (f.airFryer) params.airFryer = "true";
+  return params;
+}
+
+function SortMenu({ sortBy, onSortChange }: { sortBy: string; onSortChange: (value: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const currentLabel = sortOptions.find((o) => o.value === sortBy)?.label || "Newest first";
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button variant="outline" size="icon" className="sm:w-auto sm:px-3 gap-2" data-testid="button-sort">
-          <ArrowUpDown className="h-4 w-4 shrink-0" />
-          <span className="hidden sm:inline">{currentLabel}</span>
+        <Button variant="outline" className="gap-2 px-3" aria-label={`Sort: ${currentLabel}`} data-testid="button-sort">
+          <ArrowUpDown aria-hidden />
+          <span>
+            Sort<span className="hidden sm:inline">: {currentLabel}</span>
+          </span>
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-52 p-2">
-        <RadioGroup value={sortBy} onValueChange={(val) => { onSortChange(val); setOpen(false); }}>
-          {sortOptions.map(({ value, label, icon: Icon }) => (
+      <PopoverContent align="start" className="w-56 p-2">
+        <RadioGroup
+          value={sortBy}
+          onValueChange={(val) => {
+            onSortChange(val);
+            setOpen(false);
+          }}
+          aria-label="Sort recipes"
+        >
+          {sortOptions.map(({ value, label }) => (
             <label
               key={value}
-              className="flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer hover-elevate"
+              className="flex min-h-11 cursor-pointer items-center gap-3 rounded-md px-2 hover:bg-accent"
               data-testid={`sort-${value}`}
             >
               <RadioGroupItem value={value} data-testid={`radio-sort-${value}`} />
-              <Icon className="h-4 w-4 text-muted-foreground" />
               <span className="text-sm">{label}</span>
             </label>
           ))}
@@ -145,1506 +144,779 @@ function SortPopover({ sortBy, onSortChange }: { sortBy: string; onSortChange: (
   );
 }
 
-export default function Home() {
-  // Restore browsing state persisted across navigation (filters survive
-  // clicking into a recipe and coming back)
-  const savedState = useRef(loadHomeState()).current;
+/** A filter section inside the Filters sheet, styled like the sheet's own */
+function SheetSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="mb-2 rounded-lg border px-4 py-4">
+      <h3 className="mb-3 font-serif text-lg font-semibold">{title}</h3>
+      <div className="flex flex-wrap gap-2">{children}</div>
+    </section>
+  );
+}
 
+function ToggleButton({ pressed, onClick, children, testId }: { pressed: boolean; onClick: () => void; children: React.ReactNode; testId?: string }) {
+  return (
+    <Button variant={pressed ? "default" : "outline"} aria-pressed={pressed} onClick={onClick} className="h-auto max-w-full whitespace-normal text-left" data-testid={testId}>
+      {children}
+    </Button>
+  );
+}
+
+export default function Home() {
+  const [location] = useLocation();
+  if (location.startsWith("/cookbooks")) return <CookbooksBrowser />;
+  return <RecipesHome />;
+}
+
+function RecipesHome() {
+  // Browsing state survives clicking into a recipe and coming back
+  const savedState = useRef(loadHomeState()).current;
   const [filters, dispatch] = useReducer(filtersReducer, defaultFilters, () => restoreFilters(savedState.filters));
   const { openAddRecipe } = useAddRecipe();
   const { user } = useAuth();
-  const [, navigate] = useLocation();
+  const { toast } = useToast();
+  const undoable = useUndoable();
 
-  // View mode toggle between recipes and cookbooks
-  const [viewMode, setViewMode] = useState<ViewMode>((savedState.viewMode as ViewMode) || 'recipes');
-  const [cookbookViewMode, setCookbookViewMode] = useState<CookbookViewMode>('mine');
-
-  // Default to 'public' for guests, 'all' for authenticated users
   const [collectionFilter, setCollectionFilter] = useState<CollectionFilter>(
-    (savedState.collectionFilter as CollectionFilter) || (user ? 'all' : 'public')
+    (savedState.collectionFilter as CollectionFilter) || (user ? "all" : "public"),
   );
-  const [deleteDialogRecipeId, setDeleteDialogRecipeId] = useState<string | null>(null);
-  const [selectedRecipeIds, setSelectedRecipeIds] = useState<Set<string>>(new Set());
   const [selectedCookbookIds, setSelectedCookbookIds] = useState<number[]>(savedState.selectedCookbookIds || []);
   const [selectedCreatorId, setSelectedCreatorId] = useState<string | undefined>(savedState.selectedCreatorId);
-  const [bulkAddDialogOpen, setBulkAddDialogOpen] = useState(false);
-  const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false);
-  const [bulkCookbookId, setBulkCookbookId] = useState<string | undefined>();
-  const [advancedFiltersOpen, setAdvancedFiltersOpen] = useState(false);
+  const [sortBy, setSortBy] = useState<string>(savedState.sortBy || "newest");
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [duplicatesOpen, setDuplicatesOpen] = useState(false);
-  const [sortBy, setSortBy] = useState<string>(savedState.sortBy || 'newest');
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedRecipeIds, setSelectedRecipeIds] = useState<Set<string>>(new Set());
+  const [bulkAddDialogOpen, setBulkAddDialogOpen] = useState(false);
+  const [bulkCookbookId, setBulkCookbookId] = useState<string | undefined>();
+  // Recipes deleted in this session but still inside their Undo window
+  const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
+  const [creatorLabel, setCreatorLabel] = useState<string | null>(null);
 
-  // Persist browsing state so it survives navigating into a recipe and back
   useEffect(() => {
     saveHomeState({
       filters,
       sortBy,
       collectionFilter,
-      viewMode,
+      viewMode: "recipes",
       selectedCookbookIds,
       selectedCreatorId,
     });
-  }, [filters, sortBy, collectionFilter, viewMode, selectedCookbookIds, selectedCreatorId]);
-  
-  const { toast } = useToast();
+  }, [filters, sortBy, collectionFilter, selectedCookbookIds, selectedCreatorId]);
 
-  // Track previous auth state to detect transitions
+  // Signing in or out changes which collections make sense
   const prevUserRef = useRef<typeof user | undefined>(undefined);
-  
-  // React to auth state transitions (not every render)
   useEffect(() => {
     const hadUser = !!prevUserRef.current;
     const hasUser = !!user;
-    
-    // User just logged in (transition from no-user to user)
-    if (!hadUser && hasUser && collectionFilter === 'public') {
-      setCollectionFilter('all');
-    }
-    
-    // User just logged out (transition from user to no-user)
-    if (hadUser && !hasUser) {
-      // Reset to 'public' if on auth-only filters
-      if (collectionFilter === 'yours' || collectionFilter === 'shared' || collectionFilter === 'bookmarked') {
-        setCollectionFilter('public');
-      }
-    }
-    
-    // Update ref for next render
+    if (!hadUser && hasUser && collectionFilter === "public") setCollectionFilter("all");
+    if (hadUser && !hasUser && collectionFilter !== "public" && collectionFilter !== "all") setCollectionFilter("public");
     prevUserRef.current = user;
   }, [user, collectionFilter]);
 
-  // Fetch cookbooks based on view mode
-  // For guests, only show public cookbooks
-  // For authenticated users, show based on selected tab
-  const getCookbookQueryKey = () => {
-    // Guests can only see public cookbooks
-    if (!user) {
-      return ['/api/cookbooks', { scope: 'public' }];
-    }
-    
-    switch (cookbookViewMode) {
-      case 'following':
-        return ['/api/cookbooks', { scope: 'following' }];
-      case 'public':
-        return ['/api/cookbooks', { scope: 'public' }];
-      default:
-        return ['/api/cookbooks'];
-    }
-  };
-  
-  const { data: cookbooks = [] } = useQuery<Array<{
-    id: number;
-    name: string;
-    description?: string | null;
-    ownerUserId: string;
-    isPublic: boolean;
-    recipeCount?: number;
-  }>>({
-    queryKey: getCookbookQueryKey(),
-    enabled: viewMode === 'cookbooks', // Always allow fetching when in cookbooks view
-  });
-  
-  // Fetch followed cookbook IDs for quick lookup - only for authenticated users
-  const { data: followedCookbookIds = [] } = useQuery<number[]>({
-    queryKey: ['/api/cookbooks/following/ids'],
-    enabled: !!user && viewMode === 'cookbooks', // Only fetch when user is authenticated and viewing cookbooks
-    retry: false, // Don't retry on 401 errors
-  });
+  const defaultCollection: CollectionFilter = user ? "all" : "public";
 
-  const serializeFiltersToParams = (f: FiltersState): Record<string, string> => {
-    const params: Record<string, string> = {};
-    if (f.mealTypes.length > 0) params.mealTypes = f.mealTypes.join(',');
-    if (f.cuisines.length > 0) params.cuisines = f.cuisines.join(',');
-    if (f.cookingMethods.length > 0) params.cookingMethods = f.cookingMethods.join(',');
-    if (f.skillLevels.length > 0) params.skillLevels = f.skillLevels.join(',');
-    if (f.seasons.length > 0) params.seasons = f.seasons.join(',');
-    if (f.excludeAllergens.length > 0) params.excludeAllergens = f.excludeAllergens.join(',');
-    if (f.timeConvenience.length > 0) params.timeConvenience = f.timeConvenience.join(',');
-    if (f.search) params.search = f.search;
-    for (const [key, value] of Object.entries(f.dietary)) {
-      if (value) params[`dietary_${key}`] = 'true';
-    }
-    if (f.budgetFriendly) params.budgetFriendly = 'true';
-    if (f.fewIngredients) params.fewIngredients = 'true';
-    if (f.onePot) params.onePot = 'true';
-    if (f.airFryer) params.airFryer = 'true';
-    return params;
-  };
+  // ---- Data -------------------------------------------------------------
 
-  const getQueryKey = () => {
-    const filterParams = serializeFiltersToParams(filters);
-    const baseParams: Record<string, any> = { ...filterParams };
-    if (sortBy !== 'newest') baseParams.sortBy = sortBy;
-
-    if (selectedCreatorId) {
-      return ['/api/recipes', { ...baseParams, creatorId: selectedCreatorId }];
-    }
-    
-    if (selectedCookbookIds.length > 0) {
-      return ['/api/recipes', { ...baseParams, cookbookIds: selectedCookbookIds.join(',') }];
-    }
-    
+  const queryKey = useMemo(() => {
+    const baseParams: Record<string, string> = serializeFiltersToParams(filters);
+    if (sortBy !== "newest") baseParams.sortBy = sortBy;
+    if (selectedCreatorId) return ["/api/recipes", { ...baseParams, creatorId: selectedCreatorId }];
+    if (selectedCookbookIds.length > 0) return ["/api/recipes", { ...baseParams, cookbookIds: selectedCookbookIds.join(",") }];
     switch (collectionFilter) {
-      case 'yours':
-        return ['/api/recipes', { ...baseParams, scope: 'my' }];
-      case 'public':
-        return ['/api/recipes', { ...baseParams, scope: 'public' }];
-      case 'shared':
-        return ['/api/recipes', { ...baseParams, scope: 'shared' }];
-      case 'bookmarked':
-        return ['/api/bookmarks/recipes', baseParams];
+      case "yours":
+        return ["/api/recipes", { ...baseParams, scope: "my" }];
+      case "public":
+        return ["/api/recipes", { ...baseParams, scope: "public" }];
+      case "shared":
+        return ["/api/recipes", { ...baseParams, scope: "shared" }];
+      case "bookmarked":
+        return ["/api/bookmarks/recipes", baseParams];
       default:
-        return user ? ['/api/recipes', baseParams] : ['/api/recipes', { ...baseParams, scope: 'public' }];
+        return user ? ["/api/recipes", baseParams] : ["/api/recipes", { ...baseParams, scope: "public" }];
     }
-  };
+  }, [filters, sortBy, selectedCreatorId, selectedCookbookIds, collectionFilter, user]);
 
-  const { 
+  const {
     data,
     isLoading,
+    isError,
+    error,
+    refetch,
     fetchNextPage,
     hasNextPage,
     isFetchingNextPage,
+    isFetchNextPageError,
   } = useInfiniteQuery<PaginatedRecipes>({
-    queryKey: getQueryKey(),
+    queryKey,
     queryFn: async ({ pageParam = 1, queryKey }) => {
-      // Use queryKey from context to ensure we have the current values
       const path = queryKey[0] as string;
-      const params = (queryKey[1] as Record<string, any>) || {};
-      
-      // For bookmarked recipes, return non-paginated response wrapped in paginated format
-      if (path === '/api/bookmarks/recipes') {
-        const response = await fetch(path);
-        if (!response.ok) throw new Error('Failed to fetch bookmarked recipes');
+      const params = (queryKey[1] as Record<string, string>) || {};
+      if (path === "/api/bookmarks/recipes") {
+        const response = await fetch(path, { credentials: "include" });
+        if (!response.ok) throw new Error("We couldn't load your favorites.");
         const recipes = await response.json();
-        return {
-          recipes,
-          total: recipes.length,
-          page: 1,
-          limit: recipes.length,
-          hasMore: false,
-        };
+        return { recipes, total: recipes.length, page: 1, limit: recipes.length, hasMore: false };
       }
-      
-      const queryParams = new URLSearchParams({
-        ...params,
-        page: String(pageParam),
-        limit: '24',
-      });
-      
-      const response = await fetch(`${path}?${queryParams}`);
-      if (!response.ok) throw new Error('Failed to fetch recipes');
+      const queryParams = new URLSearchParams({ ...params, page: String(pageParam), limit: "24" });
+      const response = await fetch(`${path}?${queryParams}`, { credentials: "include" });
+      if (!response.ok) throw new Error("We couldn't load your recipes.");
       return response.json();
     },
     initialPageParam: 1,
-    getNextPageParam: (lastPage, pages) => {
-      return lastPage.hasMore ? pages.length + 1 : undefined;
-    },
+    getNextPageParam: (lastPage, pages) => (lastPage.hasMore ? pages.length + 1 : undefined),
     refetchInterval: (query) => {
       const pages = query.state.data?.pages;
       if (!pages) return false;
-      
-      // Poll if any recipe across all pages is still processing
-      const needsPolling = pages.some(page => 
-        page.recipes.some((recipe) =>
-          recipe.enrichmentStatus === 'enriching' ||
-          recipe.enrichmentStatus === 'extracting' ||
-          recipe.imageGenerationStatus === 'pending' ||
-          recipe.imageGenerationStatus === 'generating'
-        )
+      const processing = pages.some((page) =>
+        page.recipes.some(
+          (r) =>
+            r.enrichmentStatus === "enriching" ||
+            r.enrichmentStatus === "extracting" ||
+            r.imageGenerationStatus === "pending" ||
+            r.imageGenerationStatus === "generating",
+        ),
       );
-      
-      return needsPolling ? 3000 : false;
+      return processing ? 3000 : false;
     },
-    // Keep showing previous data while fetching new data to prevent loading flashes
+    // Keep showing the previous results while new filters load
     placeholderData: (previousData) => previousData,
   });
 
-  // Flatten all pages into a single recipes array
-  const recipes = useMemo(() => {
-    return data?.pages.flatMap(page => page.recipes) || [];
-  }, [data]);
+  // How many recipes the user has saved themselves (drives first run). The
+  // "all" list also includes public recipes, so it can't answer this.
+  const { data: myRecipes } = useQuery<PaginatedRecipes>({
+    queryKey: ["/api/recipes", { scope: "my", limit: "1" }],
+    enabled: !!user,
+  });
+  const isFirstRun = !!user && myRecipes?.total === 0;
 
-  const recipesGeneratingImages = useMemo(() => {
-    if (!recipes) return new Set<string>();
-    return new Set(
-      recipes
-        .filter((r) => isPlaceholderImage(r.dishImageThumbnail))
-        .map((r) => r.id)
-    );
-  }, [recipes]);
+  const { data: preferences } = useQuery<{ quickFilters?: { enabled?: string[]; showQuickFilters?: boolean } }>({
+    queryKey: ["/api/user/preferences"],
+    enabled: !!user,
+  });
+  const showQuickFilters = preferences?.quickFilters?.showQuickFilters === true;
 
-  const filteredRecipes = recipes;
-
-  const totalResults = data?.pages[0]?.total ?? 0;
-
-  const hasActiveFilters = countActiveFilters(filters) > 0;
-
-  const activeFilterChips = useMemo(() => {
-    const chips: { label: string; onRemove: () => void }[] = [];
-    filters.mealTypes.forEach(v => chips.push({ label: v, onRemove: () => dispatch({ type: "TOGGLE_MEAL_TYPE", payload: v }) }));
-    filters.cuisines.forEach(v => chips.push({ label: v, onRemove: () => dispatch({ type: "TOGGLE_CUISINE", payload: v }) }));
-    filters.cookingMethods.forEach(v => chips.push({ label: v, onRemove: () => dispatch({ type: "TOGGLE_COOKING_METHOD", payload: v }) }));
-    filters.skillLevels.forEach(v => chips.push({ label: v, onRemove: () => dispatch({ type: "TOGGLE_SKILL_LEVEL", payload: v }) }));
-    filters.seasons.forEach(v => chips.push({ label: v, onRemove: () => dispatch({ type: "TOGGLE_SEASON", payload: v }) }));
-    filters.excludeAllergens.forEach(v => chips.push({ label: `No ${v}`, onRemove: () => dispatch({ type: "TOGGLE_ALLERGEN", payload: v }) }));
-    filters.timeConvenience.forEach(v => chips.push({ label: v, onRemove: () => dispatch({ type: "TOGGLE_TIME_CONVENIENCE", payload: v }) }));
-    const dietaryLabels: Record<string, string> = {
-      vegetarian: "Vegetarian", vegan: "Vegan", pescatarian: "Pescatarian",
-      glutenFree: "Gluten-Free", dairyFree: "Dairy-Free", keto: "Keto",
-      paleo: "Paleo", lowCarb: "Low Carb", highProtein: "High Protein",
-      lowCalorie: "Low Calorie", highFiber: "High Fiber", mediterranean: "Mediterranean",
-    };
-    for (const [key, value] of Object.entries(filters.dietary)) {
-      if (value) chips.push({ label: dietaryLabels[key] || key, onRemove: () => dispatch({ type: "TOGGLE_DIETARY", payload: key as keyof typeof filters.dietary }) });
-    }
-    if (filters.budgetFriendly) chips.push({ label: "Budget-Friendly", onRemove: () => dispatch({ type: "TOGGLE_QUICK_FILTER", payload: "budgetFriendly" }) });
-    if (filters.fewIngredients) chips.push({ label: "5 or Less", onRemove: () => dispatch({ type: "TOGGLE_QUICK_FILTER", payload: "fewIngredients" }) });
-    if (filters.onePot) chips.push({ label: "One-Pot", onRemove: () => dispatch({ type: "TOGGLE_QUICK_FILTER", payload: "onePot" }) });
-    if (filters.airFryer) chips.push({ label: "Air Fryer", onRemove: () => dispatch({ type: "TOGGLE_QUICK_FILTER", payload: "airFryer" }) });
-    if (filters.search) chips.push({ label: `"${filters.search}"`, onRemove: () => dispatch({ type: "SET_SEARCH", payload: "" }) });
-    return chips;
-  }, [filters]);
-
-  // Delete mutation
-  const deleteMutation = useMutation({
-    mutationFn: async (recipeId: string) => {
-      const response = await apiRequest("DELETE", `/api/recipes/${recipeId}`);
-      return response;
-    },
-    onSuccess: () => {
-      // Invalidate ALL recipe queries (base and scoped) using predicate
-      queryClient.invalidateQueries({ 
-        predicate: (query) => {
-          const key = query.queryKey[0];
-          return key === '/api/recipes';
-        }
-      });
-      toast({
-        title: "Recipe deleted successfully",
-      });
-      setDeleteDialogRecipeId(null);
-    },
-    onError: async (error: any) => {
-      // Extract meaningful error message from Response
-      let errorMessage = "An error occurred while deleting the recipe";
-      
-      if (error instanceof Response) {
-        try {
-          const errorData = await error.json();
-          errorMessage = errorData.message || errorData.error || error.statusText;
-        } catch {
-          errorMessage = error.statusText || errorMessage;
-        }
-      } else if (error.message) {
-        errorMessage = error.message;
-      }
-      
-      toast({
-        title: `Failed to delete "${recipeToDelete?.title || 'recipe'}"`,
-        description: errorMessage,
-        variant: "destructive",
-      });
-      // Keep dialog open so user can retry or cancel
-    },
+  const { data: cookbooks = [] } = useQuery<Array<{ id: number; name: string; recipeCount?: number }>>({
+    queryKey: ["/api/cookbooks"],
+    enabled: !!user,
   });
 
-  // Resolve recipe to delete from full recipes list (not filtered) to avoid flickering
-  const recipeToDelete = recipes?.find(r => r.id === deleteDialogRecipeId);
+  const { data: bookmarkedIds = [] } = useQuery<string[]>({
+    queryKey: ["/api/bookmarks"],
+    enabled: !!user,
+  });
+  const bookmarkedIdsSet = useMemo(() => new Set(bookmarkedIds), [bookmarkedIds]);
 
-  // Bulk add to cookbook mutation
-  const bulkAddToCookbookMutation = useMutation({
-    mutationFn: async ({ cookbookId, recipeIds }: { cookbookId: number; recipeIds: string[] }) => {
-      const response = await apiRequest("POST", "/api/recipes/bulk/add-to-cookbook", { 
-        cookbookId, 
-        recipeIds 
+  const recipes = useMemo(
+    () => (data?.pages.flatMap((page) => page.recipes) || []).filter((r) => !hiddenIds.has(r.id)),
+    [data, hiddenIds],
+  );
+  const totalResults = Math.max(0, (data?.pages[0]?.total ?? 0) - hiddenIds.size);
+
+  // Remember who a "From …" filter is for, so the chip can say their name
+  useEffect(() => {
+    if (selectedCreatorId && recipes[0]?.owner?.id === selectedCreatorId) {
+      setCreatorLabel(contributorName(recipes[0].owner));
+    }
+  }, [selectedCreatorId, recipes]);
+
+  // ---- Applied filters --------------------------------------------------
+
+  const chips = useMemo(() => {
+    const list: { key: string; label: string; onRemove: () => void }[] = [];
+    if (collectionFilter !== defaultCollection) {
+      const c = COLLECTIONS.find((x) => x.value === collectionFilter);
+      list.push({ key: "collection", label: c?.chip || collectionFilter, onRemove: () => setCollectionFilter(defaultCollection) });
+    }
+    selectedCookbookIds.forEach((id) =>
+      list.push({
+        key: `cookbook-${id}`,
+        label: cookbooks.find((c) => c.id === id)?.name.trim() || "Cookbook",
+        onRemove: () => setSelectedCookbookIds((ids) => ids.filter((x) => x !== id)),
+      }),
+    );
+    if (selectedCreatorId) {
+      list.push({ key: "creator", label: `From ${creatorLabel || "one cook"}`, onRemove: () => setSelectedCreatorId(undefined) });
+    }
+    const add = (key: string, label: string, onRemove: () => void) => list.push({ key, label, onRemove });
+    filters.mealTypes.forEach((v) => add(`meal-${v}`, v, () => dispatch({ type: "TOGGLE_MEAL_TYPE", payload: v })));
+    filters.timeConvenience.forEach((v) => add(`time-${v}`, v, () => dispatch({ type: "TOGGLE_TIME_CONVENIENCE", payload: v })));
+    for (const [key, value] of Object.entries(filters.dietary)) {
+      if (value) add(`diet-${key}`, DIETARY_LABELS[key] || key, () => dispatch({ type: "TOGGLE_DIETARY", payload: key as keyof FiltersState["dietary"] }));
+    }
+    filters.excludeAllergens.forEach((v) => add(`allergen-${v}`, `No ${v}`, () => dispatch({ type: "TOGGLE_ALLERGEN", payload: v })));
+    filters.cuisines.forEach((v) => add(`cuisine-${v}`, v, () => dispatch({ type: "TOGGLE_CUISINE", payload: v })));
+    filters.seasons.forEach((v) => add(`season-${v}`, v, () => dispatch({ type: "TOGGLE_SEASON", payload: v })));
+    filters.cookingMethods.forEach((v) => add(`method-${v}`, v, () => dispatch({ type: "TOGGLE_COOKING_METHOD", payload: v })));
+    filters.skillLevels.forEach((v) => add(`skill-${v}`, v, () => dispatch({ type: "TOGGLE_SKILL_LEVEL", payload: v })));
+    HANDY_FILTERS.forEach(({ key, label }) => {
+      if (filters[key]) add(key, label, () => dispatch({ type: "TOGGLE_QUICK_FILTER", payload: key }));
+    });
+    return list;
+  }, [filters, collectionFilter, defaultCollection, selectedCookbookIds, cookbooks, selectedCreatorId, creatorLabel]);
+
+  const appliedCount = chips.length; // search is shown in the search box, not counted
+  const isFiltering = appliedCount > 0 || !!filters.search;
+
+  // Removes every filter; the search box has its own clear
+  const clearAll = () => {
+    const search = filters.search;
+    dispatch({ type: "RESET_ALL" });
+    if (search) dispatch({ type: "SET_SEARCH", payload: search });
+    setCollectionFilter(defaultCollection);
+    setSelectedCookbookIds([]);
+    setSelectedCreatorId(undefined);
+  };
+
+  const chooseCollection = (value: CollectionFilter) => {
+    setCollectionFilter(value);
+    setSelectedCookbookIds([]);
+    setSelectedCreatorId(undefined);
+  };
+
+  const toggleCookbook = (id: number) => {
+    setSelectedCookbookIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
+    setCollectionFilter(defaultCollection);
+    setSelectedCreatorId(undefined);
+  };
+
+  const filterByCreator = (recipe: RecipeCardData) => {
+    if (!recipe.owner) return;
+    setSelectedCreatorId(recipe.owner.id);
+    setCreatorLabel(contributorName(recipe.owner));
+    setSelectedCookbookIds([]);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  // ---- Actions ----------------------------------------------------------
+
+  const invalidateRecipes = () =>
+    queryClient.invalidateQueries({
+      predicate: (q) => {
+        const key = q.queryKey[0];
+        return typeof key === "string" && (key === "/api/recipes" || key.startsWith("/api/cookbooks") || key === "/api/bookmarks/recipes");
+      },
+    });
+
+  const deleteRecipes = useCallback(
+    (ids: string[], label: string) => {
+      undoable({
+        message: label,
+        hide: () => setHiddenIds((prev) => new Set([...Array.from(prev), ...ids])),
+        restore: () =>
+          setHiddenIds((prev) => {
+            const next = new Set(prev);
+            ids.forEach((id) => next.delete(id));
+            return next;
+          }),
+        commit: async () => {
+          if (ids.length === 1) await apiRequest("DELETE", `/api/recipes/${ids[0]}`);
+          else await apiRequest("DELETE", "/api/recipes/bulk", { recipeIds: ids });
+          await invalidateRecipes();
+          setHiddenIds((prev) => {
+            const next = new Set(prev);
+            ids.forEach((id) => next.delete(id));
+            return next;
+          });
+        },
       });
-      return response;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ 
-        predicate: (query) => {
-          const key = query.queryKey[0];
-          return typeof key === 'string' && (key === '/api/recipes' || key.startsWith('/api/cookbooks'));
-        }
-      });
-      toast({
-        title: "Recipes added to cookbook",
-        description: `${selectedRecipeIds.size} recipe${selectedRecipeIds.size > 1 ? 's' : ''} added successfully`,
-      });
-      setSelectedRecipeIds(new Set());
+    [undoable],
+  );
+
+  const bulkAddToCookbookMutation = useMutation({
+    mutationFn: async ({ cookbookId, recipeIds }: { cookbookId: number; recipeIds: string[] }) =>
+      apiRequest("POST", "/api/recipes/bulk/add-to-cookbook", { cookbookId, recipeIds }),
+    onSuccess: (_d, { recipeIds, cookbookId }) => {
+      invalidateRecipes();
+      const name = cookbooks.find((c) => c.id === cookbookId)?.name || "the cookbook";
+      toast({ title: `Added ${pluralize(recipeIds.length, "recipe")} to ${name}` });
+      exitSelectMode();
       setBulkAddDialogOpen(false);
       setBulkCookbookId(undefined);
     },
-    onError: async (error: any) => {
-      let errorMessage = "An error occurred while adding recipes to cookbook";
-      if (error instanceof Response) {
-        try {
-          const errorData = await error.json();
-          errorMessage = errorData.message || errorData.error || error.statusText;
-        } catch {
-          errorMessage = error.statusText || errorMessage;
-        }
-      } else if (error.message) {
-        errorMessage = error.message;
-      }
+  });
+
+  const addToGroceryListMutation = useMutation({
+    mutationFn: async (recipeIds: string[]) => apiRequest("POST", "/api/grocery-list/recipes/bulk", { recipeIds }),
+    onSuccess: (_d, recipeIds) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/grocery-list"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/grocery-list/by-aisle"] });
+      toast({ title: `Added ${pluralize(recipeIds.length, "recipe")} to your grocery list` });
+      if (selectMode) exitSelectMode();
+    },
+    onError: (err) => {
       toast({
-        title: "Failed to add recipes to cookbook",
-        description: errorMessage,
+        title: "Couldn't add to your grocery list",
+        description: errorMessage(err, "Check your connection and try again."),
         variant: "destructive",
       });
     },
   });
 
-  // Bulk delete mutation
-  const bulkDeleteMutation = useMutation({
-    mutationFn: async (recipeIds: string[]) => {
-      const response = await apiRequest("DELETE", "/api/recipes/bulk", { recipeIds });
-      return response;
+  const bookmarkMutation = useMutation({
+    mutationFn: async ({ recipeId, isBookmarked }: { recipeId: string; isBookmarked: boolean }) => {
+      await apiRequest(isBookmarked ? "DELETE" : "POST", `/api/bookmarks/${recipeId}`);
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ 
-        predicate: (query) => {
-          const key = query.queryKey[0];
-          return typeof key === 'string' && (key === '/api/recipes' || key.startsWith('/api/cookbooks'));
-        }
-      });
-      toast({
-        title: "Recipes deleted successfully",
-        description: `${selectedRecipeIds.size} recipe${selectedRecipeIds.size > 1 ? 's' : ''} deleted`,
-      });
-      setSelectedRecipeIds(new Set());
-      setBulkDeleteDialogOpen(false);
+    onMutate: async ({ recipeId, isBookmarked }) => {
+      await queryClient.cancelQueries({ queryKey: ["/api/bookmarks"] });
+      const previous = queryClient.getQueryData<string[]>(["/api/bookmarks"]);
+      queryClient.setQueryData<string[]>(["/api/bookmarks"], (old = []) =>
+        isBookmarked ? old.filter((id) => id !== recipeId) : [...old, recipeId],
+      );
+      return { previous };
     },
-    onError: async (error: any) => {
-      let errorMessage = "An error occurred while deleting recipes";
-      if (error instanceof Response) {
-        try {
-          const errorData = await error.json();
-          errorMessage = errorData.message || errorData.error || error.statusText;
-        } catch {
-          errorMessage = error.statusText || errorMessage;
-        }
-      } else if (error.message) {
-        errorMessage = error.message;
-      }
-      toast({
-        title: "Failed to delete recipes",
-        description: errorMessage,
-        variant: "destructive",
-      });
+    onError: (_e, _v, ctx) => {
+      if (ctx?.previous) queryClient.setQueryData(["/api/bookmarks"], ctx.previous);
+      toast({ title: "Couldn't update favorites. Try again.", variant: "destructive" });
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/bookmarks"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/bookmarks/recipes"] });
     },
   });
 
-  // Bulk add to grocery list mutation
-  const bulkAddToGroceryListMutation = useMutation({
-    mutationFn: async (recipeIds: string[]) => {
-      const response = await apiRequest("POST", "/api/grocery-list/recipes/bulk", { recipeIds });
-      return response;
-    },
-    onSuccess: (data: any) => {
-      queryClient.invalidateQueries({ queryKey: ['/api/grocery-list'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/grocery-list/by-aisle'] });
-      toast({
-        title: "Added to grocery list",
-        description: data.message || `${selectedRecipeIds.size} recipe${selectedRecipeIds.size > 1 ? 's' : ''} added to grocery list`,
-      });
-      setSelectedRecipeIds(new Set());
-    },
-    onError: async (error: any) => {
-      let errorMessage = "An error occurred while adding recipes to grocery list";
-      if (error instanceof Response) {
-        try {
-          const errorData = await error.json();
-          errorMessage = errorData.message || errorData.error || error.statusText;
-        } catch {
-          errorMessage = error.statusText || errorMessage;
-        }
-      } else if (error.message) {
-        errorMessage = error.message;
+  const handleShare = async (recipe: RecipeCardData) => {
+    const url = `${window.location.origin}/recipe/${recipe.id}`;
+    try {
+      if (navigator.share && window.matchMedia("(pointer: coarse)").matches) {
+        await navigator.share({ title: recipe.title, url });
+        return;
       }
-      toast({
-        title: "Error",
-        description: errorMessage,
-        variant: "destructive",
-      });
-    },
-  });
-
-  // Handlers for multi-select
-  const handleToggleRecipe = (recipeId: string) => {
-    setSelectedRecipeIds(prev => {
-      const next = new Set(prev);
-      if (next.has(recipeId)) {
-        next.delete(recipeId);
-      } else {
-        next.add(recipeId);
-      }
-      return next;
-    });
+      await navigator.clipboard.writeText(url);
+      toast({ title: "Link copied", description: "Paste it in a message to share this recipe." });
+    } catch (err) {
+      if ((err as Error)?.name === "AbortError") return; // closed the share sheet
+      toast({ title: "Couldn't copy the link", variant: "destructive" });
+    }
   };
 
-  const handleClearSelection = () => {
+  const exitSelectMode = () => {
+    setSelectMode(false);
     setSelectedRecipeIds(new Set());
   };
 
-  const handleBulkAddToCookbook = () => {
-    if (bulkCookbookId && selectedRecipeIds.size > 0) {
-      bulkAddToCookbookMutation.mutate({
-        cookbookId: parseInt(bulkCookbookId),
-        recipeIds: Array.from(selectedRecipeIds),
+  const toggleSelected = (id: string, selected: boolean) =>
+    setSelectedRecipeIds((prev) => {
+      const next = new Set(prev);
+      if (selected) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+
+  const actionsFor = (recipe: RecipeCardData): RecipeCardAction[] => {
+    const actions: RecipeCardAction[] = [];
+    const isOwn = !!user && recipe.owner?.id === user.id;
+    if (user) {
+      const fav = bookmarkedIdsSet.has(recipe.id);
+      actions.push({
+        label: fav ? "Remove from favorites" : "Add to favorites",
+        icon: fav ? HeartOff : Heart,
+        onSelect: () => bookmarkMutation.mutate({ recipeId: recipe.id, isBookmarked: fav }),
+        testId: `button-bookmark-${recipe.id}`,
       });
     }
-  };
-
-  const handleBulkDelete = () => {
-    if (selectedRecipeIds.size > 0) {
-      bulkDeleteMutation.mutate(Array.from(selectedRecipeIds));
+    actions.push({ label: "Share", icon: Share2, onSelect: () => handleShare(recipe), testId: `button-share-${recipe.id}` });
+    if (user) {
+      actions.push({
+        label: "Add to grocery list",
+        icon: ShoppingCart,
+        onSelect: () => addToGroceryListMutation.mutate([recipe.id]),
+      });
     }
-  };
-
-  const handleBulkAddToGroceryList = () => {
-    if (selectedRecipeIds.size > 0) {
-      bulkAddToGroceryListMutation.mutate(Array.from(selectedRecipeIds));
+    if (recipe.owner && !isOwn && recipe.owner.id !== selectedCreatorId) {
+      actions.push({
+        label: `More from ${contributorName(recipe.owner) || "this cook"}`,
+        icon: UserRound,
+        onSelect: () => filterByCreator(recipe),
+      });
     }
+    if (isOwn) {
+      actions.push({
+        label: "Delete",
+        icon: Trash2,
+        destructive: true,
+        separated: true,
+        onSelect: () => deleteRecipes([recipe.id], `Deleted "${recipe.title}"`),
+        testId: `menu-item-delete-${recipe.id}`,
+      });
+    }
+    return actions;
   };
 
-  // Bookmark query - fetch user's bookmarked recipe IDs
-  const { data: bookmarkedIds = [] } = useQuery<string[]>({
-    queryKey: ['/api/bookmarks'],
-    enabled: !!user,
-  });
-  
-  // Create a Set for quick lookup
-  const bookmarkedIdsSet = useMemo(() => new Set(bookmarkedIds), [bookmarkedIds]);
+  const selectedIds = Array.from(selectedRecipeIds);
 
-  // Bookmark mutation
-  const bookmarkMutation = useMutation({
-    mutationFn: async ({ recipeId, isBookmarked }: { recipeId: string; isBookmarked: boolean }) => {
-      if (isBookmarked) {
-        await apiRequest("DELETE", `/api/bookmarks/${recipeId}`);
-      } else {
-        await apiRequest("POST", `/api/bookmarks/${recipeId}`);
+  // ---- Render -----------------------------------------------------------
+
+  const firstRunPanel = (
+    <EmptyState
+      icon={Camera}
+      title="Add your first family recipe"
+      description={
+        <>
+          Take a photo of a recipe card, a cookbook page or a handwritten note. Grammie reads handwriting, cookbook
+          pages and recipe posts, and you'll check everything before it's saved.
+        </>
       }
-    },
-    onMutate: async ({ recipeId, isBookmarked }) => {
-      // Optimistic update
-      await queryClient.cancelQueries({ queryKey: ['/api/bookmarks'] });
-      const previousBookmarks = queryClient.getQueryData<string[]>(['/api/bookmarks']);
-      
-      queryClient.setQueryData<string[]>(['/api/bookmarks'], (old = []) => {
-        if (isBookmarked) {
-          return old.filter(id => id !== recipeId);
-        } else {
-          return [...old, recipeId];
-        }
-      });
-      
-      return { previousBookmarks };
-    },
-    onError: (error, variables, context) => {
-      // Rollback on error
-      if (context?.previousBookmarks) {
-        queryClient.setQueryData(['/api/bookmarks'], context.previousBookmarks);
+      className="mb-8 border-solid bg-card"
+      action={
+        <Button size="lg" className="w-full sm:w-auto" onClick={() => openAddRecipe("image")} data-testid="button-snap-first-recipe">
+          <Camera aria-hidden /> Snap a recipe card
+        </Button>
       }
-      toast({
-        title: "Failed to update bookmark",
-        variant: "destructive",
-      });
-    },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/bookmarks'] });
-    },
-  });
-
-  // Share handler - copies recipe URL to clipboard
-  const handleShare = async (recipeId: string) => {
-    const url = `${window.location.origin}/recipe/${recipeId}`;
-    try {
-      await navigator.clipboard.writeText(url);
-      toast({
-        title: "Link copied!",
-        description: "Recipe link has been copied to your clipboard",
-      });
-    } catch (error) {
-      toast({
-        title: "Failed to copy link",
-        variant: "destructive",
-      });
-    }
-  };
-
-  // Bookmark handler
-  const handleBookmark = (recipeId: string) => {
-    if (!user) {
-      toast({
-        title: "Sign in required",
-        description: "Please sign in to bookmark recipes",
-      });
-      return;
-    }
-    const isBookmarked = bookmarkedIdsSet.has(recipeId);
-    bookmarkMutation.mutate({ recipeId, isBookmarked });
-  };
-
-  // Create a Set for quick lookup of followed cookbook IDs
-  const followedCookbookIdsSet = useMemo(() => new Set(followedCookbookIds), [followedCookbookIds]);
-
-  // Cookbook follow mutation
-  const cookbookFollowMutation = useMutation({
-    mutationFn: async ({ cookbookId, isFollowing }: { cookbookId: number; isFollowing: boolean }) => {
-      if (isFollowing) {
-        await apiRequest("DELETE", `/api/cookbooks/${cookbookId}/follow`);
-      } else {
-        await apiRequest("POST", `/api/cookbooks/${cookbookId}/follow`);
+      secondaryAction={
+        <div className="flex w-full flex-wrap justify-center gap-3 sm:w-auto">
+          <Button variant="outline" className="flex-1 sm:flex-none" onClick={() => openAddRecipe("link")} data-testid="button-first-recipe-link">
+            <Link2 aria-hidden /> Paste a link
+          </Button>
+          <Button variant="outline" className="flex-1 sm:flex-none" onClick={() => openAddRecipe("text")} data-testid="button-first-recipe-text">
+            <Type aria-hidden /> Type it in
+          </Button>
+        </div>
       }
-    },
-    onMutate: async ({ cookbookId, isFollowing }) => {
-      await queryClient.cancelQueries({ queryKey: ['/api/cookbooks/following/ids'] });
-      const previousFollowing = queryClient.getQueryData<number[]>(['/api/cookbooks/following/ids']);
-      
-      queryClient.setQueryData<number[]>(['/api/cookbooks/following/ids'], (old = []) => {
-        if (isFollowing) {
-          return old.filter(id => id !== cookbookId);
-        } else {
-          return [...old, cookbookId];
-        }
-      });
-      
-      return { previousFollowing };
-    },
-    onError: (error, variables, context) => {
-      if (context?.previousFollowing) {
-        queryClient.setQueryData(['/api/cookbooks/following/ids'], context.previousFollowing);
-      }
-      toast({
-        title: "Failed to update follow status",
-        variant: "destructive",
-      });
-    },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/cookbooks/following/ids'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/cookbooks'] });
-    },
-  });
+    />
+  );
 
-  // Share cookbook handler - copies cookbook URL to clipboard
-  const handleShareCookbook = async (cookbookId: number) => {
-    const url = `${window.location.origin}/cookbook/${cookbookId}`;
-    try {
-      await navigator.clipboard.writeText(url);
-      toast({
-        title: "Link copied!",
-        description: "Cookbook link has been copied to your clipboard",
-      });
-    } catch (error) {
-      toast({
-        title: "Failed to copy link",
-        variant: "destructive",
-      });
-    }
-  };
+  const filtersSheetSections = (
+    <>
+      {user && (
+        <SheetSection title="Show">
+          {COLLECTIONS.filter((c) => c.value !== "public").map((c) => (
+            <ToggleButton
+              key={c.value}
+              pressed={collectionFilter === c.value && selectedCookbookIds.length === 0 && !selectedCreatorId}
+              onClick={() => chooseCollection(c.value)}
+              testId={`button-collection-${c.value}`}
+            >
+              {c.label}
+            </ToggleButton>
+          ))}
+        </SheetSection>
+      )}
+      {user && cookbooks.length > 0 && (
+        <SheetSection title="Cookbook">
+          {cookbooks.map((c) => (
+            <ToggleButton key={c.id} pressed={selectedCookbookIds.includes(c.id)} onClick={() => toggleCookbook(c.id)} testId={`button-filter-cookbook-${c.id}`}>
+              <BookOpen aria-hidden /> {c.name}
+            </ToggleButton>
+          ))}
+        </SheetSection>
+      )}
+      <SheetSection title="Handy">
+        {HANDY_FILTERS.map(({ key, label }) => (
+          <ToggleButton key={key} pressed={filters[key]} onClick={() => dispatch({ type: "TOGGLE_QUICK_FILTER", payload: key })}>
+            {label}
+          </ToggleButton>
+        ))}
+      </SheetSection>
+    </>
+  );
 
-  // Follow/unfollow cookbook handler
-  const handleFollowCookbook = (cookbookId: number) => {
-    if (!user) {
-      toast({
-        title: "Sign in required",
-        description: "Please sign in to follow cookbooks",
-      });
-      return;
-    }
-    const isFollowing = followedCookbookIdsSet.has(cookbookId);
-    cookbookFollowMutation.mutate({ cookbookId, isFollowing });
-  };
+  const showBrowse = !isFirstRun || totalResults > 0 || isFiltering;
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Search lives on the Recipes page (the app shell holds navigation) */}
-      <div className="mx-auto max-w-7xl px-4 pt-4 md:px-6">
-        <label htmlFor="recipe-search" className="sr-only">Search recipes</label>
-        <div className="relative">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" aria-hidden />
-          <Input
-            id="recipe-search"
-            type="search"
-            placeholder="Search recipes, ingredients, or who it's from"
-            value={filters.search}
-            onChange={(e) => dispatch({ type: "SET_SEARCH", payload: e.target.value })}
-            className="h-12 pl-10 text-sm"
-            data-testid="input-search"
-          />
-        </div>
-      </div>
-
-      {/* Hero Section with Clear Glass Overlay */}
-      <section 
-        className="relative h-[50vh] sm:h-[60vh] max-h-[600px] bg-cover bg-center mt-4"
-        style={{ backgroundImage: `url(${heroImage})` }}
-      >
-        {/* Dimming Layer */}
-        <div className="absolute inset-0 glass-dimming" />
-
-        {/* Clear Glass Content Overlay */}
-        <div className="absolute inset-0 flex items-center justify-center">
-          <div className="glass-clear px-6 py-8 md:py-12 rounded-2xl max-w-3xl mx-4 text-center">
-            <h1
-              className="font-serif text-4xl md:text-5xl lg:text-6xl font-bold text-white mb-3 md:mb-4"
-              data-testid="text-hero-title"
-            >
-              Your Recipes
-            </h1>
-            <p className="text-base md:text-lg lg:text-xl text-white/95 mb-6 md:mb-8">
-              Discover, save, and share delicious recipes with AI-powered extraction
-            </p>
-            <Button
-              size="lg"
-              onClick={() => openAddRecipe()}
-              className="bg-primary hover:bg-primary/90 shadow-lg hidden md:inline-flex"
-              data-testid="button-upload-hero"
-            >
-              <Upload className="mr-2 h-5 w-5" strokeWidth={2} />
-              Upload Recipe
-            </Button>
-          </div>
-        </div>
-      </section>
-
-      {/* Quick Link Import Bar */}
-      <div className="max-w-3xl mx-auto px-4 -mt-6 relative z-10">
-        <QuickLinkImport />
-      </div>
-
-      {/* Main Content Area */}
-      <div className="max-w-7xl mx-auto px-4 py-6 md:py-8">
-        {/* Consolidated Filter Bar - Single Row */}
-        <div className="flex flex-wrap items-center gap-3 sticky top-0 z-30 bg-background py-3 -mx-4 px-4 border-b">
-          {/* View Mode Toggle - Available for all users */}
-          <div className="flex items-center gap-2">
-            <Button
-              variant={viewMode === 'recipes' && collectionFilter !== 'bookmarked' && selectedCookbookIds.length === 0 ? 'default' : 'outline'}
-              size="icon"
-              onClick={() => {
-                setViewMode('recipes');
-                setCollectionFilter(user ? 'all' : 'public');
-                setSelectedCookbookIds([]);
-                setSelectedCreatorId(undefined);
-              }}
-              className="sm:w-auto sm:px-3 gap-2"
-              data-testid="button-view-recipes"
-            >
-              <LayoutGrid className="h-4 w-4 shrink-0" strokeWidth={2} />
-              <span className="hidden sm:inline">All Recipes</span>
-            </Button>
-            {user && (
-              <Button
-                variant={collectionFilter === 'bookmarked' ? 'default' : 'outline'}
-                size="icon"
-                onClick={() => {
-                  setViewMode('recipes');
-                  setCollectionFilter('bookmarked');
-                  setSelectedCookbookIds([]);
-                  setSelectedCreatorId(undefined);
-                }}
-                className="sm:w-auto sm:px-3 gap-2"
-                data-testid="button-view-bookmarked"
-              >
-                <Heart className="h-4 w-4 shrink-0" strokeWidth={2} />
-                <span className="hidden sm:inline">Favorites</span>
-              </Button>
-            )}
-            <Button
-              variant={viewMode === 'cookbooks' ? 'default' : 'outline'}
-              size="icon"
-              onClick={() => {
-                setViewMode('cookbooks');
-                setCollectionFilter(user ? 'all' : 'public');
-              }}
-              className="sm:w-auto sm:px-3 gap-2"
-              data-testid="button-view-cookbooks"
-            >
-              <Folder className="h-4 w-4 shrink-0" strokeWidth={2} />
-              <span className="hidden sm:inline">{user ? 'My Cookbooks' : 'Cookbooks'}</span>
-            </Button>
-          </div>
-
-          {/* Cookbook Multi-Select - only in recipes view for authenticated users */}
-          {user && viewMode === 'recipes' && (
-            <CookbookMultiSelect
-              selectedIds={selectedCookbookIds}
-              onSelectionChange={(ids) => {
-                setSelectedCookbookIds(ids);
-                if (ids.length > 0) {
-                  setCollectionFilter('all');
-                }
-              }}
-              testId="select-filter-cookbooks"
-            />
+    <div className="mx-auto max-w-7xl px-4 pb-20 pt-6 md:px-6 md:pb-10">
+      {isFirstRun ? (
+        <>
+          <h1 className="sr-only">Recipes</h1>
+          {firstRunPanel}
+          {showBrowse && totalResults > 0 && (
+            <h2 className="mb-3 font-serif text-2xl font-bold">Recipes shared with you</h2>
           )}
-          
-          {/* Advanced Filter Trigger - only in recipes view */}
-          {viewMode === 'recipes' && (
-            <AdvancedFilterTrigger 
-              isOpen={advancedFiltersOpen}
-              onToggle={() => setAdvancedFiltersOpen(!advancedFiltersOpen)}
-              activeCount={countActiveFilters(filters)}
-              onReset={() => dispatch({ type: "RESET_ALL" })}
-            />
-          )}
-
-          {/* Sort dropdown - only in recipes view */}
-          {viewMode === 'recipes' && (
-            <SortPopover sortBy={sortBy} onSortChange={setSortBy} />
-          )}
-
-          {/* Duplicate cleanup - signed-in users browsing their own recipes */}
-          {user && viewMode === 'recipes' && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-1.5"
-              onClick={() => setDuplicatesOpen(true)}
-              data-testid="button-find-duplicates"
-            >
-              <CopyIcon className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Duplicates</span>
-            </Button>
-          )}
-          
-          {/* Active Filter Indicators - on same row when space allows */}
-          {viewMode === 'recipes' && (selectedCreatorId || selectedCookbookIds.length > 0) && (
-            <div className="flex items-center gap-2 ml-auto">
-              {selectedCreatorId && (
-                <Badge variant="default" className="text-sm py-1.5 px-3">
-                  By: {recipes?.[0]?.owner?.username || recipes?.[0]?.owner?.firstName || 'creator'}
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="ml-1.5 h-4 w-4 p-0 hover:bg-transparent"
-                    onClick={() => setSelectedCreatorId(undefined)}
-                    data-testid="button-clear-creator-filter"
-                  >
-                    <X className="h-3 w-3" strokeWidth={2} />
-                  </Button>
-                </Badge>
-              )}
-              {selectedCookbookIds.length > 0 && (
-                <Badge variant="secondary" className="text-sm py-1.5 px-3">
-                  {selectedCookbookIds.length === 1 
-                    ? cookbooks.find(c => c.id === selectedCookbookIds[0])?.name || 'Cookbook'
-                    : `${selectedCookbookIds.length} cookbooks`}
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="ml-1.5 h-4 w-4 p-0 hover:bg-transparent"
-                    onClick={() => setSelectedCookbookIds([])}
-                    data-testid="button-clear-cookbook-filter"
-                  >
-                    <X className="h-3 w-3" strokeWidth={2} />
-                  </Button>
-                </Badge>
-              )}
-            </div>
-          )}
-        </div>
-        
-        {viewMode === 'recipes' && (
-          <AdvancedFilterSheet
-            open={advancedFiltersOpen}
-            onOpenChange={setAdvancedFiltersOpen}
-            filters={filters}
-            dispatch={dispatch}
-            userId={user?.id}
-            scope={collectionFilter === 'yours' ? 'my' : collectionFilter === 'public' ? 'public' : collectionFilter === 'shared' ? 'shared' : undefined}
-            totalResults={totalResults}
-            onReset={() => dispatch({ type: "RESET_ALL" })}
-          />
-        )}
-
-        {viewMode === 'recipes' && (
-          <QuickFilters 
-            filters={filters} 
-            dispatch={dispatch}
-          />
-        )}
-
-        {/* Active Filter Chips + Results Count */}
-        {viewMode === 'recipes' && activeFilterChips.length > 0 && (
-          <div className="flex flex-wrap items-center gap-2 mt-3" data-testid="filter-chips-row">
-            {activeFilterChips.map((chip, i) => (
-              <Badge
-                key={`${chip.label}-${i}`}
-                variant="secondary"
-                className="gap-1.5 pr-1"
-                data-testid={`chip-filter-${i}`}
-              >
-                {chip.label}
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-4 w-4 p-0 hover:bg-transparent no-default-hover-elevate"
-                  onClick={chip.onRemove}
-                  data-testid={`button-remove-chip-${i}`}
-                >
-                  <X className="h-3 w-3" />
-                </Button>
-              </Badge>
-            ))}
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground text-xs"
-              onClick={() => dispatch({ type: "RESET_ALL" })}
-              data-testid="button-clear-all-chips"
-            >
-              Clear all
-            </Button>
-          </div>
-        )}
-
-        {/* Results count */}
-        {viewMode === 'recipes' && !isLoading && (
-          <div className="flex items-center gap-2 mt-4 text-sm text-muted-foreground" data-testid="results-count">
-            {hasActiveFilters || filters.search ? (
-              <span>Showing {totalResults} {totalResults === 1 ? 'recipe' : 'recipes'}</span>
-            ) : (
-              <span>{totalResults} {totalResults === 1 ? 'recipe' : 'recipes'}</span>
-            )}
-          </div>
-        )}
-
-        {/* Cookbooks View */}
-        {viewMode === 'cookbooks' && (
-          <>
-            {/* Cookbook View Mode Tabs - only show for authenticated users */}
-            {user && (
-              <div className="flex items-center gap-2 mt-6 mb-4">
-                <Button
-                  variant={cookbookViewMode === 'mine' ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => setCookbookViewMode('mine')}
-                  data-testid="button-cookbooks-mine"
-                >
-                  <BookOpen className="h-4 w-4 mr-1.5" strokeWidth={2} />
-                  My Cookbooks
-                </Button>
-                <Button
-                  variant={cookbookViewMode === 'following' ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => setCookbookViewMode('following')}
-                  data-testid="button-cookbooks-following"
-                >
-                  <Heart className="h-4 w-4 mr-1.5" strokeWidth={2} />
-                  Following
-                </Button>
-                <Button
-                  variant={cookbookViewMode === 'public' ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => setCookbookViewMode('public')}
-                  data-testid="button-cookbooks-public"
-                >
-                  <Globe className="h-4 w-4 mr-1.5" strokeWidth={2} />
-                  Discover
-                </Button>
-              </div>
-            )}
-            
-            {/* Guest heading for public cookbooks view */}
-            {!user && (
-              <div className="flex items-center gap-2 mt-6 mb-4">
-                <Globe className="h-5 w-5 text-primary" strokeWidth={2} />
-                <h2 className="text-lg font-semibold">Public Cookbooks</h2>
-              </div>
-            )}
-            
-            {/* Cookbook Cards Grid */}
-            {cookbooks && cookbooks.length > 0 ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                {cookbooks.map((cookbook) => {
-                  const isOwn = cookbook.ownerUserId === user?.id;
-                  const isFollowing = followedCookbookIdsSet.has(cookbook.id);
-                  
-                  return (
-                    <Card
-                      key={cookbook.id}
-                      className="overflow-hidden hover-elevate transition-transform border border-card-border"
-                      data-testid={`card-cookbook-${cookbook.id}`}
-                    >
-                      <CardContent className="p-6">
-                        <div className="flex items-start justify-between mb-4">
-                          <div 
-                            className="cursor-pointer flex-1"
-                            onClick={() => {
-                              setViewMode('recipes');
-                              setSelectedCookbookIds([cookbook.id]);
-                            }}
-                          >
-                            <BookOpen className="h-10 w-10 text-primary" strokeWidth={2} />
-                          </div>
-                          <div className="flex items-center gap-1">
-                            <Badge variant="secondary" className="text-xs">
-                              {cookbook.recipeCount || 0} recipes
-                            </Badge>
-                            {cookbook.isPublic && (
-                              <Badge variant="outline" className="text-xs">
-                                <Globe className="h-3 w-3 mr-1" strokeWidth={2} />
-                                Public
-                              </Badge>
-                            )}
-                          </div>
-                        </div>
-                        
-                        <div 
-                          className="cursor-pointer"
-                          onClick={() => {
-                            setViewMode('recipes');
-                            setSelectedCookbookIds([cookbook.id]);
-                          }}
-                        >
-                          <h3 className="font-serif text-xl font-bold mb-2">
-                            {cookbook.name}
-                          </h3>
-                          {cookbook.description && (
-                            <p className="text-sm text-muted-foreground line-clamp-2 mb-4">
-                              {cookbook.description}
-                            </p>
-                          )}
-                        </div>
-                        
-                        {/* Action Buttons */}
-                        <div className="flex items-center gap-2 pt-3 border-t border-border">
-                          {/* Share button - available for public cookbooks */}
-                          {cookbook.isPublic && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleShareCookbook(cookbook.id);
-                              }}
-                              className="flex-1"
-                              data-testid={`button-share-cookbook-${cookbook.id}`}
-                            >
-                              <Share2 className="h-4 w-4 mr-1.5" strokeWidth={2} />
-                              Share
-                            </Button>
-                          )}
-                          
-                          {/* Follow button - for other users' public cookbooks */}
-                          {!isOwn && cookbook.isPublic && (
-                            <Button
-                              variant={isFollowing ? 'default' : 'outline'}
-                              size="sm"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleFollowCookbook(cookbook.id);
-                              }}
-                              className="flex-1"
-                              data-testid={`button-follow-cookbook-${cookbook.id}`}
-                            >
-                              {isFollowing ? (
-                                <>
-                                  <HeartOff className="h-4 w-4 mr-1.5" strokeWidth={2} />
-                                  Unfollow
-                                </>
-                              ) : (
-                                <>
-                                  <Heart className="h-4 w-4 mr-1.5" strokeWidth={2} />
-                                  Follow
-                                </>
-                              )}
-                            </Button>
-                          )}
-                          
-                          {/* View button */}
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => {
-                              setViewMode('recipes');
-                              setSelectedCookbookIds([cookbook.id]);
-                            }}
-                            className={!cookbook.isPublic && !isOwn ? 'flex-1' : ''}
-                            data-testid={`button-view-cookbook-${cookbook.id}`}
-                          >
-                            <Eye className="h-4 w-4 mr-1.5" strokeWidth={2} />
-                            View
-                          </Button>
-                          
-                          {/* Print button - for cookbook owners */}
-                          {isOwn && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                navigate(`/cookbook/${cookbook.id}/print`);
-                              }}
-                              data-testid={`button-print-cookbook-${cookbook.id}`}
-                            >
-                              <Printer className="h-4 w-4 mr-1.5" strokeWidth={2} />
-                              Print
-                            </Button>
-                          )}
-                        </div>
-                      </CardContent>
-                    </Card>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="text-center py-12">
-                <BookOpen className="h-12 w-12 mx-auto text-muted-foreground mb-4" strokeWidth={1.5} />
-                <h3 className="text-lg font-medium mb-2">
-                  {!user ? 'No public cookbooks yet' :
-                   cookbookViewMode === 'mine' ? 'No cookbooks yet' : 
-                   cookbookViewMode === 'following' ? 'Not following any cookbooks' :
-                   'No public cookbooks to discover'}
-                </h3>
-                <p className="text-muted-foreground">
-                  {!user ? 'Sign in to create and follow cookbooks' :
-                   cookbookViewMode === 'mine' ? 'Create your first cookbook to organize recipes' :
-                   cookbookViewMode === 'following' ? 'Follow other users\' public cookbooks to see them here' :
-                   'Check back later for new public cookbooks'}
-                </p>
-              </div>
-            )}
-          </>
-        )}
-
-        {/* Recipes Grid */}
-        {viewMode === 'recipes' && isLoading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 mt-8">
-            {[...Array(8)].map((_, i) => (
-              <Card key={i} className="overflow-hidden">
-                <Skeleton className="aspect-[4/3] w-full" />
-                <CardContent className="p-6">
-                  <Skeleton className="h-6 w-3/4 mb-2" />
-                  <Skeleton className="h-4 w-full mb-4" />
-                  <div className="flex gap-3">
-                    <Skeleton className="h-4 w-20" />
-                    <Skeleton className="h-4 w-20" />
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        ) : viewMode === 'recipes' && filteredRecipes.length > 0 ? (
-          <>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 mt-8">
-            {filteredRecipes.map((recipe) => (
-              <div key={recipe.id} className="relative group">
-                {/* Multi-select checkbox */}
-                {user && recipe.owner?.id === user.id && (
-                  <div className="absolute top-3 left-3 z-10">
-                    <Checkbox
-                      checked={selectedRecipeIds.has(recipe.id)}
-                      onCheckedChange={() => handleToggleRecipe(recipe.id)}
-                      className="bg-white/90 backdrop-blur-sm border-white/50 data-[state=checked]:bg-primary data-[state=checked]:border-primary"
-                      data-testid={`checkbox-recipe-${recipe.id}`}
-                    />
-                  </div>
-                )}
-                
-                <Link href={`/recipe/${recipe.id}`}>
-                <Card 
-                  className="overflow-hidden hover-elevate transition-all cursor-pointer border border-card-border h-full"
-                  data-testid={`card-recipe-${recipe.id}`}
-                >
-                  {/* Recipe Image */}
-                  <div className="relative aspect-[4/3] overflow-hidden">
-                    <img
-                      src={isPlaceholderImage(recipe.dishImageThumbnail) ? grammieImage : (recipe.dishImageThumbnail || grammieImage)}
-                      alt={recipe.title}
-                      loading="lazy"
-                      className={`w-full h-full transition-transform group-hover:scale-105 ${isPlaceholderImage(recipe.dishImageThumbnail) ? 'object-contain bg-muted p-4' : 'object-cover'}`}
-                      data-testid={`img-recipe-${recipe.id}`}
-                    />
-                    
-                    {/* Glass overlay with icon actions */}
-                    <div className="absolute top-3 right-3 flex gap-2">
-                      {/* Icon actions - using glass-clear for visibility */}
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="w-9 h-9 glass-clear hover:glass-regular transition-all"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          handleShare(recipe.id);
-                        }}
-                        aria-label="Share recipe"
-                        data-testid={`button-share-${recipe.id}`}
-                      >
-                        <Share2 className="h-4 w-4 text-white" strokeWidth={2} />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className={`w-9 h-9 glass-clear hover:glass-regular transition-all ${bookmarkedIdsSet.has(recipe.id) ? 'text-primary' : ''}`}
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          handleBookmark(recipe.id);
-                        }}
-                        aria-label={bookmarkedIdsSet.has(recipe.id) ? "Remove bookmark" : "Bookmark recipe"}
-                        data-testid={`button-bookmark-${recipe.id}`}
-                      >
-                        {bookmarkedIdsSet.has(recipe.id) ? (
-                          <BookmarkCheck className="h-4 w-4 text-primary" strokeWidth={2} />
-                        ) : (
-                          <Bookmark className="h-4 w-4 text-white" strokeWidth={2} />
-                        )}
-                      </Button>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="w-9 h-9 glass-clear hover:glass-regular transition-all"
-                            onClick={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                            }}
-                            aria-label="More options"
-                            data-testid={`button-more-${recipe.id}`}
-                          >
-                            <MoreVertical className="h-4 w-4 text-white" strokeWidth={2} />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          {user && recipe.owner?.id === user.id && (
-                            <DropdownMenuItem
-                              className="text-destructive focus:text-destructive"
-                              onClick={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                setDeleteDialogRecipeId(recipe.id);
-                              }}
-                              data-testid={`menu-item-delete-${recipe.id}`}
-                            >
-                              <Trash2 className="h-4 w-4 mr-2" strokeWidth={2} />
-                              Delete
-                            </DropdownMenuItem>
-                          )}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
-                    
-                    {/* Status badges */}
-                    <div className="absolute top-3 left-3 flex flex-col gap-2">
-                      {recipe.enrichmentStatus === 'enriching' && (
-                        <Badge 
-                          variant="secondary" 
-                          className="bg-background/90 backdrop-blur-sm text-foreground gap-1.5"
-                          data-testid={`badge-enriching-${recipe.id}`}
-                        >
-                          <Loader2 className="h-3 w-3 animate-spin" strokeWidth={2} />
-                          Enriching...
-                        </Badge>
-                      )}
-                      
-                      {recipe.enrichmentStatus === 'extracting' && (
-                        <Badge 
-                          variant="secondary" 
-                          className="bg-background/90 backdrop-blur-sm text-foreground gap-1.5"
-                          data-testid={`badge-extracting-${recipe.id}`}
-                        >
-                          <Loader2 className="h-3 w-3 animate-spin" strokeWidth={2} />
-                          Extracting...
-                        </Badge>
-                      )}
-                      
-                      {recipe.enrichmentStatus === 'failed' && (
-                        <Badge 
-                          variant="destructive" 
-                          className="bg-destructive/90 backdrop-blur-sm text-destructive-foreground gap-1.5"
-                          data-testid={`badge-failed-${recipe.id}`}
-                        >
-                          <AlertTriangle className="h-3 w-3" strokeWidth={2} />
-                          Enrichment failed
-                        </Badge>
-                      )}
-                    </div>
-                    
-                  </div>
-                  
-                  {/* Card Content */}
-                  <CardContent className="p-4 md:p-6">
-                    <h3
-                      className="font-serif text-lg md:text-xl font-bold text-foreground mb-3 line-clamp-2"
-                      data-testid={`text-recipe-title-${recipe.id}`}
-                    >
-                      {recipe.title}
-                    </h3>
-                    <div className="flex flex-wrap gap-3 text-sm text-muted-foreground mb-4">
-                      <div className="flex items-center gap-1">
-                        <Clock className="h-4 w-4" strokeWidth={2} />
-                        <span data-testid={`text-recipe-time-${recipe.id}`}>
-                          {formatTime(recipe.totalTimeMinutes)}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <Users className="h-4 w-4" strokeWidth={2} />
-                        <span
-                          data-testid={`text-recipe-servings-${recipe.id}`}
-                        >
-                          {recipe.servings} servings
-                        </span>
-                      </div>
-                    </div>
-                    {/* Owner and Cookbook badges */}
-                    <div className="flex flex-wrap gap-2">
-                      {/* Creator badge */}
-                      {recipe.owner && (
-                        <Badge
-                          variant="secondary"
-                          className="text-xs cursor-pointer hover-elevate"
-                          data-testid={`badge-creator-${recipe.id}`}
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            setSelectedCreatorId(recipe.owner!.id);
-                            setSelectedCookbookIds([]);
-                          }}
-                        >
-                          {recipe.owner.username || 
-                           (recipe.owner.firstName && recipe.owner.lastName 
-                             ? `${recipe.owner.firstName} ${recipe.owner.lastName}`
-                             : recipe.owner.firstName || 
-                               recipe.owner.lastName || 
-                               'Anonymous')}
-                        </Badge>
-                      )}
-                      
-                      {/* Cookbook badge - show first cookbook if any */}
-                      {recipe.cookbooks && recipe.cookbooks.length > 0 && (
-                        <Badge
-                          variant="outline"
-                          className="text-xs cursor-pointer hover-elevate"
-                          data-testid={`badge-cookbook-${recipe.cookbooks[0].id}-${recipe.id}`}
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            setSelectedCookbookIds([recipe.cookbooks![0].id]);
-                            setSelectedCreatorId(undefined);
-                          }}
-                        >
-                          <BookOpen className="h-3 w-3 mr-1" strokeWidth={2} />
-                          {recipe.cookbooks[0].name}
-                          {recipe.cookbooks.length > 1 && ` +${recipe.cookbooks.length - 1}`}
-                        </Badge>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-              </Link>
-              </div>
-            ))}
-          </div>
-          
-          {/* Load More button */}
-          {hasNextPage && (
-            <div className="flex justify-center mt-12">
-              <Button
-                onClick={() => fetchNextPage()}
-                disabled={isFetchingNextPage}
-                size="lg"
-                className="touch-target"
-                data-testid="button-load-more"
-              >
-                {isFetchingNextPage ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" strokeWidth={2} />
-                    Loading more...
-                  </>
-                ) : (
-                  <>
-                    Load More Recipes
-                  </>
-                )}
-              </Button>
-            </div>
-          )}
-          </>
-        ) : viewMode === 'recipes' ? (
-          <div className="text-center py-16">
-            <ChefHat className="h-24 w-24 text-muted-foreground mx-auto mb-6" strokeWidth={1.5} />
-            <h3 className="text-2xl font-serif font-semibold mb-2">
-              No recipes found
-            </h3>
-            <p className="text-muted-foreground mb-6">
-              {filters.search || hasActiveFilters
-                ? "Try adjusting your search or filters"
-                : "Start by uploading your first recipe"}
-            </p>
-            <Button
-              onClick={() => openAddRecipe()}
-              className="touch-target"
-              data-testid="button-upload-first-recipe"
-            >
-              <Upload className="mr-2 h-4 w-4" strokeWidth={2} />
-              Upload Recipe
-            </Button>
-          </div>
-        ) : null}
-      </div>
-
-
-      {/* Bulk action toolbar - floating at bottom with glass effect */}
-      {user && selectedRecipeIds.size > 0 && (
-        <div 
-          className="fixed bottom-24 left-1/2 -translate-x-1/2 z-40 glass-regular border glass-border rounded-lg shadow-lg p-4 safe-bottom"
-          data-testid="toolbar-bulk-actions"
-        >
-          <div className="flex items-center gap-4">
-            <span className="text-sm font-medium" data-testid="text-selected-count">
-              {selectedRecipeIds.size} recipe{selectedRecipeIds.size > 1 ? 's' : ''} selected
-            </span>
-            <Button
-              variant="default"
-              size="sm"
-              onClick={() => setBulkAddDialogOpen(true)}
-              disabled={bulkAddToCookbookMutation.isPending}
-              className="touch-target"
-              data-testid="button-bulk-add-cookbook"
-            >
-              <BookOpen className="h-4 w-4 mr-2" strokeWidth={2} />
-              <span className="hidden sm:inline">Add to Cookbook</span>
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleBulkAddToGroceryList}
-              disabled={bulkAddToGroceryListMutation.isPending}
-              className="touch-target"
-              data-testid="button-bulk-add-grocery"
-            >
-              <ShoppingCart className="h-4 w-4 mr-2" strokeWidth={2} />
-              <span className="hidden sm:inline">{bulkAddToGroceryListMutation.isPending ? "Adding..." : "Add to List"}</span>
-            </Button>
-            <Button
-              variant="destructive"
-              size="sm"
-              onClick={() => setBulkDeleteDialogOpen(true)}
-              disabled={bulkDeleteMutation.isPending}
-              className="touch-target"
-              data-testid="button-bulk-delete"
-            >
-              <Trash2 className="h-4 w-4 mr-2" strokeWidth={2} />
-              <span className="hidden sm:inline">Delete</span>
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleClearSelection}
-              className="touch-target"
-              data-testid="button-clear-selection"
-            >
-              <X className="h-4 w-4 mr-2" strokeWidth={2} />
-              <span className="hidden sm:inline">Clear</span>
-            </Button>
-          </div>
-        </div>
+        </>
+      ) : (
+        <PageHeader
+          className="mb-4"
+          title="Recipes"
+          description={
+            isLoading ? <span className="invisible">Loading</span> : isFiltering ? `${pluralize(totalResults, "recipe")} found` : pluralize(totalResults, "recipe")
+          }
+        />
       )}
 
-      {/* Bulk add to cookbook dialog */}
-      <Dialog open={bulkAddDialogOpen} onOpenChange={(open) => {
-        setBulkAddDialogOpen(open);
-        if (open) {
-          setBulkCookbookId(undefined);
-        }
-      }}>
+      {showBrowse && (
+        <>
+          {/* Search, Filters, Sort, … — or the select-mode bar */}
+          <div className="sticky top-16 z-30 -mx-4 space-y-3 border-b bg-background/95 px-4 py-3 backdrop-blur md:-mx-6 md:px-6">
+            {selectMode ? (
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center" data-testid="toolbar-bulk-actions">
+                <div className="flex items-center gap-2 sm:mr-auto">
+                  <p className="mr-auto text-sm font-medium" data-testid="text-selected-count" aria-live="polite">
+                    {selectedIds.length === 0 ? "Tap your recipes to select them" : `${pluralize(selectedIds.length, "recipe")} selected`}
+                  </p>
+                  <Button className="sm:order-last" onClick={exitSelectMode} data-testid="button-clear-selection">
+                    Done
+                  </Button>
+                </div>
+                <div className="grid grid-cols-3 gap-2 sm:flex">
+                  <Button
+                    variant="outline"
+                    className="px-2 sm:px-4"
+                    onClick={() => setBulkAddDialogOpen(true)}
+                    disabled={selectedIds.length === 0}
+                    data-testid="button-bulk-add-cookbook"
+                  >
+                    <BookOpen aria-hidden /> <span className="sm:hidden">Cookbook</span>
+                    <span className="hidden sm:inline">Add to cookbook</span>
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="px-2 sm:px-4"
+                    onClick={() => addToGroceryListMutation.mutate(selectedIds)}
+                    disabled={selectedIds.length === 0 || addToGroceryListMutation.isPending}
+                    data-testid="button-bulk-add-grocery"
+                  >
+                    <ShoppingCart aria-hidden /> <span className="sm:hidden">Groceries</span>
+                    <span className="hidden sm:inline">{addToGroceryListMutation.isPending ? "Adding…" : "Add to grocery list"}</span>
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="px-2 text-destructive sm:px-4"
+                    onClick={() => {
+                      deleteRecipes(selectedIds, `Deleted ${pluralize(selectedIds.length, "recipe")}`);
+                      exitSelectMode();
+                    }}
+                    disabled={selectedIds.length === 0}
+                    data-testid="button-bulk-delete"
+                  >
+                    <Trash2 aria-hidden /> Delete
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="relative">
+                  <label htmlFor="recipe-search" className="sr-only">
+                    Search recipes
+                  </label>
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" aria-hidden />
+                  <Input
+                    id="recipe-search"
+                    type="search"
+                    placeholder="Search recipes, ingredients, or who it's from"
+                    value={filters.search}
+                    onChange={(e) => dispatch({ type: "SET_SEARCH", payload: e.target.value })}
+                    className="h-12 pl-10 text-sm"
+                    enterKeyHint="search"
+                    data-testid="input-search"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    className="gap-2 px-3"
+                    onClick={() => setFiltersOpen(true)}
+                    aria-label={appliedCount ? `Filters, ${appliedCount} applied` : "Filters"}
+                    data-testid="button-toggle-filters"
+                  >
+                    <SlidersHorizontal aria-hidden />
+                    Filters
+                    {appliedCount > 0 && (
+                      <span className="min-w-6 rounded-full bg-primary px-1.5 text-center text-xs font-semibold text-primary-foreground" aria-hidden>
+                        {appliedCount}
+                      </span>
+                    )}
+                  </Button>
+                  <SortMenu sortBy={sortBy} onSortChange={setSortBy} />
+                  {user && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="outline" size="icon" className="ml-auto" aria-label="More options" title="More options" data-testid="button-recipes-more">
+                          <MoreHorizontal className="!h-5 !w-5" aria-hidden />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="min-w-[14rem]">
+                        <DropdownMenuItem className="min-h-11" onSelect={() => setSelectMode(true)} data-testid="menu-select-recipes">
+                          <CheckSquare aria-hidden /> Select recipes
+                        </DropdownMenuItem>
+                        <DropdownMenuItem className="min-h-11" onSelect={() => setDuplicatesOpen(true)} data-testid="button-find-duplicates">
+                          <CopyIcon aria-hidden /> Find duplicates
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+
+          {!selectMode && showQuickFilters && (
+            <QuickFilters filters={filters} dispatch={dispatch} enabledIds={preferences?.quickFilters?.enabled} />
+          )}
+
+          {/* Applied filters, each removable */}
+          {!selectMode && chips.length > 0 && (
+            <div className="mt-3 flex flex-wrap items-center gap-2" data-testid="filter-chips-row" aria-label="Applied filters">
+              {chips.map((chip) => (
+                <button
+                  key={chip.key}
+                  type="button"
+                  onClick={chip.onRemove}
+                  className="inline-flex min-h-11 items-center gap-1.5 rounded-full border border-primary/40 bg-primary/10 pl-4 pr-3 text-sm font-medium text-foreground hover:bg-primary/15"
+                  aria-label={`Remove filter: ${chip.label}`}
+                  data-testid={`chip-filter-${chip.key}`}
+                >
+                  {chip.label}
+                  <X className="h-4 w-4" aria-hidden />
+                </button>
+              ))}
+              {chips.length > 1 && (
+                <Button variant="ghost" onClick={clearAll} data-testid="button-clear-all-chips">
+                  Clear all
+                </Button>
+              )}
+            </div>
+          )}
+
+          <div className="mt-4">
+            {isLoading ? (
+              <div className={RECIPE_GRID_CLASS} role="status" aria-label="Loading recipes">
+                {Array.from({ length: 8 }).map((_, i) => (
+                  <RecipeCardSkeleton key={i} />
+                ))}
+              </div>
+            ) : isError && recipes.length === 0 ? (
+              <ErrorState
+                title="We couldn't load your recipes"
+                description={`${errorMessage(error, "Something went wrong.")} Check your connection and try again.`}
+                onRetry={() => refetch()}
+              />
+            ) : recipes.length > 0 ? (
+              <>
+                <div className={RECIPE_GRID_CLASS}>
+                  {recipes.map((recipe) => {
+                    const canSelect = selectMode && !!user && recipe.owner?.id === user.id;
+                    return (
+                      <RecipeCard
+                        key={recipe.id}
+                        recipe={recipe}
+                        viewerId={user?.id}
+                        actions={selectMode ? [] : actionsFor(recipe)}
+                        selectable={canSelect}
+                        selected={selectedRecipeIds.has(recipe.id)}
+                        onSelectedChange={(sel) => toggleSelected(recipe.id, sel)}
+                        className={cn(selectMode && !canSelect && "opacity-50")}
+                      />
+                    );
+                  })}
+                </div>
+                {hasNextPage && (
+                  <div className="mt-10 flex flex-col items-center gap-3">
+                    {isFetchNextPageError && (
+                      <p role="alert" className="text-sm text-destructive">
+                        We couldn't load more recipes. Check your connection and try again.
+                      </p>
+                    )}
+                    <Button size="lg" variant="outline" onClick={() => fetchNextPage()} disabled={isFetchingNextPage} data-testid="button-load-more">
+                      {isFetchingNextPage ? (
+                        <>
+                          <Loader2 className="motion-safe:animate-spin" aria-hidden /> Loading more…
+                        </>
+                      ) : isFetchNextPageError ? (
+                        "Try again"
+                      ) : (
+                        "Show more recipes"
+                      )}
+                    </Button>
+                  </div>
+                )}
+              </>
+            ) : isFiltering ? (
+              <EmptyState
+                icon={SearchX}
+                title={collectionFilter === "bookmarked" && chips.length === 1 && !filters.search ? "No favorites yet" : "No recipes match"}
+                description={
+                  collectionFilter === "bookmarked" && chips.length === 1 && !filters.search
+                    ? "Tap the … on any recipe and choose Add to favorites."
+                    : filters.search
+                      ? `Nothing matches "${filters.search}"${chips.length ? " with these filters" : ""}. Try fewer words, or remove a filter.`
+                      : "Try removing a filter to see more recipes."
+                }
+                action={
+                  chips.length > 0 ? (
+                    <Button
+                      className="h-auto whitespace-normal"
+                      onClick={chips.length === 1 ? chips[0].onRemove : clearAll}
+                      data-testid="button-empty-clear-filters"
+                    >
+                      {chips.length === 1 ? `Remove "${chips[0].label}"` : "Remove all filters"}
+                    </Button>
+                  ) : undefined
+                }
+                secondaryAction={
+                  filters.search ? (
+                    <Button variant="outline" onClick={() => dispatch({ type: "SET_SEARCH", payload: "" })} data-testid="button-empty-clear-search">
+                      Clear search
+                    </Button>
+                  ) : undefined
+                }
+              />
+            ) : !user ? (
+              <EmptyState
+                icon={BookOpen}
+                title="No public recipes yet"
+                description="Sign in to save your family's recipes."
+                action={
+                  <Button asChild>
+                    <a href="/login">Sign in</a>
+                  </Button>
+                }
+              />
+            ) : null}
+          </div>
+        </>
+      )}
+
+      <AdvancedFilterSheet
+        open={filtersOpen}
+        onOpenChange={setFiltersOpen}
+        filters={filters}
+        dispatch={dispatch}
+        userId={user?.id}
+        scope={collectionFilter === "yours" ? "my" : collectionFilter === "public" ? "public" : collectionFilter === "shared" ? "shared" : undefined}
+        totalResults={totalResults}
+        onReset={clearAll}
+        leadingSections={filtersSheetSections}
+        activeCountOverride={appliedCount}
+      />
+
+      <Dialog
+        open={bulkAddDialogOpen}
+        onOpenChange={(open) => {
+          setBulkAddDialogOpen(open);
+          if (open) setBulkCookbookId(undefined);
+        }}
+      >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Add to Cookbook</DialogTitle>
-            <DialogDescription>
-              Select a cookbook to add {selectedRecipeIds.size} recipe{selectedRecipeIds.size > 1 ? 's' : ''} to.
-            </DialogDescription>
+            <DialogTitle>Add to a cookbook</DialogTitle>
+            <DialogDescription>Choose the cookbook for {pluralize(selectedIds.length, "recipe")}.</DialogDescription>
           </DialogHeader>
           <div className="py-4">
-            <CookbookSelect
-              value={bulkCookbookId}
-              onValueChange={setBulkCookbookId}
-              placeholder="Select a cookbook"
-              allowNone={false}
-            />
+            <CookbookSelect value={bulkCookbookId} onValueChange={setBulkCookbookId} placeholder="Choose a cookbook" allowNone={false} />
+            {bulkAddToCookbookMutation.isError && (
+              <p role="alert" className="mt-3 text-sm text-destructive">
+                {errorMessage(bulkAddToCookbookMutation.error, "We couldn't add them.")} Try again.
+              </p>
+            )}
           </div>
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setBulkAddDialogOpen(false);
-                setBulkCookbookId(undefined);
-              }}
-              disabled={bulkAddToCookbookMutation.isPending}
-            >
+            <Button variant="outline" onClick={() => setBulkAddDialogOpen(false)} disabled={bulkAddToCookbookMutation.isPending}>
               Cancel
             </Button>
             <Button
-              onClick={handleBulkAddToCookbook}
+              onClick={() =>
+                bulkCookbookId &&
+                bulkAddToCookbookMutation.mutate({ cookbookId: parseInt(bulkCookbookId), recipeIds: selectedIds })
+              }
               disabled={!bulkCookbookId || bulkAddToCookbookMutation.isPending}
             >
-              {bulkAddToCookbookMutation.isPending ? "Adding..." : "Add to Cookbook"}
+              {bulkAddToCookbookMutation.isPending ? "Adding…" : `Add ${pluralize(selectedIds.length, "recipe")}`}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      {/* Bulk delete confirmation dialog */}
-      <AlertDialog open={bulkDeleteDialogOpen} onOpenChange={setBulkDeleteDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete Recipes</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to delete {selectedRecipeIds.size} recipe{selectedRecipeIds.size > 1 ? 's' : ''}? This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={bulkDeleteMutation.isPending}>
-              Cancel
-            </AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground border border-destructive-border"
-              onClick={(e) => {
-                e.preventDefault();
-                handleBulkDelete();
-              }}
-              disabled={bulkDeleteMutation.isPending}
-            >
-              {bulkDeleteMutation.isPending ? "Deleting..." : "Delete"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* Delete confirmation dialog */}
-      <AlertDialog open={!!deleteDialogRecipeId} onOpenChange={(open) => !open && setDeleteDialogRecipeId(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete Recipe</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to delete '{recipeToDelete?.title}'? This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleteMutation.isPending}>
-              Cancel
-            </AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground border border-destructive-border"
-              onClick={(e) => {
-                e.preventDefault();
-                if (deleteDialogRecipeId) {
-                  deleteMutation.mutate(deleteDialogRecipeId);
-                }
-              }}
-              disabled={deleteMutation.isPending}
-            >
-              {deleteMutation.isPending ? "Deleting..." : "Delete"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
 
       <DuplicateRecipesDialog open={duplicatesOpen} onClose={() => setDuplicatesOpen(false)} />
     </div>
