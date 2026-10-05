@@ -197,7 +197,8 @@ router.patch("/meal-plans/:id/entries/:entryId", isAuthenticated, async (req: an
       notes: z.string().optional(),
       isLeftover: z.boolean().optional(),
       leftoverFromEntryId: z.string().optional(),
-      assignedUserId: z.string().optional(),
+      // null clears the assignment ("Nobody yet")
+      assignedUserId: z.string().nullable().optional(),
       customMealName: z.string().optional(),
     });
 

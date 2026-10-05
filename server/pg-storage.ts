@@ -1,6 +1,7 @@
 import { db } from "./db";
 import { eq, and, or, asc, desc, inArray, notInArray, sql, getTableColumns, isNull, isNotNull } from "drizzle-orm";
 import { buildPrintImage } from "./lib/images";
+import { groceryMergeKey, findPantryItem } from "@shared/pantry-match";
 import {
   type Recipe,
   type RecipeListItem,
@@ -1091,6 +1092,47 @@ export class PostgresStorage implements IStorage {
       hasMore: offset + results.length < countResult.count,
       total: countResult.count,
     };
+  }
+
+  /**
+   * Every recipe the user can see (own, shared with them, public), with just
+   * the fields "What can I make?" needs. Card queries leave out ingredients,
+   * which is why pantry matching used to find nothing.
+   */
+  async getRecipesForPantryMatching(userId: string) {
+    const sharedRecipeIds = await db.select({ recipeId: recipeShares.recipeId })
+      .from(recipeShares)
+      .where(eq(recipeShares.userId, userId));
+    const sharedIds = sharedRecipeIds.map(s => s.recipeId);
+    const accessConditions = [
+      eq(recipes.ownerUserId, userId),
+      eq(recipes.isPublic, true),
+    ];
+    if (sharedIds.length > 0) {
+      accessConditions.push(inArray(recipes.id, sharedIds));
+    }
+    return db
+      .select({
+        id: recipes.id,
+        title: recipes.title,
+        ownerUserId: recipes.ownerUserId,
+        dishImageThumbnail: recipes.dishImageThumbnail,
+        prepTimeMinutes: recipes.prepTimeMinutes,
+        cookTimeMinutes: recipes.cookTimeMinutes,
+        totalTimeMinutes: recipes.totalTimeMinutes,
+        servings: recipes.servings,
+        cuisines: recipes.cuisines,
+        isVegetarian: recipes.isVegetarian,
+        isVegan: recipes.isVegan,
+        isGlutenFree: recipes.isGlutenFree,
+        isDairyFree: recipes.isDairyFree,
+        ingredients: recipes.ingredients,
+        normalizedIngredients: recipes.normalizedIngredients,
+      })
+      .from(recipes)
+      .where(or(...accessConditions))
+      .orderBy(desc(recipes.createdAt))
+      .limit(2000);
   }
 
   async getMyRecipesPaginated(userId: string, page: number = 1, limit: number = 24, filters?: RecipeFilterParams): Promise<PaginatedRecipes> {
@@ -2214,13 +2256,14 @@ export class PostgresStorage implements IStorage {
     const existingItems = await db.select().from(groceryListItems)
       .where(eq(groceryListItems.listId, list.id));
     
-    // Group existing items by compound key: item name + unit (case-insensitive)
-    // This prevents aggregating incompatible units
-    // Use '_none_' sentinel for items without units
+    // Merge only when the name and the recipe's own unit match exactly
+    // ("2 cups milk" + "1 cup milk"); "2 cloves garlic" and "1 head garlic"
+    // stay separate lines. Existing items are keyed by the unit of their first
+    // original entry (the recipe's unit), falling back to the stored unit.
     const existingItemMap = new Map<string, GroceryListItem>();
     for (const item of existingItems) {
-      const unitKey = item.unit || '_none_';
-      const key = `${item.item.toLowerCase()}|${unitKey}`;
+      const entries = (item.originalEntries || []) as { unit?: string }[];
+      const key = groceryMergeKey(item.item, entries[0]?.unit ?? item.unit);
       existingItemMap.set(key, item);
     }
     
@@ -2234,15 +2277,12 @@ export class PostgresStorage implements IStorage {
       // Convert to base unit
       const conversion = convertToBaseUnit(ingredient.quantity, ingredient.unit);
       
-      // Create compound key: item name + unit to prevent incompatible unit aggregation
-      // Use '_none_' sentinel for items without units
-      const unitKey = conversion.unit || '_none_';
-      const itemKey = `${ingredient.item.toLowerCase()}|${unitKey}`;
+      const itemKey = groceryMergeKey(ingredient.item, ingredient.unit || 'count');
       
       const existingItem = existingItemMap.get(itemKey);
       
-      // Aggregate if item with same base unit exists and conversion succeeded
-      if (existingItem && conversion.canConvert) {
+      // Same name and same unit: add the amounts (both are in the same base unit)
+      if (existingItem && conversion.canConvert && existingItem.unit === conversion.unit) {
         // Aggregate with existing item
         const newQuantity = existingItem.quantity + conversion.quantity;
         const newOriginalEntries = [
@@ -2320,7 +2360,9 @@ export class PostgresStorage implements IStorage {
       category: item.category || null,
       emoji: item.emoji || null,
       checked: false,
-      originalEntries: [],
+      recipeId: item.recipeId || null,
+      // Provenance ("For Lemon Chicken") when the item came from a recipe
+      originalEntries: (item.originalEntries as any) || [],
     };
     
     await db.insert(groceryListItems).values([newItem]);
@@ -3457,8 +3499,8 @@ export class PostgresStorage implements IStorage {
 
         const scaledQty = (ingredient.quantity || 1) * scaleFactor;
         const conversion = convertToBaseUnit(scaledQty, ingredient.unit);
-        const unitKey = conversion.unit || '_none_';
-        const itemKey = `${(ingredient.item || '').toLowerCase()}|${unitKey}`;
+        // Merge only exact name + unit matches (see addRecipeToGroceryList)
+        const itemKey = groceryMergeKey(ingredient.item || '', ingredient.unit || 'count');
 
         const provenance = {
           recipeId: recipe.id,
@@ -3490,15 +3532,9 @@ export class PostgresStorage implements IStorage {
     // Optionally subtract pantry items
     if (options?.excludePantryItems) {
       const pantryItems_ = await this.getPantryItems(userId);
-      const pantryMap = new Map<string, any>();
-      for (const item of pantryItems_) {
-        const key = (item.normalizedName || item.name).toLowerCase();
-        pantryMap.set(key, item);
-      }
-
+      // Same matching as "What can I make?" ("eggs" covers "large eggs")
       Array.from(aggregated.entries()).forEach(([key, agg]) => {
-        const itemName = agg.item.toLowerCase();
-        if (pantryMap.has(itemName)) {
+        if (findPantryItem(agg.item, pantryItems_)) {
           aggregated.delete(key);
         }
       });

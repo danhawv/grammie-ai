@@ -30,6 +30,7 @@ import { findPantryMatch } from "../../shared/pantry-matching";
 import { getFoodProfile, ingredientMatchesAvoid } from "@shared/food-profile";
 import { convertToBaseUnit } from "../unit-conversion";
 import { recordImport } from "../recipe-imports";
+import { rankRecipesByPantry, recipeIngredients, normalizeIngredient, namesMatch } from "../../shared/pantry-match";
 
 const router = Router();
 
@@ -132,52 +133,32 @@ router.get("/recipes/batch", async (req: any, res) => {
 // "what-can-i-make" being interpreted as a recipe ID
 // ============================================================================
 
-// Get recipe suggestions based on pantry items
+// Get recipe suggestions based on pantry items.
+// Ranks every recipe the user can see by how much of it the pantry covers
+// ("You have 7 of 9"), lists what's missing, and treats salt, pepper, oil,
+// water, flour, sugar and common dried spices as on hand. Matching rules live
+// in shared/pantry-match.ts (tested).
 router.get("/recipes/what-can-i-make", isAuthenticated, async (req: any, res) => {
   try {
     const userId = getUserId(req);
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
-    const sortParam = (req.query.sort as string) || 'match';
-
-    // Get user's pantry items
     const pantryItems = await storage.getPantryItems(userId);
-    if (pantryItems.length === 0) {
-      return res.json({
-        readyToCook: [],
-        almostReady: [],
-        needMoreIngredients: [],
-        availableCuisines: [],
-        message: "Add items to your pantry to see recipe suggestions"
-      });
-    }
-
-    // Get user preferences for dietary restrictions and dislikes
     // Food profile: allergies and dislikes are both left out of suggestions
     const user = await storage.getUser(userId);
     const foodProfile = getFoodProfile(user?.preferences);
-    const dietaryRestrictions = foodProfile.diets;
-    const dislikedIngredients = foodProfile.avoidAll;
+    const dietaryRestrictions: string[] = foodProfile.diets;
+    const dislikedIngredients: string[] = foodProfile.avoidAll;
+    const appliedFilters = { dietaryRestrictions, dislikedIngredients };
 
-    // Build pantry items array for shared matching utility
-    const pantryItemsForMatching = pantryItems.map(item => ({
-      name: item.name,
-      normalizedName: item.normalizedName,
-      quantity: item.quantity != null ? Number(item.quantity) : undefined,
-      unit: item.unit,
-    }));
+    if (pantryItems.length === 0) {
+      return res.json({ pantryItemCount: 0, results: [], recipesChecked: 0, appliedFilters });
+    }
 
-    // Compute expiry threshold (3 days from now)
-    const now = new Date();
-    const expiryThreshold = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
+    let recipesList = await storage.getRecipesForPantryMatching(userId);
 
-    // Get all accessible recipes for this user (paginated, get first 500)
-    const result = await storage.getAllRecipesPaginated(userId, 1, 500);
-    let recipesList = result.recipes;
-
-    // Apply dietary restriction filters in memory
     if (dietaryRestrictions.length > 0) {
-      recipesList = recipesList.filter((recipe: any) => {
+      recipesList = recipesList.filter((recipe) => {
         if (dietaryRestrictions.includes('vegetarian') && !recipe.isVegetarian) return false;
         if (dietaryRestrictions.includes('vegan') && !recipe.isVegan) return false;
         if (dietaryRestrictions.includes('gluten-free') && !recipe.isGlutenFree) return false;
@@ -186,178 +167,60 @@ router.get("/recipes/what-can-i-make", isAuthenticated, async (req: any, res) =>
       });
     }
 
-    interface RecipeMatch {
-      recipe: any;
-      matchedIngredients: string[];
-      missingIngredients: string[];
-      insufficientIngredients: { ingredient: string; have: string; need: string }[];
-      matchPercentage: number;
-      expiringItemsUsed: number;
-      totalCookTime: number | null;
-      substitutions?: { ingredient: string; suggestions: string[] }[];
+    if (dislikedIngredients.length > 0) {
+      const disliked = dislikedIngredients.map((d) => normalizeIngredient(d)).filter(Boolean);
+      recipesList = recipesList.filter((recipe) =>
+        !recipeIngredients(recipe).some((ing) => {
+          const n = normalizeIngredient(ing.name);
+          return disliked.some((d) => n === d || namesMatch(n, d) || n.split(" ").includes(d));
+        }),
+      );
     }
 
-    const readyToCook: RecipeMatch[] = [];
-    const almostReady: RecipeMatch[] = [];
-    const needMoreIngredients: RecipeMatch[] = [];
-    const cuisineSet = new Set<string>();
+    // Own recipes first, so a public copy of the same dish doesn't push yours out
+    recipesList = [...recipesList].sort((a, b) => Number(b.ownerUserId === userId) - Number(a.ownerUserId === userId));
+    const seenTitles = new Set<string>();
+    const ranked = rankRecipesByPantry(recipesList, pantryItems)
+      .filter((r) => {
+        // Show each dish once (libraries often hold several copies)
+        const key = r.recipe.title.trim().toLowerCase();
+        if (seenTitles.has(key)) return false;
+        seenTitles.add(key);
+        return true;
+      })
+      .slice(0, 60);
 
-    for (const recipe of recipesList) {
-      // Collect cuisines
-      const recipeCuisines = (recipe as any).cuisines || [];
-      for (const c of recipeCuisines) {
-        if (c) cuisineSet.add(c);
-      }
+    const now = Date.now();
+    const expiryThreshold = now + 3 * 24 * 60 * 60 * 1000;
+    const isExpiringSoon = (p: { expiresAt: Date | null }) =>
+      !!p.expiresAt && new Date(p.expiresAt).getTime() <= expiryThreshold;
 
-      // Skip recipes with disliked ingredients
-      const recipeIngredients = (recipe as any).normalizedIngredients || [];
-      const ingredientNames = recipeIngredients.map((ing: any) =>
-        (ing.item || ing.raw || '').toLowerCase().trim()
-      );
-
-      // Check for disliked ingredients
-      const hasDisliked = ingredientNames.some((name: string) =>
-        ingredientMatchesAvoid(name, dislikedIngredients)
-      );
-      if (hasDisliked) continue;
-
-      // Match ingredients
-      const matched: string[] = [];
-      const missing: string[] = [];
-      const insufficient: { ingredient: string; have: string; need: string }[] = [];
-      let expiringItemsUsed = 0;
-
-      for (const ing of recipeIngredients) {
-        const ingredientName = (ing.item || ing.raw || '').toLowerCase().trim();
-        if (!ingredientName || ing.isOptional || ing.isToolOrConsumable) continue;
-
-        // Use shared pantry matching
-        const matchResult = findPantryMatch(ingredientName, pantryItemsForMatching);
-
-        if (matchResult.match !== null) {
-          matched.push(ing.item || ing.raw);
-
-          // Quantity-aware matching: check if pantry quantity is sufficient
-          const recipeQty = ing.quantity;
-          const recipeUnit = ing.unit;
-          const pantryQty = matchResult.match.quantity;
-          const pantryUnit = matchResult.match.unit;
-
-          if (
-            recipeQty != null && pantryQty != null &&
-            recipeUnit && pantryUnit
-          ) {
-            const recipeConverted = convertToBaseUnit(Number(recipeQty), recipeUnit);
-            const pantryConverted = convertToBaseUnit(Number(pantryQty), pantryUnit);
-
-            if (
-              recipeConverted.canConvert && pantryConverted.canConvert &&
-              recipeConverted.unit === pantryConverted.unit &&
-              pantryConverted.quantity < recipeConverted.quantity
-            ) {
-              insufficient.push({
-                ingredient: ing.item || ing.raw,
-                have: `${pantryQty} ${pantryUnit}`,
-                need: `${recipeQty} ${recipeUnit}`,
-              });
-            }
-          }
-
-          // Check if matched pantry item is expiring within 3 days
-          const matchedPantryItem = pantryItems.find(
-            p => p.name === matchResult.match!.name
-          );
-          if (matchedPantryItem?.expiresAt) {
-            const expiresAt = new Date(matchedPantryItem.expiresAt);
-            if (expiresAt <= expiryThreshold) {
-              expiringItemsUsed++;
-            }
-          }
-        } else {
-          missing.push(ing.item || ing.raw);
-        }
-      }
-
-      const totalIngredients = matched.length + missing.length;
-      if (totalIngredients === 0) continue;
-
-      const matchPercentage = Math.round((matched.length / totalIngredients) * 100);
-
-      // Compute totalCookTime
-      const prepTimeMinutes = typeof recipe.prepTime === 'number'
-        ? recipe.prepTime
-        : (typeof recipe.prepTime === 'string' ? parseInt(recipe.prepTime, 10) || 0 : 0);
-      const cookTimeMinutes = recipe.cookTimeMinutes != null ? Number(recipe.cookTimeMinutes) : 0;
-      const totalCookTime = (prepTimeMinutes || cookTimeMinutes)
-        ? prepTimeMinutes + cookTimeMinutes
-        : null;
-
-      const recipeMatch: RecipeMatch = {
-        recipe: {
-          id: recipe.id,
-          dishName: recipe.title,
-          dishImage: recipe.dishImageThumbnail,
-          prepTime: recipe.prepTime,
-          cookTime: recipe.cookTimeMinutes != null ? `${recipe.cookTimeMinutes} min` : undefined,
-          totalCookTime,
-          servings: recipe.servings,
-          cuisine: recipe.cuisines?.[0] ?? undefined,
-          difficulty: recipe.skillLevel ?? undefined,
-        },
-        matchedIngredients: matched,
-        missingIngredients: missing,
-        insufficientIngredients: insufficient,
-        matchPercentage,
-        expiringItemsUsed,
-        totalCookTime,
-      };
-
-      if (missing.length === 0) {
-        readyToCook.push(recipeMatch);
-      } else if (missing.length <= 2) {
-        almostReady.push(recipeMatch);
-      } else if (matchPercentage >= 50) {
-        needMoreIngredients.push(recipeMatch);
-      }
-    }
-
-    // Sort based on query param
-    const getSortFn = (sort: string) => {
-      switch (sort) {
-        case 'cookTime':
-          return (a: RecipeMatch, b: RecipeMatch) => {
-            const aTime = a.recipe.totalCookTime ?? Infinity;
-            const bTime = b.recipe.totalCookTime ?? Infinity;
-            return aTime - bTime;
-          };
-        case 'expiring':
-          return (a: RecipeMatch, b: RecipeMatch) => {
-            if (b.expiringItemsUsed !== a.expiringItemsUsed) {
-              return b.expiringItemsUsed - a.expiringItemsUsed;
-            }
-            return b.matchPercentage - a.matchPercentage;
-          };
-        case 'match':
-        default:
-          return (a: RecipeMatch, b: RecipeMatch) => b.matchPercentage - a.matchPercentage;
-      }
-    };
-
-    const sortFn = getSortFn(sortParam);
-    readyToCook.sort(sortFn);
-    almostReady.sort(sortFn);
-    needMoreIngredients.sort(sortFn);
+    const results = ranked.map((r) => ({
+      recipe: {
+        id: r.recipe.id,
+        title: r.recipe.title,
+        image: r.recipe.dishImageThumbnail,
+        totalTimeMinutes:
+          r.recipe.totalTimeMinutes ??
+          ((r.recipe.prepTimeMinutes || r.recipe.cookTimeMinutes)
+            ? (r.recipe.prepTimeMinutes || 0) + (r.recipe.cookTimeMinutes || 0)
+            : null),
+        servings: r.recipe.servings,
+        cuisine: r.recipe.cuisines?.[0] ?? null,
+      },
+      haveCount: r.haveCount,
+      total: r.total,
+      have: r.have.map((h) => ({ ingredient: h.ingredient, pantryItem: h.pantryItem.name })),
+      missing: r.missing,
+      staples: r.staples,
+      expiringItemsUsed: r.have.filter((h) => isExpiringSoon(h.pantryItem)).length,
+    }));
 
     res.json({
-      readyToCook: readyToCook.slice(0, 30),
-      almostReady: almostReady.slice(0, 30),
-      needMoreIngredients: needMoreIngredients.slice(0, 30),
-      availableCuisines: Array.from(cuisineSet).sort(),
       pantryItemCount: pantryItems.length,
-      appliedFilters: {
-        dietaryRestrictions,
-        dislikedIngredients
-      }
+      recipesChecked: recipesList.length,
+      results,
+      appliedFilters,
     });
   } catch (error) {
     console.error("Error getting recipe suggestions:", error);
@@ -407,6 +270,9 @@ router.post("/recipes/:recipeId/add-missing-to-grocery", isAuthenticated, async 
       return res.status(400).json({ error: "missingIngredients array is required" });
     }
 
+    // Remember which recipe these came from so the grocery list can say so
+    const recipe = await storage.getRecipe(req.params.recipeId, userId);
+
     let added = 0;
     for (const ingredientName of missingIngredients) {
       if (typeof ingredientName !== 'string' || !ingredientName.trim()) continue;
@@ -418,6 +284,12 @@ router.post("/recipes/:recipeId/add-missing-to-grocery", isAuthenticated, async 
         displayName: name,
         aisle: 'Other',
         category: 'Other',
+        ...(recipe
+          ? {
+              recipeId: recipe.id,
+              originalEntries: [{ recipeId: recipe.id, recipeTitle: recipe.title, quantity: 1, unit: 'count', raw: name }],
+            }
+          : {}),
       } as any);
       added++;
     }
