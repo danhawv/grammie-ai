@@ -28,6 +28,7 @@ import { extractRecipeFromSocialPostUnified } from "../ai-service";
 import { getUserId, upload } from "./route-utils";
 import { findPantryMatch } from "../../shared/pantry-matching";
 import { convertToBaseUnit } from "../unit-conversion";
+import { recordImport } from "../recipe-imports";
 
 const router = Router();
 
@@ -586,6 +587,8 @@ router.post("/recipes/save-generated", isAuthenticated, async (req: any, res) =>
 
     const validated = insertRecipeSchema.parse(recipeData);
     const savedRecipe = await storage.createRecipe(validated);
+    // The person checks Grammie's draft on the review screen before it's final
+    await recordImport({ recipeId: savedRecipe.id, ownerUserId: userId, sourceType: 'creator' });
 
     // Queue enrichment job
     try {
@@ -867,6 +870,8 @@ router.post(
       // Validate and save minimal data
       const validatedData = insertRecipeSchema.parse(recipeData);
       const recipe = await storage.createRecipe(validatedData);
+      // The original photo stays in handwrittenImage; this row tracks the review step
+      await recordImport({ recipeId: recipe.id, ownerUserId: userId, sourceType: 'photo' });
       console.log(`Recipe ${recipe.id} created${sessionId ? ` for session ${sessionId}` : ''}, queuing extraction...`);
 
       // Queue Vision extraction for background processing
@@ -983,6 +988,13 @@ router.post(
 
       const validatedData = insertRecipeSchema.parse(recipeData);
       const recipe = await storage.createRecipe(validatedData);
+      // Keep every page, not just the first (handwrittenImage holds page 1)
+      await recordImport({
+        recipeId: recipe.id,
+        ownerUserId: userId,
+        sourceType: 'photo',
+        extraPageImages: handwrittenImages.slice(1),
+      });
       console.log(`Recipe ${recipe.id} created, queuing multi-image extraction with ${files.length} images...`);
 
       // Queue multi-image extraction
@@ -1094,6 +1106,7 @@ router.post("/recipes/extract-url", isAuthenticated, async (req: any, res) => {
     // Validate and save Phase 1 data
     const validatedData = insertRecipeSchema.parse(recipeData);
     const recipe = await storage.createRecipe(validatedData);
+    await recordImport({ recipeId: recipe.id, ownerUserId: userId, sourceType: 'link', sourceUrl: url });
     console.log(`Recipe ${recipe.id} saved with Phase 1 data from URL, queuing enrichment...`);
 
     // Queue Phase 2 enrichment for background processing
@@ -1218,6 +1231,7 @@ router.post("/recipes/extract-text", isAuthenticated, async (req: any, res) => {
 
     const validatedData = insertRecipeSchema.parse(recipeData);
     const recipe = await storage.createRecipe(validatedData);
+    await recordImport({ recipeId: recipe.id, ownerUserId: userId, sourceType: 'text', sourceText: text });
     console.log(`Recipe ${recipe.id} saved from pasted text, queuing enrichment...`);
 
     // Queue Phase 2 enrichment
@@ -1438,6 +1452,7 @@ router.post("/recipes/import-social", isAuthenticated, async (req: any, res) => 
 
     const validatedData = insertRecipeSchema.parse(recipeData);
     const recipe = await storage.createRecipe(validatedData);
+    await recordImport({ recipeId: recipe.id, ownerUserId: userId, sourceType: 'social', sourceUrl: url });
 
     console.log(`[Social Import] Recipe ${recipe.id} created from ${platformName}, queuing enrichment...`);
 

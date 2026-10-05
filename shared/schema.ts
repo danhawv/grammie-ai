@@ -500,6 +500,32 @@ export const recipes = pgTable("recipes", {
 }));
 
 // ============================================================================
+// RECIPE IMPORTS (review step + kept source for AI imports)
+// ============================================================================
+// One row per recipe that came from an AI import (photo, link, post, pasted
+// text or the Recipe Creator). Kept in its own table so the recipes table and
+// every query on it are untouched; recipes without a row (older recipes, or
+// before migrations/2026-10-ux-import-review.sql is applied) count as
+// already checked. See docs/DESIGN_PRINCIPLES.md §6.
+export const recipeImports = pgTable("recipe_imports", {
+  recipeId: varchar("recipe_id").primaryKey().references(() => recipes.id, { onDelete: 'cascade' }),
+  ownerUserId: varchar("owner_user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  sourceType: text("source_type").$type<'photo' | 'link' | 'social' | 'text' | 'creator'>().notNull(),
+  /** Pages after the first of a multi-page photo import (page 1 is recipes.handwritten_image) */
+  extraPageImages: jsonb("extra_page_images").$type<string[]>(),
+  sourceUrl: text("source_url"),
+  sourceText: text("source_text"),
+  reviewStatus: text("review_status").$type<'needs_review' | 'reviewed' | 'dismissed'>().default('needs_review').notNull(),
+  amountsConfirmedAt: timestamp("amounts_confirmed_at"),
+  reviewedAt: timestamp("reviewed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  ownerStatusIdx: index("recipe_imports_owner_status_idx").on(table.ownerUserId, table.reviewStatus),
+}));
+
+export type RecipeImport = typeof recipeImports.$inferSelect;
+
+// ============================================================================
 // COOKBOOKS TABLE
 // ============================================================================
 export const cookbooks = pgTable("cookbooks", {

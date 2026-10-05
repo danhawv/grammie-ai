@@ -6,6 +6,7 @@ import { setupAuth } from "./clerkAuth";
 // Import route modules
 import authRoutes from "./routes/auth";
 import recipesRoutes from "./routes/recipes";
+import recipeImportRoutes from "./routes/recipe-imports";
 import cookbooksRoutes from "./routes/cookbooks";
 import groceryRoutes from "./routes/grocery";
 import pantryRoutes from "./routes/pantry";
@@ -28,6 +29,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Mount API route modules at /api
   app.use("/api", authRoutes);
+  app.use("/api", recipeImportRoutes);
   app.use("/api", recipesRoutes);
   app.use("/api", cookbooksRoutes);
   app.use("/api", groceryRoutes);
