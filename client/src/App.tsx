@@ -19,6 +19,7 @@ import { DisplayPrefsApplier } from "@/hooks/use-display-prefs";
 const Home = lazy(() => import("@/pages/home"));
 const RecipeDetail = lazy(() => import("@/pages/recipe-detail"));
 const RecipeEdit = lazy(() => import("@/pages/recipe-edit"));
+const RecipeReview = lazy(() => import("@/pages/recipe-review"));
 const Settings = lazy(() => import("@/pages/settings"));
 const Login = lazy(() => import("@/pages/login"));
 const GroceryList = lazy(() => import("@/pages/grocery-list"));
@@ -51,6 +52,7 @@ function Router() {
       <Switch>
         <Route path="/" component={Home} />
         <Route path="/recipe/:id/edit" component={RecipeEdit} />
+        <Route path="/recipe/:id/review" component={RecipeReview} />
         <Route path="/recipe/:id" component={RecipeDetail} />
         <Route path="/settings" component={Settings} />
         <Route path="/login" component={Login} />

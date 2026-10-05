@@ -110,6 +110,7 @@ CRITICAL RULES:
 - If a field is not visible in the image, omit it entirely
 - Do not infer cuisine, diet types, meal types, equipment, or nutrition - that will be done later
 - Make your best guess for handwriting, but stay true to what's written
+- If a word or number is too smudged or faint to read with confidence, write your best guess and put [?] right after it (e.g. "1/2 [?] cup sugar"), so the person can check it
 
 Return ONLY valid JSON. Include ALL ingredients and ALL instructions that are visible.`,
             },
@@ -198,6 +199,7 @@ CRITICAL RULES:
 - Maintain the logical order (ingredients before instructions, steps in sequence)
 - Extract text exactly as written - do not normalize, estimate, or enrich
 - Do not infer cuisine, diet types, meal types, equipment, or nutrition - that will be done later
+- If a word or number is too smudged or faint to read with confidence, write your best guess and put [?] right after it (e.g. "1/2 [?] cup sugar"), so the person can check it
 
 Return ONLY valid JSON with the COMPLETE combined recipe from all images.`,
       },

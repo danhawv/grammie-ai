@@ -22,7 +22,8 @@ import {
   MicOff,
   ArrowRight,
 } from 'lucide-react';
-import { Link } from 'wouter';
+import { Link, useLocation } from 'wouter';
+import { useUploadProgress } from '@/contexts/UploadProgressContext';
 import grammieImage from "@assets/image_1763329917086.png";
 
 interface RecipeConcept {
@@ -110,6 +111,8 @@ function useSpeechInput(onResult: (text: string) => void) {
 }
 
 export default function RecipeCreator() {
+  const [, navigate] = useLocation();
+  const { addRecipe } = useUploadProgress();
   const [prompt, setPrompt] = useState('');
   const [ingredientInput, setIngredientInput] = useState('');
   const [specifiedIngredients, setSpecifiedIngredients] = useState<string[]>([]);
@@ -188,10 +191,12 @@ export default function RecipeCreator() {
       const res = await apiRequest('POST', '/api/recipes/save-generated', { recipe });
       return await res.json();
     },
-    onSuccess: () => {
+    onSuccess: (saved: { id: string; title?: string }) => {
       setSavedRecipeId(true);
-      toast({ title: 'Recipe saved!', description: 'It will appear in your collection shortly.' });
       queryClient.invalidateQueries({ queryKey: ['/api/recipes'] });
+      // Grammie's draft is checked on the review screen before it's final (§6.2)
+      addRecipe(saved.id, saved.title || 'Your Recipe', { kind: 'creator' });
+      navigate(`/recipe/${saved.id}/review`);
     },
     onError: () => {
       toast({ title: 'Failed to save recipe', variant: 'destructive' });
@@ -669,7 +674,7 @@ function FullRecipeCard({
             ) : isSaving ? (
               <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Saving...</>
             ) : (
-              <><Save className="w-3.5 h-3.5" /> Save Recipe</>
+              <><Save className="w-3.5 h-3.5" /> Check and save</>
             )}
           </Button>
           {missingIngredients.length > 0 && (

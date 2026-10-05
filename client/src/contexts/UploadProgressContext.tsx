@@ -1,297 +1,265 @@
-import { createContext, useContext, useReducer, useEffect, ReactNode } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import type { Recipe } from '@shared/schema';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import type { ImportStatus } from "@shared/import-review";
+import {
+  addToCookbook,
+  apiErrorMessage,
+  createUploadSession,
+  dismissImportReview,
+  retryImport,
+  uploadBatchPhoto,
+} from "@/lib/import-api";
 
-export type EnrichmentPhase = 'extracting' | 'enriching' | 'generating' | 'ready' | 'failed';
+// Tracks recipe imports in the background (docs/DESIGN_PRINCIPLES.md §6.9):
+// each item moves Sending… → Reading… → Needs a look → Saved, or fails with a
+// reason and Retry. Rendered by JobStatus on the processing page; the alerts
+// button shows the count. "Needs a look" also comes from the server, so it
+// survives reloads and other devices.
 
-export interface RecipeProgress {
-  recipeId: string;
+export type ImportKind = "photo" | "link" | "social" | "text" | "creator" | "shared";
+
+export interface ImportItem {
+  /** Local key; equals recipeId once the server has one */
+  key: string;
+  recipeId?: string;
   title: string;
-  phase: EnrichmentPhase;
-  progress: number; // 0-100
-  startedAt: number; // timestamp
-  completedAt?: number;
+  kind: ImportKind;
+  status: ImportStatus;
   error?: string;
-  dismissed: boolean;
-}
-
-type ProgressAction =
-  | { type: 'ADD_RECIPE'; payload: { recipeId: string; title: string } }
-  | { type: 'UPDATE_RECIPE'; payload: { recipeId: string; phase: EnrichmentPhase; progress: number; title?: string; error?: string } }
-  | { type: 'COMPLETE_RECIPE'; payload: { recipeId: string } }
-  | { type: 'DISMISS_RECIPE'; payload: { recipeId: string } }
-  | { type: 'HYDRATE'; payload: RecipeProgress[] };
-
-interface ProgressState {
-  recipes: Record<string, RecipeProgress>;
-}
-
-const SESSION_STORAGE_KEY = 'recipe-upload-progress';
-
-function progressReducer(state: ProgressState, action: ProgressAction): ProgressState {
-  switch (action.type) {
-    case 'ADD_RECIPE': {
-      const newRecipe: RecipeProgress = {
-        recipeId: action.payload.recipeId,
-        title: action.payload.title,
-        phase: 'extracting',
-        progress: 10, // Start with some progress to show activity
-        startedAt: Date.now(),
-        dismissed: false,
-      };
-      return {
-        ...state,
-        recipes: { ...state.recipes, [action.payload.recipeId]: newRecipe },
-      };
-    }
-
-    case 'UPDATE_RECIPE': {
-      const existing = state.recipes[action.payload.recipeId];
-      if (!existing) return state;
-
-      return {
-        ...state,
-        recipes: {
-          ...state.recipes,
-          [action.payload.recipeId]: {
-            ...existing,
-            phase: action.payload.phase,
-            progress: action.payload.progress,
-            title: action.payload.title ?? existing.title, // Update title if provided
-            error: action.payload.error,
-          },
-        },
-      };
-    }
-
-    case 'COMPLETE_RECIPE': {
-      const existing = state.recipes[action.payload.recipeId];
-      if (!existing) return state;
-
-      return {
-        ...state,
-        recipes: {
-          ...state.recipes,
-          [action.payload.recipeId]: {
-            ...existing,
-            phase: 'ready',
-            progress: 100,
-            completedAt: Date.now(),
-          },
-        },
-      };
-    }
-
-    case 'DISMISS_RECIPE': {
-      const existing = state.recipes[action.payload.recipeId];
-      if (!existing) return state;
-
-      return {
-        ...state,
-        recipes: {
-          ...state.recipes,
-          [action.payload.recipeId]: {
-            ...existing,
-            dismissed: true,
-          },
-        },
-      };
-    }
-
-    case 'HYDRATE': {
-      const recipes: Record<string, RecipeProgress> = {};
-      action.payload.forEach((recipe) => {
-        recipes[recipe.recipeId] = recipe;
-      });
-      return { recipes };
-    }
-
-    default:
-      return state;
-  }
+  thumbnail?: string | null;
+  startedAt: number;
 }
 
 interface UploadProgressContextValue {
-  activeRecipes: RecipeProgress[];
-  addRecipe: (recipeId: string, title: string) => void;
-  updateRecipe: (recipeId: string, phase: EnrichmentPhase, progress: number, error?: string) => void;
-  completeRecipe: (recipeId: string) => void;
-  dismissRecipe: (recipeId: string) => void;
+  imports: ImportItem[];
+  counts: { active: number; needsReview: number; failed: number };
+  /** Track an import the server already accepted */
+  addRecipe: (recipeId: string, title?: string, opts?: { kind?: ImportKind; thumbnail?: string | null }) => void;
+  /** Batch: each photo becomes its own recipe; uploads continue in the background */
+  startPhotoBatch: (photos: Array<{ blob: Blob; thumbnail?: string | null }>, opts?: { cookbookId?: string }) => void;
+  retry: (key: string) => Promise<void>;
+  markReviewed: (recipeId: string) => void;
+  /** Remove from the list; for "Needs a look" items this also means "not now" */
+  dismiss: (key: string) => void;
+  clearFinished: () => void;
 }
+
+const STORAGE_KEY = "recipe-import-progress-v2";
+const PLACEHOLDER_TITLES = new Set(["Your Recipe", "Failed to Extract Recipe", ""]);
 
 const UploadProgressContext = createContext<UploadProgressContextValue | null>(null);
 
-export function UploadProgressProvider({ children }: { children: ReactNode }) {
-  const [state, dispatch] = useReducer(progressReducer, { recipes: {} });
+function loadStored(): ImportItem[] {
+  try {
+    const raw = sessionStorage.getItem(STORAGE_KEY);
+    const parsed = raw ? (JSON.parse(raw) as ImportItem[]) : [];
+    // Uploads that never reached the server can't resume after a reload
+    return parsed.map((i) =>
+      i.status === "uploading"
+        ? { ...i, status: "failed" as const, error: "The upload stopped when the page closed. Add the photo again." }
+        : i,
+    );
+  } catch {
+    return [];
+  }
+}
 
-  // Hydrate from sessionStorage on mount
+const bestTitle = (server: string | null | undefined, current: string) =>
+  server && !PLACEHOLDER_TITLES.has(server.trim()) ? server : current;
+
+export function UploadProgressProvider({ children }: { children: ReactNode }) {
+  const [items, setItems] = useState<ImportItem[]>(loadStored);
+  const queryClient = useQueryClient();
+  // Photos kept in memory so a failed upload can be retried without re-picking
+  const pendingBlobs = useRef(new Map<string, { blob: Blob; sessionId?: string; index: number; cookbookId?: string }>());
+  const dismissedIds = useRef(new Set<string>());
+
   useEffect(() => {
-    const stored = sessionStorage.getItem(SESSION_STORAGE_KEY);
-    if (stored) {
-      try {
-        const recipes: RecipeProgress[] = JSON.parse(stored);
-        dispatch({ type: 'HYDRATE', payload: recipes });
-      } catch (e) {
-        console.error('Failed to hydrate progress from sessionStorage:', e);
-      }
+    try {
+      if (items.length) sessionStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+      else sessionStorage.removeItem(STORAGE_KEY);
+    } catch {
+      /* storage full or blocked: progress still works for this page */
     }
+  }, [items]);
+
+  const patch = useCallback((key: string, changes: Partial<ImportItem>) => {
+    setItems((prev) => prev.map((i) => (i.key === key || (i.recipeId && i.recipeId === key) ? { ...i, ...changes } : i)));
   }, []);
 
-  // Persist to sessionStorage on state changes
-  useEffect(() => {
-    const activeRecipes = Object.values(state.recipes);
-    if (activeRecipes.length > 0) {
-      sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(activeRecipes));
-    } else {
-      sessionStorage.removeItem(SESSION_STORAGE_KEY);
+  const refreshRecipes = useCallback(() => {
+    queryClient.invalidateQueries({ predicate: (q) => q.queryKey[0] === "/api/recipes" });
+  }, [queryClient]);
+
+  const addRecipe = useCallback<UploadProgressContextValue["addRecipe"]>((recipeId, title = "Your Recipe", opts = {}) => {
+    setItems((prev) => {
+      if (prev.some((i) => i.recipeId === recipeId)) return prev;
+      return [
+        { key: recipeId, recipeId, title, kind: opts.kind ?? "shared", status: "reading", thumbnail: opts.thumbnail ?? null, startedAt: Date.now() },
+        ...prev,
+      ];
+    });
+  }, []);
+
+  const uploadOne = useCallback(async (key: string) => {
+    const pending = pendingBlobs.current.get(key);
+    if (!pending) return;
+    patch(key, { status: "uploading", error: undefined });
+    try {
+      const recipeId = await uploadBatchPhoto(pending.blob, pending.sessionId, pending.index);
+      pendingBlobs.current.delete(key);
+      setItems((prev) => prev.map((i) => (i.key === key ? { ...i, key: recipeId, recipeId, status: "reading" } : i)));
+      await addToCookbook(pending.cookbookId, recipeId);
+      refreshRecipes();
+    } catch (err) {
+      patch(key, { status: "failed", error: apiErrorMessage(err, "The photo didn't upload. Check your connection and try again.") });
     }
-  }, [state.recipes]);
+  }, [patch, refreshRecipes]);
 
-  // Poll for updates on active recipes (not ready/failed/dismissed)
-  const activeRecipeIds = Object.values(state.recipes)
-    .filter((r) => !r.dismissed && r.phase !== 'ready' && r.phase !== 'failed')
-    .map((r) => r.recipeId);
+  const startPhotoBatch = useCallback<UploadProgressContextValue["startPhotoBatch"]>((photos, opts = {}) => {
+    const stamp = Date.now();
+    const keys = photos.map((_, i) => `local-${stamp}-${i}`);
+    setItems((prev) => [
+      ...photos.map((p, i) => ({
+        key: keys[i],
+        title: `Recipe ${i + 1} of ${photos.length}`,
+        kind: "photo" as const,
+        status: "uploading" as const,
+        thumbnail: p.thumbnail ?? null,
+        startedAt: stamp + (photos.length - i),
+      })),
+      ...prev,
+    ]);
+    void (async () => {
+      let sessionId: string | undefined;
+      try {
+        sessionId = await createUploadSession(photos.length);
+      } catch {
+        // The session only groups the batch; uploads work without it
+      }
+      // One at a time keeps phones on slow connections from timing out
+      for (let i = 0; i < photos.length; i++) {
+        pendingBlobs.current.set(keys[i], { blob: photos[i].blob, sessionId, index: i, cookbookId: opts.cookbookId });
+        await uploadOne(keys[i]);
+      }
+    })();
+  }, [uploadOne]);
 
+  const retry = useCallback(async (key: string) => {
+    if (pendingBlobs.current.has(key)) return uploadOne(key);
+    const item = items.find((i) => i.key === key);
+    if (!item?.recipeId) return;
+    patch(key, { status: "reading", error: undefined });
+    try {
+      await retryImport(item.recipeId);
+    } catch (err) {
+      patch(key, { status: "failed", error: apiErrorMessage(err, "Couldn't start again. Try again in a minute.") });
+    }
+  }, [items, patch, uploadOne]);
+
+  const markReviewed = useCallback((recipeId: string) => {
+    patch(recipeId, { status: "saved" });
+    queryClient.invalidateQueries({ queryKey: ["/api/recipe-imports/pending"] });
+  }, [patch, queryClient]);
+
+  const dismiss = useCallback((key: string) => {
+    const item = items.find((i) => i.key === key);
+    if (item?.recipeId && (item.status === "needs_review" || item.status === "failed")) {
+      dismissedIds.current.add(item.recipeId);
+      dismissImportReview(item.recipeId).catch(() => {});
+    }
+    pendingBlobs.current.delete(key);
+    setItems((prev) => prev.filter((i) => i.key !== key));
+  }, [items]);
+
+  const clearFinished = useCallback(() => {
+    setItems((prev) => prev.filter((i) => i.status !== "saved"));
+  }, []);
+
+  // Poll the items still being read (light endpoint: no images)
+  const readingIds = items.filter((i) => i.status === "reading" && i.recipeId).map((i) => i.recipeId!);
   useQuery({
-    queryKey: ['/api/recipes/progress', activeRecipeIds],
-    enabled: activeRecipeIds.length > 0,
-    refetchInterval: 3000, // Poll every 3 seconds
+    queryKey: ["/api/recipe-imports/status", readingIds.join(",")],
+    enabled: readingIds.length > 0,
+    refetchInterval: 3000,
     queryFn: async () => {
-      // Fetch all active recipes in parallel
-      const results = await Promise.all(
-        activeRecipeIds.map(async (id) => {
-          const res = await fetch(`/api/recipes/${id}`);
-          if (!res.ok) return null;
-          return (await res.json()) as Recipe;
-        })
+      const res = await fetch(`/api/recipe-imports/status?ids=${encodeURIComponent(readingIds.join(","))}`, { credentials: "include" });
+      if (!res.ok) return null;
+      const data = (await res.json()) as { items: Array<{ recipeId: string; title: string; status: ImportStatus; error: string | null }> };
+      let changed = false;
+      setItems((prev) =>
+        prev.map((i) => {
+          const s = data.items.find((d) => d.recipeId === i.recipeId);
+          if (!s || i.status !== "reading") return i;
+          const title = bestTitle(s.title, i.title);
+          if (s.status === i.status && title === i.title) return i;
+          if (s.status !== i.status) changed = true;
+          return { ...i, status: s.status, title, error: s.error ?? undefined };
+        }),
       );
-
-      // Update state for each recipe
-      results.forEach((recipe) => {
-        if (!recipe) return;
-
-        const currentProgress = state.recipes[recipe.id];
-        if (!currentProgress || currentProgress.dismissed) return;
-
-        // Map status to phase and progress (0-33-66-100% checkpoints)
-        let phase: EnrichmentPhase;
-        let progress: number;
-
-        if (recipe.enrichmentStatus === 'extracting') {
-          // Phase 1: Extracting (0-33%)
-          phase = 'extracting';
-          progress = 15; // Midpoint of phase 1
-        } else if (recipe.enrichmentStatus === 'enriching') {
-          // Phase 2: Enriching (33-66%)
-          phase = 'enriching';
-          progress = 50; // Midpoint of phase 2
-        } else if (recipe.enrichmentStatus === 'ready' && recipe.imageGenerationStatus === 'pending') {
-          // Enrichment done, waiting for image generation
-          phase = 'enriching';
-          progress = 66; // End of phase 2, start of phase 3
-        } else if (recipe.imageGenerationStatus === 'generating') {
-          // Phase 3: Generating image (66-100%)
-          phase = 'generating';
-          progress = 83; // Midpoint of phase 3
-        } else if (recipe.enrichmentStatus === 'ready' && recipe.imageGenerationStatus === 'ready') {
-          // All done! Always update to ensure we have the best title before completing
-          const hasRealTitle = recipe.title && recipe.title.trim() && recipe.title !== "Your Recipe";
-          const bestTitle = hasRealTitle ? recipe.title : currentProgress.title;
-          
-          // Always update phase/progress/title before completing to ensure consistency
-          dispatch({ 
-            type: 'UPDATE_RECIPE', 
-            payload: { 
-              recipeId: recipe.id, 
-              phase: 'ready', 
-              progress: 100,
-              title: bestTitle, // Ensure title is preserved
-            } 
-          });
-          dispatch({ type: 'COMPLETE_RECIPE', payload: { recipeId: recipe.id } });
-          return;
-        } else if (recipe.enrichmentStatus === 'failed' || recipe.imageGenerationStatus === 'failed') {
-          phase = 'failed';
-          progress = currentProgress.progress; // Keep current progress
-          const error = recipe.enrichmentError || recipe.imageGenerationError || 'Enrichment failed';
-          
-          // Prefer actual recipe title over placeholder
-          const hasRealTitle = recipe.title && recipe.title.trim() && recipe.title !== "Your Recipe";
-          const bestTitle = hasRealTitle ? recipe.title : currentProgress.title;
-          
-          dispatch({ 
-            type: 'UPDATE_RECIPE', 
-            payload: { 
-              recipeId: recipe.id, 
-              phase, 
-              progress, 
-              title: bestTitle, // Ensure title is preserved
-              error 
-            } 
-          });
-          return;
-        } else {
-          // Default fallback
-          phase = currentProgress.phase;
-          progress = currentProgress.progress;
-        }
-
-        // Only update if phase, progress, or title changed
-        // Prefer actual recipe title over placeholder, but keep existing non-placeholder if new one is empty
-        const hasRealTitle = recipe.title && recipe.title.trim() && recipe.title !== "Your Recipe";
-        const hasExistingRealTitle = currentProgress.title && currentProgress.title !== "Your Recipe";
-        
-        // Choose best available title
-        const bestTitle = hasRealTitle 
-          ? recipe.title 
-          : (hasExistingRealTitle ? currentProgress.title : (recipe.title || currentProgress.title));
-        
-        const titleChanged = bestTitle && bestTitle !== currentProgress.title;
-        
-        if (phase !== currentProgress.phase || progress > currentProgress.progress || titleChanged) {
-          dispatch({ 
-            type: 'UPDATE_RECIPE', 
-            payload: { 
-              recipeId: recipe.id, 
-              phase, 
-              progress,
-              title: bestTitle, // Always pass a valid title
-            } 
-          });
-        }
-      });
-
-      return results;
+      if (changed) refreshRecipes();
+      return data;
     },
   });
 
-  const activeRecipes = Object.values(state.recipes)
-    .filter((r) => !r.dismissed)
-    .sort((a, b) => b.startedAt - a.startedAt); // Most recent first
+  // Imports still waiting for a look, from earlier sessions or other devices
+  const { data: pending } = useQuery({
+    queryKey: ["/api/recipe-imports/pending"],
+    staleTime: 60_000,
+    refetchInterval: 5 * 60_000,
+    queryFn: async () => {
+      const res = await fetch("/api/recipe-imports/pending", { credentials: "include" });
+      if (!res.ok) return null;
+      return (await res.json()) as {
+        tracking: boolean;
+        items: Array<{ recipeId: string; title: string; sourceType: ImportKind; thumbnail: string | null; createdAt: string; status: ImportStatus; error: string | null }>;
+      };
+    },
+  });
 
-  const value: UploadProgressContextValue = {
-    activeRecipes,
-    addRecipe: (recipeId: string, title: string) => {
-      dispatch({ type: 'ADD_RECIPE', payload: { recipeId, title } });
-    },
-    updateRecipe: (recipeId: string, phase: EnrichmentPhase, progress: number, error?: string) => {
-      dispatch({ type: 'UPDATE_RECIPE', payload: { recipeId, phase, progress, error } });
-    },
-    completeRecipe: (recipeId: string) => {
-      dispatch({ type: 'COMPLETE_RECIPE', payload: { recipeId } });
-    },
-    dismissRecipe: (recipeId: string) => {
-      dispatch({ type: 'DISMISS_RECIPE', payload: { recipeId } });
-    },
-  };
+  useEffect(() => {
+    if (!pending?.items?.length) return;
+    setItems((prev) => {
+      const known = new Set(prev.map((i) => i.recipeId).filter(Boolean));
+      const added = pending.items
+        .filter((p) => !known.has(p.recipeId) && !dismissedIds.current.has(p.recipeId))
+        .map<ImportItem>((p) => ({
+          key: p.recipeId,
+          recipeId: p.recipeId,
+          title: bestTitle(p.title, "Your recipe"),
+          kind: p.sourceType,
+          status: p.status,
+          error: p.error ?? undefined,
+          thumbnail: p.thumbnail,
+          startedAt: new Date(p.createdAt).getTime(),
+        }));
+      return added.length ? [...prev, ...added] : prev;
+    });
+  }, [pending]);
+
+  const value = useMemo<UploadProgressContextValue>(() => {
+    const sorted = [...items].sort((a, b) => b.startedAt - a.startedAt);
+    return {
+      imports: sorted,
+      counts: {
+        active: items.filter((i) => i.status === "uploading" || i.status === "reading").length,
+        needsReview: items.filter((i) => i.status === "needs_review").length,
+        failed: items.filter((i) => i.status === "failed").length,
+      },
+      addRecipe,
+      startPhotoBatch,
+      retry,
+      markReviewed,
+      dismiss,
+      clearFinished,
+    };
+  }, [items, addRecipe, startPhotoBatch, retry, markReviewed, dismiss, clearFinished]);
 
   return <UploadProgressContext.Provider value={value}>{children}</UploadProgressContext.Provider>;
 }
 
 export function useUploadProgress() {
   const context = useContext(UploadProgressContext);
-  if (!context) {
-    throw new Error('useUploadProgress must be used within UploadProgressProvider');
-  }
+  if (!context) throw new Error("useUploadProgress must be used within UploadProgressProvider");
   return context;
 }

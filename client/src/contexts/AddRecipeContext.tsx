@@ -3,17 +3,18 @@ import { UploadRecipeModal } from "@/components/upload-recipe-modal";
 
 // One "Add recipe" entry point for the whole app (docs/DESIGN_PRINCIPLES.md):
 // the tab bar, header, empty states and anything else call openAddRecipe().
+// No mode opens the three choices; a mode jumps straight to that choice.
 
-type Mode = "image" | "link" | "text";
+export type AddRecipeMode = "image" | "link" | "text";
 
-const AddRecipeContext = createContext<{ openAddRecipe: (mode?: Mode) => void }>({
+const AddRecipeContext = createContext<{ openAddRecipe: (mode?: AddRecipeMode) => void }>({
   openAddRecipe: () => {},
 });
 
 export function AddRecipeProvider({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
-  const [mode, setMode] = useState<Mode>("image");
-  const openAddRecipe = useCallback((m: Mode = "image") => {
+  const [mode, setMode] = useState<AddRecipeMode | undefined>(undefined);
+  const openAddRecipe = useCallback((m?: AddRecipeMode) => {
     setMode(m);
     setOpen(true);
   }, []);

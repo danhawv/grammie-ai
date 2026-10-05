@@ -1,1186 +1,501 @@
-import { useState, useCallback, useEffect } from "react";
-import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
-import { apiRequest } from "@/lib/queryClient";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@/components/ui/tabs";
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
-import { Input } from "@/components/ui/input";
-import { Upload, CheckCircle2, Link2, Sparkles, RotateCw, RotateCcw, Plus, X, FileText, Layers, Images, Globe } from "lucide-react";
-import { SiInstagram, SiTiktok } from "react-icons/si";
-import { Textarea } from "@/components/ui/textarea";
-import { useToast } from "@/hooks/use-toast";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import { useUploadProgress } from "@/contexts/UploadProgressContext";
+import { ArrowLeft, Camera, FileText, Globe, ImageIcon, Link2, Loader2, RotateCcw, RotateCw, Trash2, X } from "lucide-react";
+import { SiInstagram, SiTiktok } from "react-icons/si";
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { Sheet, SheetClose, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { PhotoPicker } from "@/components/photo-picker";
 import { CookbookSelect } from "@/components/cookbook-select";
-import grandmaImage from "@assets/image_1763329917086.png";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { useUploadProgress } from "@/contexts/UploadProgressContext";
+import { downscaleImage, makeThumbnail, rotateImage } from "@/lib/images";
+import {
+  addToCookbook,
+  apiErrorMessage,
+  detectLinkPlatform,
+  importLink,
+  importText,
+  uploadRecipePhotos,
+} from "@/lib/import-api";
+import { cn } from "@/lib/utils";
 
-const urlSchema = z.object({
-  url: z.string().url("Please enter a valid URL"),
-});
+// The one "Add recipe" sheet (docs/DESIGN_PRINCIPLES.md §3, §4, §6): three
+// large choices — Photo, Link or post, Type or paste. Batch import is the
+// "Add several recipes" link inside Photo. Every import ends on the review
+// screen (one recipe) or the progress list (several), never saved unseen.
+// Dialog on desktop, bottom sheet on phones.
+
+type View = "choose" | "photo" | "link" | "text";
+type InitialMode = "image" | "link" | "text";
+
+const MAX_PAGES = 5;
+const MAX_BATCH = 10;
+const MIN_TEXT = 20;
+
+interface PickedPhoto {
+  id: string;
+  /** Shrunk copy (or the original when the browser can't decode it) */
+  blob: Blob;
+  preview: string | null;
+  thumbnail: string | null;
+  name: string;
+  rotation: number;
+}
 
 interface UploadRecipeModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  initialMode?: "image" | "link" | "text";
+  /** Jump straight to one choice; omit to show all three */
+  initialMode?: InitialMode;
 }
 
-interface UploadItem {
-  id: string;
-  file: File;
-  preview: string;
-  rotation: number;
-  isHeic: boolean;
-}
+const viewFor = (mode?: InitialMode): View => (mode === "image" ? "photo" : mode ?? "choose");
 
-export function UploadRecipeModal({
-  open,
-  onOpenChange,
-  initialMode = "image",
-}: UploadRecipeModalProps) {
-  const [mode, setMode] = useState<"image" | "link" | "text">(initialMode);
-  const [linkUrl, setLinkUrl] = useState("");
-  const [detectedPlatform, setDetectedPlatform] = useState<"instagram" | "tiktok" | "web" | null>(null);
-  const [imageMode, setImageMode] = useState<"single" | "batch">("single");
-  const [recipeText, setRecipeText] = useState("");
-  const [step, setStep] = useState<1 | 2 | 3>(1);
-  const [selectedFiles, setSelectedFiles] = useState<UploadItem[]>([]);
-  const [dragActive, setDragActive] = useState(false);
-  const [selectedCookbookId, setSelectedCookbookId] = useState<string | undefined>();
-  const [showAuthPrompt, setShowAuthPrompt] = useState(false);
-  const [uploadingCount, setUploadingCount] = useState(0);
-  const { toast } = useToast();
-  const queryClient = useQueryClient();
+export function UploadRecipeModal({ open, onOpenChange, initialMode }: UploadRecipeModalProps) {
+  const isMobile = useIsMobile();
   const [, navigate] = useLocation();
-  const { addRecipe } = useUploadProgress();
+  const queryClient = useQueryClient();
+  const { addRecipe, startPhotoBatch } = useUploadProgress();
 
-  // Check auth status
-  const { data: authStatus } = useQuery<{ isAuthenticated: boolean; userId: string | null }>({
+  const [view, setView] = useState<View>(viewFor(initialMode));
+  const [batch, setBatch] = useState(false);
+  const [photos, setPhotos] = useState<PickedPhoto[]>([]);
+  const [preparing, setPreparing] = useState(0);
+  const [link, setLink] = useState("");
+  const [text, setText] = useState("");
+  const [cookbookId, setCookbookId] = useState<string | undefined>();
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const photosRef = useRef(photos);
+  photosRef.current = photos;
+
+  const { data: authStatus } = useQuery<{ isAuthenticated: boolean }>({
     queryKey: ["/api/auth/status"],
     enabled: open,
   });
+  const needsSignIn = open && authStatus && !authStatus.isAuthenticated;
 
-  // When modal opens, check if user is authenticated
   useEffect(() => {
-    if (open && authStatus && !authStatus.isAuthenticated) {
-      setShowAuthPrompt(true);
-    } else {
-      setShowAuthPrompt(false);
-    }
-  }, [open, authStatus]);
-
-  // Update mode when modal opens with different initialMode (e.g., quick paste)
-  useEffect(() => {
-    if (open) {
-      setMode(initialMode);
-    }
+    if (open) setView(viewFor(initialMode));
   }, [open, initialMode]);
 
-  const urlForm = useForm<z.infer<typeof urlSchema>>({
-    resolver: zodResolver(urlSchema),
-    defaultValues: {
-      url: "",
-    },
-  });
-
-  // Helper: Shared success handler for both image and URL extractions
-  // Note: Recipe should already be added to progress tracker before calling this
-  const handleRecipeSuccess = async (recipeId: string, title: string = "Your Recipe") => {
-    // Add to cookbook if one was selected
-    if (selectedCookbookId) {
-      try {
-        await apiRequest("POST", `/api/cookbooks/${selectedCookbookId}/recipes`, {
-          recipeId,
-        });
-      } catch (error) {
-        console.error("Failed to add recipe to cookbook:", error);
-        // Don't show error toast - recipe upload succeeded which is more important
-      }
-    }
-    
-    // Invalidate ALL recipe queries (base and scoped) using predicate
-    await queryClient.invalidateQueries({ 
-      predicate: (query) => {
-        const key = query.queryKey[0];
-        return key === '/api/recipes';
-      }
-    });
-    
-    // Show Grammie confirmation screen (step 2)
-    setStep(2);
-    
-    // After 3 seconds, close modal and navigate to home
-    setTimeout(() => {
-      onOpenChange(false);
-      navigate('/');
-      resetModal();
-    }, 3000);  // Show Grammie for 3 seconds before redirecting home
+  const reset = () => {
+    photosRef.current.forEach((p) => p.preview && URL.revokeObjectURL(p.preview));
+    setView("choose");
+    setBatch(false);
+    setPhotos([]);
+    setLink("");
+    setText("");
+    setCookbookId(undefined);
+    setBusy(null);
+    setError(null);
   };
 
-  // Helper: Show brief "Recipe queued" confirmation
-  const showQueuedConfirmation = () => {
-    setStep(2);
+  const close = () => {
+    onOpenChange(false);
+    setTimeout(reset, 300);
   };
 
-  // URL extraction mutation
-  const urlMutation = useMutation({
-    mutationFn: async (url: string) => {
-      const response = await apiRequest("POST", "/api/recipes/extract-url", {
-        url,
-      });
-      return response.json() as Promise<{ recipeId: string }>;
-    },
-    onSuccess: async (data) => {
-      // IMMEDIATELY add to progress tracker with placeholder title
-      // This ensures the banner appears right away
-      addRecipe(data.recipeId, "Your Recipe");
-      
-      // Show success flow
-      await handleRecipeSuccess(data.recipeId, "Your Recipe");
-      
-      // Try to fetch actual title in background and update (non-blocking)
-      queryClient.fetchQuery({
-        queryKey: ["/api/recipes", data.recipeId],
-      }).then((recipe: any) => {
-        // Title will be updated by the progress polling system
-      }).catch(() => {
-        // Silently fail - we already have placeholder
-      });
-    },
-    onError: (error: Error) => {
-      toast({
-        title: "URL import failed",
-        description: error.message || "Failed to extract recipe from URL. Please try again.",
-        variant: "destructive",
-      });
-      setStep(1);
-    },
-  });
-
-  // Text extraction mutation
-  const textMutation = useMutation({
-    mutationFn: async (text: string) => {
-      const response = await apiRequest("POST", "/api/recipes/extract-text", {
-        text,
-      });
-      return response.json() as Promise<{ recipeId: string }>;
-    },
-    onSuccess: async (data) => {
-      addRecipe(data.recipeId, "Your Recipe");
-      await handleRecipeSuccess(data.recipeId, "Your Recipe");
-      
-      queryClient.fetchQuery({
-        queryKey: ["/api/recipes", data.recipeId],
-      }).catch(() => {});
-    },
-    onError: (error: Error) => {
-      toast({
-        title: "Text import failed",
-        description: error.message || "Failed to process recipe text. Please try again.",
-        variant: "destructive",
-      });
-      setStep(1);
-    },
-  });
-
-  // Social media import mutation (Instagram, TikTok)
-  const socialMutation = useMutation({
-    mutationFn: async (url: string) => {
-      const response = await apiRequest("POST", "/api/recipes/import-social", {
-        url,
-      });
-      return response.json() as Promise<{ recipeId: string; message: string; source: { type: string; creator?: string } }>;
-    },
-    onSuccess: async (data) => {
-      const platformName = data.source?.type === "tiktok" ? "TikTok" : "Instagram";
-      addRecipe(data.recipeId, `${platformName} Recipe`);
-      await handleRecipeSuccess(data.recipeId, `${platformName} Recipe`);
-      
-      toast({
-        title: "Recipe import started!",
-        description: data.message,
-      });
-      
-      queryClient.fetchQuery({
-        queryKey: ["/api/recipes", data.recipeId],
-      }).catch(() => {});
-    },
-    onError: (error: Error) => {
-      toast({
-        title: "Import failed",
-        description: error.message || "Failed to import recipe. Please try again.",
-        variant: "destructive",
-      });
-      setStep(1);
-    },
-  });
-
-  const handleDrag = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.type === "dragenter" || e.type === "dragover") {
-      setDragActive(true);
-    } else if (e.type === "dragleave") {
-      setDragActive(false);
-    }
-  }, []);
-
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragActive(false);
-
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      handleFiles(Array.from(e.dataTransfer.files));
-    }
-  }, []);
-
-  const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0) {
-      handleFiles(Array.from(e.target.files));
-    }
+  const handleOpenChange = (next: boolean) => {
+    // Closing mid-upload is fine for batches (they run in the background),
+    // but a single upload is waiting on the server: keep the sheet up
+    if (!next && !busy) close();
   };
 
-  const handleFiles = (files: File[]) => {
-    // Different limits based on image mode
-    const maxFiles = imageMode === "single" ? 5 : 10;
-    const remainingSlots = maxFiles - selectedFiles.length;
-    
-    if (files.length > remainingSlots) {
-      toast({
-        title: "Too many files",
-        description: imageMode === "single" 
-          ? `You can upload up to 5 images for a single recipe. ${remainingSlots} slot${remainingSlots === 1 ? '' : 's'} remaining.`
-          : `You can upload up to 10 recipes at once. ${remainingSlots} slot${remainingSlots === 1 ? '' : 's'} remaining.`,
-        variant: "destructive",
-      });
-      files = files.slice(0, remainingSlots);
-    }
-
-    // Process each file
-    files.forEach((file) => processFile(file));
+  const goTo = (next: View) => {
+    setError(null);
+    setView(next);
   };
 
-  const processFile = (file: File) => {
-    console.log("processFile called with:", { 
-      name: file.name, 
-      type: file.type, 
-      size: file.size 
-    });
+  // ---- Photo ---------------------------------------------------------------
 
-    // Check if it's a HEIC/HEIF file
-    const isHeic = file.type === 'image/heic' || 
-                   file.type === 'image/heif' ||
-                   file.name.toLowerCase().endsWith('.heic') ||
-                   file.name.toLowerCase().endsWith('.heif');
+  const limit = batch ? MAX_BATCH : MAX_PAGES;
 
-    // For non-HEIC files, validate that they're images
-    if (!isHeic && !file.type.startsWith("image/")) {
-      console.error("Invalid file type:", file.type);
-      toast({
-        title: "Invalid file type",
-        description: `"${file.name}" is not an image file.`,
-        variant: "destructive",
-      });
+  const addPhotos = async (files: File[]) => {
+    setError(null);
+    const room = limit - photos.length;
+    if (room <= 0) {
+      setError(batch ? `You can add up to ${MAX_BATCH} recipes at a time.` : `A recipe can have up to ${MAX_PAGES} photos.`);
       return;
     }
-
-    const id = `${Date.now()}-${Math.random()}`;
-    
-    // HEIC files can't be previewed in the browser, show a placeholder
-    if (isHeic) {
-      console.log("HEIC file detected, using placeholder preview");
-      const placeholderSvg = `<svg width="400" height="300" xmlns="http://www.w3.org/2000/svg">
-        <rect width="400" height="300" fill="#f3f4f6"/>
-        <text x="200" y="140" font-family="Arial" font-size="18" fill="#6b7280" text-anchor="middle">HEIC Image</text>
-        <text x="200" y="170" font-family="Arial" font-size="12" fill="#9ca3af" text-anchor="middle">${file.name}</text>
-      </svg>`;
-      const preview = `data:image/svg+xml;base64,${btoa(placeholderSvg)}`;
-      
-      setSelectedFiles(prev => [...prev, { id, file, preview, rotation: 0, isHeic: true }]);
-      return;
+    if (files.length > room) {
+      setError(
+        batch
+          ? `Only the first ${room} were added. You can add up to ${MAX_BATCH} recipes at a time.`
+          : `Only the first ${room} were added. A recipe can have up to ${MAX_PAGES} photos.`,
+      );
     }
-    
-    // For other image types, use FileReader to create preview
-    const reader = new FileReader();
-    
-    reader.onerror = (error) => {
-      console.error("FileReader error:", error);
-      toast({
-        title: "Error reading file",
-        description: `Failed to load "${file.name}". Please try again.`,
-        variant: "destructive",
-      });
-    };
-    
-    reader.onloadend = () => {
-      const preview = reader.result as string;
-      setSelectedFiles(prev => [...prev, { id, file, preview, rotation: 0, isHeic: false }]);
-    };
-    
-    reader.readAsDataURL(file);
-  };
-
-  const handleUpload = async () => {
-    console.log("handleUpload called, files:", selectedFiles.length);
-    if (selectedFiles.length === 0) {
-      console.error("No files selected!");
-      return;
-    }
-
-    showQueuedConfirmation();
-    setUploadingCount(selectedFiles.length);
-
-    try {
-      let sessionId: string | undefined;
-
-      // Create upload session if multiple files
-      if (selectedFiles.length > 1) {
-        const sessionResponse = await apiRequest("POST", "/api/uploads/sessions", {
-          totalFiles: selectedFiles.length,
-        });
-        const sessionData = await sessionResponse.json();
-        sessionId = sessionData.id;
-        console.log(`Created upload session ${sessionId} for ${selectedFiles.length} files`);
-      }
-
-      // Upload each file sequentially
-      for (let i = 0; i < selectedFiles.length; i++) {
-        const item = selectedFiles[i];
-        console.log(`Uploading file ${i + 1}/${selectedFiles.length}: ${item.file.name}`);
-
-        try {
-          // Apply rotation to file if needed
-          let fileToUpload = item.file;
-          if (item.rotation !== 0 && !item.isHeic) {
-            fileToUpload = await rotateFileBlob(item.file, item.preview, item.rotation);
-          }
-
-          const formData = new FormData();
-          formData.append("image", fileToUpload);
-          if (sessionId) {
-            formData.append("sessionId", sessionId);
-            formData.append("sourceImageIndex", i.toString());
-          }
-
-          const response = await apiRequest("POST", "/api/recipes/upload", formData);
-          const data = await response.json() as { recipeId: string };
-
-          // Add to progress tracker
-          addRecipe(data.recipeId, "Your Recipe");
-
-          // Add to cookbook if selected
-          if (selectedCookbookId) {
-            try {
-              await apiRequest("POST", `/api/cookbooks/${selectedCookbookId}/recipes`, {
-                recipeId: data.recipeId,
-              });
-            } catch (error) {
-              console.error("Failed to add recipe to cookbook:", error);
-            }
-          }
-
-          console.log(`Successfully queued recipe ${i + 1}/${selectedFiles.length}`);
-        } catch (error) {
-          console.error(`Failed to upload file ${i + 1}:`, error);
-          toast({
-            title: `Upload failed for image ${i + 1}`,
-            description: error instanceof Error ? error.message : "Failed to process recipe",
-            variant: "destructive",
-          });
-        }
-      }
-
-      // Show success toast
-      if (selectedFiles.length === 1) {
-        toast({
-          title: "Recipe queued!",
-          description: "Grandma is enriching your recipe. Track progress at the top!",
-        });
-      } else {
-        toast({
-          title: `${selectedFiles.length} recipes queued!`,
-          description: "Grandma is enriching your recipes. Track progress at the top!",
-        });
-      }
-
-      // Invalidate recipes cache
-      await queryClient.invalidateQueries({
-        predicate: (query) => query.queryKey[0] === '/api/recipes'
-      });
-
-      // Close modal after brief delay
-      setTimeout(() => {
-        onOpenChange(false);
-        navigate('/');
-        resetModal();
-      }, 800);
-    } catch (error) {
-      console.error("Upload error:", error);
-      toast({
-        title: "Upload failed",
-        description: error instanceof Error ? error.message : "Failed to process recipes",
-        variant: "destructive",
-      });
-      setStep(1);
-    }
-  };
-
-  // Handle single recipe upload (multiple images combined into one recipe)
-  const handleSingleRecipeUpload = async () => {
-    console.log("handleSingleRecipeUpload called, files:", selectedFiles.length);
-    if (selectedFiles.length === 0) {
-      console.error("No files selected!");
-      return;
-    }
-
-    showQueuedConfirmation();
-
-    try {
-      const formData = new FormData();
-      
-      // Process and add all images to FormData
-      for (let i = 0; i < selectedFiles.length; i++) {
-        const item = selectedFiles[i];
-        let fileToUpload = item.file;
-        
-        // Apply rotation to file if needed
-        if (item.rotation !== 0 && !item.isHeic) {
-          fileToUpload = await rotateFileBlob(item.file, item.preview, item.rotation);
-        }
-        
-        formData.append("images", fileToUpload);
-      }
-
-      const response = await apiRequest("POST", "/api/recipes/upload-multi-image", formData);
-      const data = await response.json() as { recipeId: string };
-
-      // Add to progress tracker
-      addRecipe(data.recipeId, "Your Recipe");
-
-      // Add to cookbook if selected
-      if (selectedCookbookId) {
-        try {
-          await apiRequest("POST", `/api/cookbooks/${selectedCookbookId}/recipes`, {
-            recipeId: data.recipeId,
-          });
-        } catch (error) {
-          console.error("Failed to add recipe to cookbook:", error);
-        }
-      }
-
-      // Show success toast
-      toast({
-        title: "Recipe queued!",
-        description: `${selectedFiles.length} images combined into one recipe. Track progress at the top!`,
-      });
-
-      // Invalidate recipes cache
-      await queryClient.invalidateQueries({
-        predicate: (query) => query.queryKey[0] === '/api/recipes'
-      });
-
-      // Close modal after brief delay
-      setTimeout(() => {
-        onOpenChange(false);
-        navigate('/');
-        resetModal();
-      }, 800);
-    } catch (error) {
-      console.error("Upload error:", error);
-      toast({
-        title: "Upload failed",
-        description: error instanceof Error ? error.message : "Failed to process recipe",
-        variant: "destructive",
-      });
-      setStep(1);
-    }
-  };
-
-  // Helper to rotate a file blob
-  const rotateFileBlob = async (file: File, preview: string, rotation: number): Promise<File> => {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      img.src = preview;
-
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
-        if (!ctx) {
-          reject(new Error('Could not get canvas context'));
-          return;
-        }
-
-        const radians = (rotation * Math.PI) / 180;
-        const sin = Math.abs(Math.sin(radians));
-        const cos = Math.abs(Math.cos(radians));
-        canvas.width = img.height * sin + img.width * cos;
-        canvas.height = img.height * cos + img.width * sin;
-
-        ctx.translate(canvas.width / 2, canvas.height / 2);
-        ctx.rotate(radians);
-        ctx.drawImage(img, -img.width / 2, -img.height / 2);
-
-        canvas.toBlob((blob) => {
-          if (blob) {
-            resolve(new File([blob], file.name, { type: file.type }));
-          } else {
-            reject(new Error('Failed to create blob'));
-          }
-        }, file.type);
+    const chosen = files.slice(0, room);
+    setPreparing((n) => n + chosen.length);
+    for (const file of chosen) {
+      const blob = await downscaleImage(file);
+      const decodable = blob !== file || /^image\/(jpeg|png|webp|gif)$/.test(file.type);
+      const photo: PickedPhoto = {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        blob,
+        preview: decodable ? URL.createObjectURL(blob) : null,
+        thumbnail: decodable ? await makeThumbnail(blob) : null,
+        name: file.name,
+        rotation: 0,
       };
+      setPhotos((prev) => [...prev, photo]);
+      setPreparing((n) => n - 1);
+    }
+  };
 
-      img.onerror = () => reject(new Error('Failed to load image'));
+  const rotate = (id: string, by: number) =>
+    setPhotos((prev) => prev.map((p) => (p.id === id ? { ...p, rotation: (p.rotation + by + 360) % 360 } : p)));
+
+  const remove = (id: string) =>
+    setPhotos((prev) => {
+      const gone = prev.find((p) => p.id === id);
+      if (gone?.preview) URL.revokeObjectURL(gone.preview);
+      return prev.filter((p) => p.id !== id);
     });
+
+  const switchBatch = (next: boolean) => {
+    setBatch(next);
+    setError(null);
+    if (!next && photos.length > MAX_PAGES) {
+      photos.slice(MAX_PAGES).forEach((p) => p.preview && URL.revokeObjectURL(p.preview));
+      setPhotos(photos.slice(0, MAX_PAGES));
+    }
   };
 
-  const handleUrlSubmit = (values: z.infer<typeof urlSchema>) => {
-    showQueuedConfirmation();
-    urlMutation.mutate(values.url);
-  };
+  const finalBlobs = () => Promise.all(photos.map((p) => rotateImage(p.blob, p.rotation)));
 
-  const handleTextSubmit = () => {
-    if (recipeText.trim().length < 20) {
-      toast({
-        title: "Text too short",
-        description: "Please paste a complete recipe with ingredients and instructions.",
-        variant: "destructive",
-      });
+  const submitPhotos = async () => {
+    if (photos.length === 0) return;
+    setError(null);
+    if (batch) {
+      const blobs = await finalBlobs();
+      startPhotoBatch(blobs.map((blob, i) => ({ blob, thumbnail: photos[i].thumbnail })), { cookbookId });
+      close();
+      navigate("/processing");
       return;
     }
-    showQueuedConfirmation();
-    textMutation.mutate(recipeText);
-  };
-
-  // Helper to check if a string looks like a valid URL
-  const isValidUrl = (url: string): boolean => {
+    setBusy(photos.length === 1 ? "Sending your photo…" : `Sending ${photos.length} photos…`);
     try {
-      new URL(url);
-      return true;
-    } catch {
-      // Try with https:// prefix
-      try {
-        new URL("https://" + url);
-        return url.includes(".");
-      } catch {
-        return false;
-      }
+      const recipeId = await uploadRecipePhotos(await finalBlobs());
+      addRecipe(recipeId, "Your Recipe", { kind: "photo", thumbnail: photos[0].thumbnail });
+      await addToCookbook(cookbookId, recipeId);
+      done(`/recipe/${recipeId}/review`);
+    } catch (err) {
+      setBusy(null);
+      setError(apiErrorMessage(err, "The photo didn't upload. Check your connection and try again."));
     }
   };
 
-  // Detect platform from URL as user types
-  const handleLinkUrlChange = (url: string) => {
-    setLinkUrl(url);
-    const lowerUrl = url.toLowerCase().trim();
-    
-    if (lowerUrl.includes("instagram.com") && (lowerUrl.includes("/p/") || lowerUrl.includes("/reel/"))) {
-      setDetectedPlatform("instagram");
-    } else if (lowerUrl.includes("tiktok.com") && (lowerUrl.includes("/video/") || lowerUrl.includes("/t/"))) {
-      setDetectedPlatform("tiktok");
-    } else if (isValidUrl(url.trim())) {
-      // Any valid URL that isn't social media is treated as web
-      setDetectedPlatform("web");
-    } else {
-      setDetectedPlatform(null);
-    }
-  };
+  // ---- Link and text ---------------------------------------------------------
 
-  const handleLinkSubmit = () => {
-    const trimmedUrl = linkUrl.trim();
-    if (!trimmedUrl) {
-      toast({
-        title: "URL required",
-        description: "Please enter a URL to import a recipe.",
-        variant: "destructive",
-      });
+  const platform = detectLinkPlatform(link);
+
+  const submitLink = async () => {
+    setError(null);
+    if (!platform) {
+      setError("That doesn't look like a web address. Copy the whole link and paste it again.");
       return;
     }
-    
-    // Ensure URL has a scheme
-    let finalUrl = trimmedUrl;
-    if (!trimmedUrl.startsWith("http://") && !trimmedUrl.startsWith("https://")) {
-      finalUrl = "https://" + trimmedUrl;
-    }
-    
-    // Validate URL
+    setBusy(platform === "web" ? "Reading the page…" : "Reading the post…");
     try {
-      new URL(finalUrl);
-    } catch {
-      toast({
-        title: "Invalid URL",
-        description: "Please enter a valid URL.",
-        variant: "destructive",
-      });
+      const { recipeId } = await importLink(link);
+      addRecipe(recipeId, "Your Recipe", { kind: platform === "web" ? "link" : "social" });
+      await addToCookbook(cookbookId, recipeId);
+      done(`/recipe/${recipeId}/review`);
+    } catch (err) {
+      setBusy(null);
+      setError(apiErrorMessage(err, "Grammie couldn't read that link. Check it opens in your browser, or paste the recipe text instead."));
+    }
+  };
+
+  const submitText = async () => {
+    setError(null);
+    if (text.trim().length < MIN_TEXT) {
+      setError("Paste the whole recipe, with the ingredients and the steps.");
       return;
     }
-    
-    showQueuedConfirmation();
-    
-    // Route to correct mutation based on platform
-    if (detectedPlatform === "instagram" || detectedPlatform === "tiktok") {
-      socialMutation.mutate(finalUrl);
-    } else {
-      urlMutation.mutate(finalUrl);
+    setBusy("Reading your recipe…");
+    try {
+      const recipeId = await importText(text);
+      addRecipe(recipeId, "Your Recipe", { kind: "text" });
+      await addToCookbook(cookbookId, recipeId);
+      done(`/recipe/${recipeId}/review`);
+    } catch (err) {
+      setBusy(null);
+      setError(apiErrorMessage(err, "Grammie couldn't find a recipe in that text. Include a title, ingredients and steps."));
     }
   };
 
-  const resetModal = () => {
-    setStep(1);
-    setMode("image");
-    setImageMode("single");
-    setSelectedFiles([]);
-    setDragActive(false);
-    setSelectedCookbookId(undefined);
-    setUploadingCount(0);
-    setRecipeText("");
-    setLinkUrl("");
-    setDetectedPlatform(null);
-    urlForm.reset();
+  const done = (href: string) => {
+    queryClient.invalidateQueries({ predicate: (q) => q.queryKey[0] === "/api/recipes" });
+    setBusy(null);
+    close();
+    navigate(href);
   };
 
-  const removeFile = (id: string) => {
-    setSelectedFiles(prev => prev.filter(item => item.id !== id));
-  };
+  // ---- Layout ----------------------------------------------------------------
 
-  const rotateFile = (id: string, degrees: number) => {
-    setSelectedFiles(prev => prev.map(item => {
-      if (item.id !== id || item.isHeic) return item;
+  const title = needsSignIn
+    ? "Sign in to add recipes"
+    : view === "choose"
+      ? "Add a recipe"
+      : view === "photo"
+        ? batch ? "Add several recipes" : "Photo of a recipe"
+        : view === "link"
+          ? "Link or post"
+          : "Type or paste";
 
-      const newRotation = (item.rotation + degrees + 360) % 360;
+  const description = needsSignIn
+    ? "Your recipes are saved to your account, so you'll need to sign in first."
+    : view === "choose"
+      ? "Grammie reads handwriting, cookbook pages and recipe posts. You'll check everything before it's saved."
+      : view === "photo"
+        ? batch
+          ? `Each photo becomes its own recipe (up to ${MAX_BATCH}). You'll check each one after Grammie reads it.`
+          : `Add up to ${MAX_PAGES} photos of the same recipe, like the front and back of a card. They're read as one recipe.`
+        : view === "link"
+          ? "Paste a link to a recipe website, or an Instagram or TikTok post."
+          : "Type the recipe or paste it from somewhere else. Grammie sorts it into ingredients and steps.";
 
-      // Create rotated preview
-      const img = new Image();
-      img.src = item.preview;
+  const body = needsSignIn ? (
+    <div className="flex flex-col gap-3 sm:flex-row">
+      <Button className="h-12 flex-1" onClick={() => { close(); navigate("/login"); }} data-testid="button-sign-in">
+        Sign in
+      </Button>
+    </div>
+  ) : view === "choose" ? (
+    <div className="grid gap-3">
+      <ChoiceButton icon={<Camera className="h-7 w-7" aria-hidden />} title="Photo" detail="Take a photo of a recipe card or cookbook page, or choose one" onClick={() => goTo("photo")} testId="choice-photo" />
+      <ChoiceButton icon={<Link2 className="h-7 w-7" aria-hidden />} title="Link or post" detail="A recipe website, Instagram or TikTok" onClick={() => goTo("link")} testId="choice-link" />
+      <ChoiceButton icon={<FileText className="h-7 w-7" aria-hidden />} title="Type or paste" detail="Write it in, or paste it from an email or note" onClick={() => goTo("text")} testId="choice-text" />
+    </div>
+  ) : view === "photo" ? (
+    <div className="space-y-4">
+      {photos.length < limit && (
+        <PhotoPicker onPick={addPhotos} multiple disabled={!!busy} libraryLabel={photos.length ? "Add more photos" : "Choose photos"} variant={photos.length ? "buttons" : "zone"}>
+          <ImageIcon className="h-10 w-10 text-muted-foreground" aria-hidden />
+          <p className="text-base">{batch ? "Add photos of your recipes" : "Add photos of your recipe"}</p>
+          <p className="text-sm text-muted-foreground">Flat, in good light, with the whole card in view</p>
+        </PhotoPicker>
+      )}
 
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return;
-
-        const radians = (newRotation * Math.PI) / 180;
-        const sin = Math.abs(Math.sin(radians));
-        const cos = Math.abs(Math.cos(radians));
-        canvas.width = img.height * sin + img.width * cos;
-        canvas.height = img.height * cos + img.width * sin;
-
-        ctx.translate(canvas.width / 2, canvas.height / 2);
-        ctx.rotate(radians);
-        ctx.drawImage(img, -img.width / 2, -img.height / 2);
-
-        const newPreview = canvas.toDataURL();
-        setSelectedFiles(current => current.map(i => 
-          i.id === id ? { ...i, preview: newPreview } : i
-        ));
-      };
-
-      return { ...item, rotation: newRotation };
-    }));
-  };
-
-  const handleClose = (isOpen: boolean) => {
-    // Only proceed if trying to close (isOpen === false)
-    if (!isOpen) {
-      onOpenChange(false);
-      setTimeout(resetModal, 300);
-    }
-  };
-
-  const handleTabChange = (value: string) => {
-    // Only allow tab switching on step 1 (not during processing)
-    if (step === 1) {
-      setMode(value as "image" | "link" | "text");
-      // Clear mode-specific state when switching tabs
-      if (value === "link") {
-        setSelectedFiles([]);
-        setDragActive(false);
-        setRecipeText("");
-      } else if (value === "text") {
-        setSelectedFiles([]);
-        setDragActive(false);
-        setLinkUrl("");
-        setDetectedPlatform(null);
-      } else {
-        // image mode
-        setLinkUrl("");
-        setDetectedPlatform(null);
-        setRecipeText("");
-      }
-    }
-  };
-
-
-  return (
-    <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-2xl max-w-[95vw] overflow-x-hidden" data-testid="modal-upload-recipe">
-        <DialogHeader>
-          <DialogTitle className="font-serif text-2xl">
-            {showAuthPrompt && "Sign In Required"}
-            {!showAuthPrompt && step === 1 && mode === "image" && "Upload Handwritten Recipe"}
-            {!showAuthPrompt && step === 1 && mode === "link" && "Import Recipe from Link"}
-            {!showAuthPrompt && step === 1 && mode === "text" && "Paste Recipe Text"}
-            {!showAuthPrompt && step === 2 && "Recipe Queued!"}
-          </DialogTitle>
-          {showAuthPrompt && (
-            <DialogDescription>
-              Create a free account to upload and manage your recipes
-            </DialogDescription>
-          )}
-        </DialogHeader>
-
-        <div className="space-y-6">
-          {showAuthPrompt && (
-            <div className="space-y-6 py-4">
-              <div className="flex flex-col items-center text-center">
-                <p className="text-muted-foreground max-w-md mb-6">
-                  To save recipes, sign in or create a free account. It only takes a minute.
-                </p>
-                <div className="flex gap-3 w-full max-w-sm">
-                  <Button
-                    variant="default"
-                    className="flex-1"
-                    onClick={() => window.location.href = '/login'}
-                    data-testid="button-sign-in"
-                  >
-                    Sign In
-                  </Button>
-                  <Button
-                    variant="outline"
-                    className="flex-1"
-                    onClick={() => {
-                      onOpenChange(false);
-                      navigate('/login');
-                    }}
-                    data-testid="button-create-account"
-                  >
-                    Create Account
-                  </Button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {!showAuthPrompt && step === 1 && (
-            <Tabs value={mode} onValueChange={handleTabChange}>
-              <TabsList className="grid w-full grid-cols-3">
-                <TabsTrigger value="image" data-testid="tab-image-upload">
-                  <Upload className="h-4 w-4 mr-2" />
-                  Image
-                </TabsTrigger>
-                <TabsTrigger value="link" data-testid="tab-link-import">
-                  <Link2 className="h-4 w-4 mr-2" />
-                  Link
-                </TabsTrigger>
-                <TabsTrigger value="text" data-testid="tab-text-paste">
-                  <FileText className="h-4 w-4 mr-2" />
-                  Text
-                </TabsTrigger>
-              </TabsList>
-
-              <TabsContent value="image" className="space-y-4 mt-4">
-                {/* Image mode toggle */}
-                <div className="flex gap-2 p-1 bg-muted rounded-lg">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setImageMode("single");
-                      setSelectedFiles([]);
-                    }}
-                    className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-md text-sm font-medium transition-colors ${
-                      imageMode === "single"
-                        ? "bg-background shadow-sm"
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
-                    data-testid="button-single-recipe-mode"
-                  >
-                    <Layers className="h-4 w-4" />
-                    Single Recipe
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setImageMode("batch");
-                      setSelectedFiles([]);
-                    }}
-                    className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-md text-sm font-medium transition-colors ${
-                      imageMode === "batch"
-                        ? "bg-background shadow-sm"
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
-                    data-testid="button-batch-upload-mode"
-                  >
-                    <Images className="h-4 w-4" />
-                    Batch Upload
-                  </button>
-                </div>
-
-                {/* Mode description */}
-                <p className="text-sm text-muted-foreground text-center">
-                  {imageMode === "single" 
-                    ? "Upload multiple images (front & back) that combine into ONE recipe"
-                    : "Upload multiple images where each becomes a SEPARATE recipe"
-                  }
-                </p>
-
-                {/* Dropzone */}
-                <div
-                  className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
-                    dragActive
-                      ? "border-primary bg-primary/5"
-                      : "border-border hover:border-primary/50"
-                  } ${selectedFiles.length > 0 ? "hidden" : ""}`}
-                  onDragEnter={handleDrag}
-                  onDragLeave={handleDrag}
-                  onDragOver={handleDrag}
-                  onDrop={handleDrop}
-                  data-testid="dropzone-upload"
-                >
-                  <Upload className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
-                  <h3 className="text-base font-semibold mb-1">
-                    {imageMode === "single" 
-                      ? "Drop recipe images here"
-                      : "Drop your recipe images here"
-                    }
-                  </h3>
-                  <p className="text-sm text-muted-foreground mb-3">
-                    {imageMode === "single"
-                      ? "Upload up to 5 images for one recipe"
-                      : "Upload up to 10 recipes at once"
-                    }
-                  </p>
-                  <input
-                    type="file"
-                    id="file-upload"
-                    className="hidden"
-                    accept="image/*,.heic,.heif"
-                    multiple
-                    onChange={handleFileInput}
-                    data-testid="input-file-upload"
+      {(photos.length > 0 || preparing > 0) && (
+        <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3" aria-label={batch ? "Recipes to add" : "Pages of this recipe"}>
+          {photos.map((p, i) => (
+            <li key={p.id} className="overflow-hidden rounded-lg border bg-card">
+              <div className="relative flex aspect-[4/3] items-center justify-center overflow-hidden bg-muted">
+                {p.preview ? (
+                  <img
+                    src={p.preview}
+                    alt={batch ? `Recipe ${i + 1}` : `Page ${i + 1}`}
+                    className="h-full w-full object-contain transition-transform motion-reduce:transition-none"
+                    style={{ transform: `rotate(${p.rotation}deg)` }}
                   />
-                  <label htmlFor="file-upload">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => document.getElementById("file-upload")?.click()}
-                      data-testid="button-browse-files"
-                    >
-                      Browse Files
-                    </Button>
-                  </label>
-                </div>
-
-                {selectedFiles.length > 0 && (
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-sm text-muted-foreground truncate">
-                        {selectedFiles.length} {selectedFiles.length === 1 ? 'image' : 'images'} selected
-                      </p>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setSelectedFiles([])}
-                        className="shrink-0"
-                        data-testid="button-clear-all"
-                      >
-                        Clear
-                      </Button>
-                    </div>
-
-                    {/* Thumbnail Grid */}
-                    <div className="grid grid-cols-2 gap-4 max-h-64 overflow-y-auto">
-                      {selectedFiles.map((item, index) => (
-                        <div
-                          key={item.id}
-                          className="relative group rounded-lg border overflow-hidden"
-                          data-testid={`thumbnail-${item.id}`}
-                        >
-                          {imageMode === "single" && (
-                            <div className="absolute top-2 left-2 z-10 bg-primary text-primary-foreground text-xs font-medium px-2 py-1 rounded">
-                              {index + 1}
-                            </div>
-                          )}
-                          <img
-                            src={item.preview}
-                            alt={item.file.name}
-                            className="w-full h-32 object-cover"
-                          />
-                          
-                          {/* Overlay with controls */}
-                          <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                            {!item.isHeic && (
-                              <>
-                                <Button
-                                  type="button"
-                                  variant="secondary"
-                                  size="icon"
-                                  onClick={() => rotateFile(item.id, -90)}
-                                  data-testid={`button-rotate-left-${item.id}`}
-                                >
-                                  <RotateCcw className="h-4 w-4" />
-                                </Button>
-                                <Button
-                                  type="button"
-                                  variant="secondary"
-                                  size="icon"
-                                  onClick={() => rotateFile(item.id, 90)}
-                                  data-testid={`button-rotate-right-${item.id}`}
-                                >
-                                  <RotateCw className="h-4 w-4" />
-                                </Button>
-                              </>
-                            )}
-                            <Button
-                              type="button"
-                              variant="destructive"
-                              size="icon"
-                              onClick={() => removeFile(item.id)}
-                              data-testid={`button-remove-${item.id}`}
-                            >
-                              <X className="h-4 w-4" />
-                            </Button>
-                          </div>
-
-                          {/* Filename */}
-                          <div className="absolute bottom-0 left-0 right-0 bg-black/80 text-white text-xs p-1 truncate">
-                            {item.file.name}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                    
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium">Add to Cookbook (Optional)</label>
-                      <CookbookSelect
-                        value={selectedCookbookId}
-                        onValueChange={setSelectedCookbookId}
-                      />
-                    </div>
-                    
-                    <div className="flex flex-col sm:flex-row gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="flex-1"
-                        onClick={() => document.getElementById("file-upload")?.click()}
-                        disabled={selectedFiles.length >= (imageMode === "single" ? 5 : 10)}
-                        data-testid="button-add-more"
-                      >
-                        <Plus className="mr-2 h-4 w-4" />
-                        Add More (Max {imageMode === "single" ? 5 : 10})
-                      </Button>
-                      <Button
-                        size="sm"
-                        className="flex-1"
-                        onClick={imageMode === "single" ? handleSingleRecipeUpload : handleUpload}
-                        disabled={uploadingCount > 0}
-                        data-testid="button-extract-recipe"
-                      >
-                        <Sparkles className="mr-2 h-4 w-4" />
-                        Extract {selectedFiles.length} {selectedFiles.length === 1 ? 'Recipe' : 'Recipes'} with AI
-                      </Button>
-                    </div>
+                ) : (
+                  <div className="flex flex-col items-center gap-1 p-2 text-center text-sm text-muted-foreground">
+                    <ImageIcon className="h-6 w-6" aria-hidden />
+                    <span className="line-clamp-2 break-all">{p.name}</span>
                   </div>
                 )}
-              </TabsContent>
-
-              <TabsContent value="link" className="space-y-4 mt-4">
-                <div className="space-y-4">
-                  {/* Supported platforms icons */}
-                  <div className="flex items-center justify-center gap-4 py-2">
-                    <div className="flex items-center gap-1.5 text-muted-foreground">
-                      <SiInstagram className="h-4 w-4" />
-                      <span className="text-xs">Instagram</span>
-                    </div>
-                    <div className="flex items-center gap-1.5 text-muted-foreground">
-                      <SiTiktok className="h-4 w-4" />
-                      <span className="text-xs">TikTok</span>
-                    </div>
-                    <div className="flex items-center gap-1.5 text-muted-foreground">
-                      <Globe className="h-4 w-4" />
-                      <span className="text-xs">Any Website</span>
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Recipe URL</label>
-                    <div className="relative">
-                      <Input
-                        placeholder="Paste any recipe link..."
-                        value={linkUrl}
-                        onChange={(e) => handleLinkUrlChange(e.target.value)}
-                        data-testid="input-link-url"
-                      />
-                      {detectedPlatform && (
-                        <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1.5 px-2 py-0.5 bg-muted rounded text-xs font-medium">
-                          {detectedPlatform === "instagram" ? (
-                            <>
-                              <SiInstagram className="h-3 w-3" />
-                              Instagram
-                            </>
-                          ) : detectedPlatform === "tiktok" ? (
-                            <>
-                              <SiTiktok className="h-3 w-3" />
-                              TikTok
-                            </>
-                          ) : (
-                            <>
-                              <Globe className="h-3 w-3" />
-                              Website
-                            </>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Add to Cookbook (Optional)</label>
-                    <CookbookSelect
-                      value={selectedCookbookId}
-                      onValueChange={setSelectedCookbookId}
-                    />
-                  </div>
-                  
-                  <Button
-                    type="button"
-                    className="w-full"
-                    onClick={handleLinkSubmit}
-                    disabled={
-                      (detectedPlatform === "web" ? urlMutation.isPending : 
-                       (detectedPlatform === "instagram" || detectedPlatform === "tiktok") ? socialMutation.isPending : 
-                       false) || 
-                      !linkUrl.trim() || 
-                      !detectedPlatform
-                    }
-                    data-testid="button-import-link"
-                  >
-                    {detectedPlatform === "instagram" ? (
-                      <SiInstagram className="mr-2 h-4 w-4" />
-                    ) : detectedPlatform === "tiktok" ? (
-                      <SiTiktok className="mr-2 h-4 w-4" />
-                    ) : detectedPlatform === "web" ? (
-                      <Globe className="mr-2 h-4 w-4" />
-                    ) : (
-                      <Link2 className="mr-2 h-4 w-4" />
-                    )}
-                    {(detectedPlatform === "web" && urlMutation.isPending) || 
-                     ((detectedPlatform === "instagram" || detectedPlatform === "tiktok") && socialMutation.isPending) 
-                      ? "Importing..." : 
-                      detectedPlatform === "instagram" ? "Import from Instagram" :
-                      detectedPlatform === "tiktok" ? "Import from TikTok" :
-                      detectedPlatform === "web" ? "Import from Website" :
-                      "Import Recipe"}
-                  </Button>
-                </div>
-                <p className="text-sm text-muted-foreground">
-                  Paste a link from Instagram, TikTok, or any recipe website. Our AI will extract and enrich 
-                  the recipe with normalized ingredients, nutritional info, and more.
-                </p>
-              </TabsContent>
-
-              <TabsContent value="text" className="space-y-4 mt-4">
-                <div className="space-y-4">
-                  <Textarea
-                    placeholder="Paste your recipe here...
-
-Example:
-Grandma's Chocolate Chip Cookies
-
-Ingredients:
-- 2 cups all-purpose flour
-- 1 cup butter, softened
-- 1 cup sugar
-- 2 eggs
-- 1 tsp vanilla extract
-- 2 cups chocolate chips
-
-Instructions:
-1. Preheat oven to 350°F
-2. Mix butter and sugar until fluffy
-3. Add eggs and vanilla
-4. Stir in flour and chocolate chips
-5. Drop spoonfuls onto baking sheet
-6. Bake 10-12 minutes until golden"
-                    value={recipeText}
-                    onChange={(e) => setRecipeText(e.target.value)}
-                    className="min-h-[250px] font-mono text-sm"
-                    data-testid="input-recipe-text"
-                  />
-                  
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Add to Cookbook (Optional)</label>
-                    <CookbookSelect
-                      value={selectedCookbookId}
-                      onValueChange={setSelectedCookbookId}
-                    />
-                  </div>
-                  
-                  <Button
-                    type="button"
-                    className="w-full"
-                    onClick={handleTextSubmit}
-                    disabled={textMutation.isPending || recipeText.trim().length < 20}
-                    data-testid="button-extract-text"
-                  >
-                    <Sparkles className="mr-2 h-4 w-4" />
-                    Extract Recipe with AI
-                  </Button>
-                </div>
-                <p className="text-sm text-muted-foreground">
-                  Paste any recipe text. Our AI will parse and enrich it with normalized ingredients, 
-                  nutritional info, and more.
-                </p>
-              </TabsContent>
-            </Tabs>
-          )}
-
-          {!showAuthPrompt && step === 2 && (
-            <div className="space-y-6 py-8 text-center">
-              {/* Grandma Character - Brief confirmation */}
-              <div className="flex flex-col items-center">
-                <div className="relative w-40 h-40 mb-4 animate-in fade-in zoom-in duration-300">
-                  <img
-                    src={grandmaImage}
-                    alt="Grandma"
-                    className="w-full h-full object-contain rounded-lg"
-                  />
-                  <div className="absolute -top-2 -right-2">
-                    <CheckCircle2 className="h-10 w-10 text-green-600 bg-background rounded-full p-1 animate-in zoom-in duration-500" />
-                  </div>
-                </div>
-
-                <h3 className="text-2xl font-serif font-semibold mb-2 text-primary animate-in fade-in slide-in-from-bottom-4 duration-500">
-                  Recipe Queued!
-                </h3>
-                <p className="text-muted-foreground max-w-md animate-in fade-in slide-in-from-bottom-4 duration-700">
-                  Grandma is now enriching your recipe in the background.
-                  <strong className="block mt-2 text-foreground">Watch the progress banner at the top!</strong>
-                </p>
+                <span className="absolute left-2 top-2 rounded bg-background/90 px-2 py-0.5 text-sm font-medium">
+                  {batch ? `Recipe ${i + 1}` : `Page ${i + 1}`}
+                </span>
               </div>
-            </div>
+              <div className="flex justify-between gap-1 p-1">
+                <Button type="button" variant="ghost" size="icon" onClick={() => rotate(p.id, -90)} disabled={!p.preview || !!busy} aria-label={`Turn ${batch ? "recipe" : "page"} ${i + 1} left`} title="Turn left">
+                  <RotateCcw aria-hidden />
+                </Button>
+                <Button type="button" variant="ghost" size="icon" onClick={() => rotate(p.id, 90)} disabled={!p.preview || !!busy} aria-label={`Turn ${batch ? "recipe" : "page"} ${i + 1} right`} title="Turn right">
+                  <RotateCw aria-hidden />
+                </Button>
+                <Button type="button" variant="ghost" size="icon" onClick={() => remove(p.id)} disabled={!!busy} aria-label={`Remove ${batch ? "recipe" : "page"} ${i + 1}`} title="Remove">
+                  <Trash2 aria-hidden />
+                </Button>
+              </div>
+            </li>
+          ))}
+          {Array.from({ length: preparing }).map((_, i) => (
+            <li key={`prep-${i}`} className="flex aspect-[4/3] items-center justify-center rounded-lg border bg-muted" role="status" aria-label="Preparing photo">
+              <Loader2 className="h-6 w-6 text-muted-foreground motion-safe:animate-spin" aria-hidden />
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <button
+        type="button"
+        className="inline-flex min-h-11 items-center text-base font-medium text-primary underline-offset-4 hover:underline disabled:opacity-50"
+        onClick={() => switchBatch(!batch)}
+        disabled={!!busy}
+        data-testid="button-toggle-batch"
+      >
+        {batch ? "Back to one recipe with several pages" : "Add several recipes at once"}
+      </button>
+    </div>
+  ) : view === "link" ? (
+    <form id="add-recipe-form" className="space-y-4" onSubmit={(e) => { e.preventDefault(); void submitLink(); }}>
+      <div className="space-y-2">
+        <Label htmlFor="add-recipe-link" className="text-base">Link</Label>
+        <Input
+          id="add-recipe-link"
+          type="url"
+          inputMode="url"
+          autoComplete="url"
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
+          placeholder="https://"
+          value={link}
+          onChange={(e) => { setLink(e.target.value); setError(null); }}
+          disabled={!!busy}
+          aria-invalid={!!error}
+          aria-describedby={error ? "add-recipe-error" : "add-recipe-link-hint"}
+          className="h-12 text-base"
+          data-testid="input-link-url"
+          autoFocus={!isMobile}
+        />
+        <p id="add-recipe-link-hint" className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
+          <span className="inline-flex items-center gap-1.5"><Globe className="h-4 w-4" aria-hidden /> Recipe websites</span>
+          <span className="inline-flex items-center gap-1.5"><SiInstagram className="h-4 w-4" aria-hidden /> Instagram</span>
+          <span className="inline-flex items-center gap-1.5"><SiTiktok className="h-4 w-4" aria-hidden /> TikTok</span>
+        </p>
+      </div>
+    </form>
+  ) : (
+    <form id="add-recipe-form" className="space-y-2" onSubmit={(e) => { e.preventDefault(); void submitText(); }}>
+      <Label htmlFor="add-recipe-text" className="text-base">Recipe</Label>
+      <Textarea
+        id="add-recipe-text"
+        placeholder={"Grandma's Sugar Cookies\n\n2 cups flour\n1 cup butter, softened\n…\n\n1. Heat the oven to 350°F.\n2. …"}
+        value={text}
+        onChange={(e) => { setText(e.target.value); setError(null); }}
+        disabled={!!busy}
+        aria-invalid={!!error}
+        aria-describedby={error ? "add-recipe-error" : undefined}
+        className="min-h-[14rem] text-base"
+        data-testid="input-recipe-text"
+      />
+    </form>
+  );
+
+  const primary = needsSignIn || view === "choose" ? null : view === "photo" ? (
+    <Button
+      className="h-12 w-full text-base"
+      onClick={() => void submitPhotos()}
+      disabled={photos.length === 0 || preparing > 0 || !!busy}
+      data-testid="button-extract-recipe"
+    >
+      {busy ? <><Loader2 className="motion-safe:animate-spin" aria-hidden /> {busy}</> :
+        batch ? (photos.length ? `Read ${photos.length} ${photos.length === 1 ? "recipe" : "recipes"}` : "Read recipes") :
+        photos.length > 1 ? `Read ${photos.length} pages as one recipe` : "Read this recipe"}
+    </Button>
+  ) : (
+    <Button
+      type="submit"
+      form="add-recipe-form"
+      className="h-12 w-full text-base"
+      disabled={!!busy || (view === "link" ? !link.trim() : !text.trim())}
+      data-testid={view === "link" ? "button-import-link" : "button-extract-text"}
+    >
+      {busy ? <><Loader2 className="motion-safe:animate-spin" aria-hidden /> {busy}</> : view === "link" ? "Read this link" : "Read this recipe"}
+    </Button>
+  );
+
+  const content = (
+    <div className="flex flex-col gap-5">
+      <div className="flex items-start gap-2">
+        {view !== "choose" && !needsSignIn && (
+          <Button variant="ghost" size="icon" className="-ml-2 shrink-0" onClick={() => goTo("choose")} disabled={!!busy} aria-label="Back to all choices" title="Back">
+            <ArrowLeft aria-hidden />
+          </Button>
+        )}
+        <div className="min-w-0 flex-1 pt-1.5">
+          {isMobile ? (
+            <>
+              <SheetTitle className="font-serif text-2xl">{title}</SheetTitle>
+              <SheetDescription className="mt-1 text-base text-muted-foreground">{description}</SheetDescription>
+            </>
+          ) : (
+            <>
+              <DialogTitle className="font-serif text-2xl">{title}</DialogTitle>
+              <DialogDescription className="mt-1 text-base text-muted-foreground">{description}</DialogDescription>
+            </>
           )}
         </div>
+        {isMobile ? (
+          <SheetClose asChild>
+            <Button variant="ghost" size="icon" className="-mr-2 shrink-0" aria-label="Close" disabled={!!busy}><X aria-hidden /></Button>
+          </SheetClose>
+        ) : (
+          <DialogClose asChild>
+            <Button variant="ghost" size="icon" className="-mr-2 shrink-0" aria-label="Close" disabled={!!busy}><X aria-hidden /></Button>
+          </DialogClose>
+        )}
+      </div>
+
+      {body}
+
+      {!needsSignIn && view !== "choose" && (
+        <div className="space-y-2">
+          <Label className="text-base">Add to a cookbook <span className="font-normal text-muted-foreground">(optional)</span></Label>
+          <CookbookSelect value={cookbookId} onValueChange={setCookbookId} />
+        </div>
+      )}
+
+      {error && (
+        <p id="add-recipe-error" role="alert" className="rounded-md border border-destructive/50 bg-destructive/5 p-3 text-base text-destructive">
+          {error}
+        </p>
+      )}
+
+      {primary}
+    </div>
+  );
+
+  // The built-in close button is small; ours above is 44 px, so hide theirs
+  const hideBuiltInClose = "[&>button:last-child]:hidden";
+
+  if (isMobile) {
+    return (
+      <Sheet open={open} onOpenChange={handleOpenChange}>
+        <SheetContent
+          side="bottom"
+          className={cn("max-h-[92dvh] overflow-y-auto rounded-t-2xl px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-4", hideBuiltInClose)}
+          data-testid="modal-upload-recipe"
+        >
+          {content}
+        </SheetContent>
+      </Sheet>
+    );
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent className={cn("max-h-[90vh] overflow-y-auto sm:max-w-xl", hideBuiltInClose)} data-testid="modal-upload-recipe">
+        {content}
       </DialogContent>
     </Dialog>
+  );
+}
+
+function ChoiceButton({ icon, title, detail, onClick, testId }: { icon: ReactNode; title: string; detail: string; onClick: () => void; testId: string }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex min-h-[4.5rem] w-full items-center gap-4 rounded-xl border-2 bg-card p-4 text-left transition-colors hover:border-primary hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      data-testid={testId}
+    >
+      <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">{icon}</span>
+      <span className="min-w-0">
+        <span className="block text-lg font-semibold">{title}</span>
+        <span className="block text-base text-muted-foreground">{detail}</span>
+      </span>
+    </button>
   );
 }
