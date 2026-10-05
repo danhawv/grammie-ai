@@ -2,18 +2,33 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   X, ChevronLeft, ChevronRight, Timer, ThermometerSun, UtensilsCrossed,
-  ListChecks, Eye, BellRing, Square, Sun,
+  ListChecks, Eye, BellRing, Sun, SunDim, Mic, MicOff, Check, RotateCcw, ChefHat,
 } from "lucide-react";
 import { matchStepIngredients } from "@shared/step-ingredients";
-import { formatIngredientInSystem } from "@shared/units";
+import { ingredientDisplay } from "@shared/recipe-display";
+import { formatClock } from "@shared/cooking-session";
+import type { VoiceCommand } from "@shared/cooking-session";
+import type { UnitSystem } from "@shared/units";
 import { useUnitSystem } from "@/hooks/use-unit-system";
+import {
+  clearSavedStep,
+  readSavedStep,
+  saveStep,
+  speak,
+  useKeepAwakePreference,
+  useVoiceCommands,
+  useWakeLock,
+  voiceCommandsSupported,
+  type CookingTimers,
+} from "@/hooks/use-cooking-session";
+import { cn } from "@/lib/utils";
 
-// Full-screen guided cooking: one step at a time in large type, screen kept
-// awake, per-step ingredients with quantities, tappable timers with a HUD,
-// and an ingredient checklist — modeled on Crouton/NYT Cooking cook modes.
+// Full-screen guided cooking: one step at a time in large type, the screen
+// kept on (with a visible toggle), per-step ingredients with amounts, timers
+// that keep running across steps, "Resume at step N" when coming back, and a
+// split view on tablets with the ingredient checklist beside the step.
 
 interface InstructionStep {
   stepNumber?: number;
@@ -26,340 +41,462 @@ interface InstructionStep {
   timeMinutes?: number | null;
 }
 
-interface ActiveTimer {
-  id: number;
-  label: string;
-  endsAt: number; // epoch ms
-  totalSeconds: number;
-  done: boolean;
+function timerLength(minutes: number): string {
+  return minutes >= 60 ? `${Math.round((minutes / 60) * 10) / 10} hr` : `${minutes} min`;
 }
 
-function formatClock(seconds: number): string {
-  const s = Math.max(0, Math.round(seconds));
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const sec = s % 60;
-  return h > 0
-    ? `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`
-    : `${m}:${String(sec).padStart(2, "0")}`;
+function SwitchPill({ on }: { on: boolean }) {
+  return (
+    <span aria-hidden className={cn("relative h-6 w-10 shrink-0 rounded-full transition-colors", on ? "bg-primary" : "bg-muted-foreground/40")}>
+      <span className={cn("absolute top-0.5 h-5 w-5 rounded-full bg-background shadow transition-transform", on ? "translate-x-[1.125rem]" : "translate-x-0.5")} />
+    </span>
+  );
 }
 
-/** Keep the screen awake while cooking (re-acquires when the tab returns) */
-function useWakeLock(active: boolean): boolean {
-  const [held, setHeld] = useState(false);
-  useEffect(() => {
-    if (!active || !("wakeLock" in navigator)) return;
-    let lock: any = null;
-    let cancelled = false;
-    const acquire = async () => {
-      try {
-        lock = await (navigator as any).wakeLock.request("screen");
-        if (cancelled) { lock.release(); return; }
-        setHeld(true);
-        lock.addEventListener("release", () => setHeld(false));
-      } catch {
-        setHeld(false);
-      }
-    };
-    acquire();
-    const onVisible = () => {
-      if (document.visibilityState === "visible") acquire();
-    };
-    document.addEventListener("visibilitychange", onVisible);
-    return () => {
-      cancelled = true;
-      document.removeEventListener("visibilitychange", onVisible);
-      lock?.release?.().catch(() => {});
-      setHeld(false);
-    };
-  }, [active]);
-  return held;
+/** Running timers as chips; tapping one jumps to its step */
+export function TimerChips({
+  timers,
+  onGoToStep,
+  className,
+}: {
+  timers: CookingTimers;
+  onGoToStep?: (stepIndex: number) => void;
+  className?: string;
+}) {
+  if (timers.timers.length === 0) return null;
+  return (
+    <ul className={cn("flex flex-wrap gap-2", className)} aria-label="Timers">
+      {timers.timers.map((t) => {
+        const remaining = (t.endsAt - timers.now) / 1000;
+        return (
+          <li
+            key={t.id}
+            className={cn(
+              "flex items-center rounded-full border text-base",
+              t.done ? "border-destructive bg-destructive text-destructive-foreground motion-safe:animate-pulse" : "bg-background",
+            )}
+            data-testid={`timer-${t.id}`}
+          >
+            <button
+              type="button"
+              onClick={() => onGoToStep?.(t.stepIndex)}
+              disabled={!onGoToStep}
+              className="flex min-h-11 items-center gap-2 rounded-l-full pl-3 pr-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default"
+              aria-label={`${t.label} timer, ${t.done ? "done" : `${formatClock(remaining)} left`}${onGoToStep ? `. Go to ${t.label.toLowerCase()}` : ""}`}
+            >
+              {t.done ? <BellRing className="h-5 w-5" aria-hidden /> : <Timer className="h-5 w-5" aria-hidden />}
+              <span className="font-semibold tabular-nums">{t.done ? "Done!" : formatClock(remaining)}</span>
+              <span className="text-sm">{t.label}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => timers.dismiss(t.id)}
+              className="flex h-11 w-11 items-center justify-center rounded-r-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              aria-label={t.done ? `Dismiss ${t.label} timer` : `Stop ${t.label} timer`}
+            >
+              <X className="h-4 w-4" aria-hidden />
+            </button>
+          </li>
+        );
+      })}
+    </ul>
+  );
 }
 
-function playTimerChime() {
-  try {
-    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-    [0, 0.25, 0.5].forEach((delay, i) => {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.frequency.value = i === 2 ? 1046 : 880;
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      gain.gain.setValueAtTime(0.0001, ctx.currentTime + delay);
-      gain.gain.exponentialRampToValueAtTime(0.3, ctx.currentTime + delay + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + delay + 0.22);
-      osc.start(ctx.currentTime + delay);
-      osc.stop(ctx.currentTime + delay + 0.25);
-    });
-  } catch {
-    // audio unavailable — the visual alert still shows
-  }
+/** Shown on the recipe page when timers are running and cooking mode is closed */
+export function CookingTimerTray({ timers, onOpen }: { timers: CookingTimers; onOpen: () => void }) {
+  if (timers.timers.length === 0) return null;
+  return (
+    <div
+      className="fixed inset-x-0 bottom-[calc(4.5rem+env(safe-area-inset-bottom,0px)+0.5rem)] z-30 px-4 md:bottom-4"
+      role="region"
+      aria-label="Cooking timers"
+    >
+      <div className="mx-auto flex max-w-3xl flex-wrap items-center gap-2 rounded-xl border bg-card p-2 shadow-lg">
+        <TimerChips timers={timers} className="flex-1" />
+        <Button onClick={onOpen} className="shrink-0" data-testid="button-back-to-cooking">
+          <ChefHat aria-hidden />
+          Back to cooking
+        </Button>
+      </div>
+    </div>
+  );
 }
 
-export function CookingMode({ open, onClose, title, instructions, ingredients }: {
+function IngredientChecklist({
+  ingredients,
+  unitSystem,
+  checked,
+  onToggle,
+}: {
+  ingredients: any[];
+  unitSystem: UnitSystem;
+  checked: Set<number>;
+  onToggle: (i: number) => void;
+}) {
+  return (
+    <ul className="space-y-1">
+      {ingredients.map((ing: any, i: number) => {
+        const d = typeof ing === "string" ? { amount: "", name: ing, preparation: "", optional: false } : ingredientDisplay(ing, unitSystem);
+        const isChecked = checked.has(i);
+        return (
+          <li key={i}>
+            <button
+              type="button"
+              role="checkbox"
+              aria-checked={isChecked}
+              onClick={() => onToggle(i)}
+              className="flex min-h-12 w-full items-start gap-3 rounded-md py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <span
+                aria-hidden
+                className={cn(
+                  "mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md border-2",
+                  isChecked ? "border-primary bg-primary text-primary-foreground" : "border-muted-foreground/60",
+                )}
+              >
+                {isChecked && <Check className="h-4 w-4" strokeWidth={3} />}
+              </span>
+              <span className={cn("text-lg leading-snug", isChecked && "text-muted-foreground line-through")}>
+                {d.amount && <span className="font-semibold">{d.amount} </span>}
+                {d.name}
+                {d.preparation && `, ${d.preparation}`}
+                {d.optional && <span className="text-muted-foreground"> (optional)</span>}
+              </span>
+            </button>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+export function CookingMode({
+  open,
+  onClose,
+  recipeId,
+  title,
+  instructions,
+  ingredients,
+  timers,
+  checkedIngredients,
+  onToggleIngredient,
+  initialStep,
+}: {
   open: boolean;
   onClose: () => void;
+  recipeId?: string;
   title: string;
   instructions: InstructionStep[];
   ingredients: any[];
+  timers: CookingTimers;
+  checkedIngredients: Set<number>;
+  onToggleIngredient: (index: number) => void;
+  /** Open at this step (e.g. from a timer) instead of offering to resume */
+  initialStep?: number | null;
 }) {
   const [stepIdx, setStepIdx] = useState(0);
-  const [timers, setTimers] = useState<ActiveTimer[]>([]);
-  const [now, setNow] = useState(Date.now());
+  const [resumeOffer, setResumeOffer] = useState<number | null>(null);
   const [showIngredients, setShowIngredients] = useState(false);
-  const [checkedIngredients, setCheckedIngredients] = useState<Set<number>>(new Set());
-  const timerIdRef = useRef(1);
-  const wakeLockHeld = useWakeLock(open);
+  const [voiceOn, setVoiceOn] = useState(false);
+  const [keepAwake, setKeepAwake] = useKeepAwakePreference();
+  const wakeStatus = useWakeLock(open && keepAwake);
   const [unitSystem] = useUnitSystem();
+  const containerRef = useRef<HTMLDivElement>(null);
 
-  const step = instructions[stepIdx];
   const total = instructions.length;
+  const step = instructions[stepIdx];
 
-  // Tick for countdowns + fire chime when a timer crosses zero
+  // On open: start at step 1 (or the requested step) and offer the saved step.
+  // On close: turn the microphone off and give focus back.
   useEffect(() => {
-    if (!open || timers.length === 0) return;
-    const iv = setInterval(() => {
-      const t = Date.now();
-      setNow(t);
-      setTimers((prev) => {
-        let changed = false;
-        const next = prev.map((timer) => {
-          if (!timer.done && t >= timer.endsAt) {
-            changed = true;
-            playTimerChime();
-            return { ...timer, done: true };
-          }
-          return timer;
-        });
-        return changed ? next : prev;
-      });
-    }, 500);
-    return () => clearInterval(iv);
-  }, [open, timers.length]);
-
-  // Reset when a new session opens
-  useEffect(() => {
-    if (open) {
+    if (!open) return;
+    const returnFocus = document.activeElement as HTMLElement | null;
+    if (initialStep != null && initialStep >= 0 && initialStep < total) {
+      setStepIdx(initialStep);
+      setResumeOffer(null);
+    } else {
       setStepIdx(0);
-      setTimers([]);
-      setCheckedIngredients(new Set());
+      setResumeOffer(readSavedStep(recipeId, total));
     }
+    setShowIngredients(false);
+    const raf = requestAnimationFrame(() => containerRef.current?.focus());
+    return () => {
+      cancelAnimationFrame(raf);
+      setVoiceOn(false);
+      returnFocus?.focus?.();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  const goNext = useCallback(() => setStepIdx((i) => Math.min(i + 1, total - 1)), [total]);
-  const goPrev = useCallback(() => setStepIdx((i) => Math.max(i - 1, 0)), []);
+  // Remember where the cook is (not while the resume offer is still showing)
+  useEffect(() => {
+    if (open && resumeOffer == null) saveStep(recipeId, stepIdx);
+  }, [open, recipeId, stepIdx, resumeOffer]);
 
-  // Arrow-key navigation
+  const goTo = useCallback((i: number) => {
+    setResumeOffer(null);
+    setStepIdx(Math.max(0, Math.min(i, total - 1)));
+  }, [total]);
+  const goNext = useCallback(() => { setResumeOffer(null); setStepIdx((i) => Math.min(i + 1, total - 1)); }, [total]);
+  const goPrev = useCallback(() => { setResumeOffer(null); setStepIdx((i) => Math.max(i - 1, 0)); }, []);
+
+  const finish = useCallback(() => {
+    clearSavedStep(recipeId);
+    onClose();
+  }, [recipeId, onClose]);
+
+  const runningForStep = timers.timers.find((t) => t.stepIndex === stepIdx && !t.done);
+  const startTimer = useCallback(() => {
+    if (!step?.timeMinutes || runningForStep) return;
+    timers.start({ label: `Step ${step.stepNumber ?? stepIdx + 1}`, seconds: step.timeMinutes * 60, stepIndex: stepIdx });
+  }, [step, stepIdx, timers, runningForStep]);
+
+  // Keyboard: arrows move, Escape closes; Space moves on unless a control has focus
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "ArrowRight" || e.key === " ") { e.preventDefault(); goNext(); }
+      if (showIngredients) return;
+      const tag = (e.target as HTMLElement)?.tagName;
+      const onControl = tag === "BUTTON" || tag === "INPUT" || tag === "TEXTAREA" || tag === "A";
+      if (e.key === "ArrowRight" || (e.key === " " && !onControl)) { e.preventDefault(); goNext(); }
       if (e.key === "ArrowLeft") { e.preventDefault(); goPrev(); }
       if (e.key === "Escape") onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, goNext, goPrev, onClose]);
+  }, [open, goNext, goPrev, onClose, showIngredients]);
+
+  const voiceSupported = useMemo(() => voiceCommandsSupported(), []);
+  const onVoice = useCallback((cmd: VoiceCommand) => {
+    if (cmd === "next") goNext();
+    else if (cmd === "back") goPrev();
+    else if (cmd === "repeat") { if (step) speak(step.text); }
+    else if (cmd === "timer") startTimer();
+  }, [goNext, goPrev, step, startTimer]);
+  const voice = useVoiceCommands(open && voiceOn, onVoice);
 
   const stepIngredients = useMemo(
     () => matchStepIngredients(step?.ingredients, ingredients, unitSystem),
-    [step, ingredients, unitSystem]
+    [step, ingredients, unitSystem],
   );
 
   if (!open || !step) return null;
 
-  const startTimer = () => {
-    if (!step.timeMinutes) return;
-    const seconds = step.timeMinutes * 60;
-    setTimers((prev) => [...prev, {
-      id: timerIdRef.current++,
-      label: `Step ${step.stepNumber ?? stepIdx + 1}`,
-      endsAt: Date.now() + seconds * 1000,
-      totalSeconds: seconds,
-      done: false,
-    }]);
-  };
-
-  const dismissTimer = (id: number) => setTimers((prev) => prev.filter((t) => t.id !== id));
   const isLastStep = stepIdx === total - 1;
+  const titleId = "cooking-mode-title";
 
   return (
-    <div className="fixed inset-0 z-[70] bg-background flex flex-col" data-testid="cooking-mode">
+    <div
+      ref={containerRef}
+      tabIndex={-1}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={titleId}
+      className="fixed inset-0 z-[70] flex flex-col bg-background outline-none"
+      style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}
+      data-testid="cooking-mode"
+    >
       {/* Header */}
-      <div className="flex items-center gap-2 px-4 py-3 border-b shrink-0">
-        <div className="flex-1 min-w-0">
-          <p className="text-xs text-muted-foreground uppercase tracking-wide">Cooking</p>
-          <h2 className="font-semibold truncate">{title}</h2>
+      <div className="flex shrink-0 items-center gap-2 border-b px-4 py-2">
+        <div className="min-w-0 flex-1">
+          <p className="text-sm text-muted-foreground">Cooking</p>
+          <h2 id={titleId} className="truncate text-lg font-semibold">{title}</h2>
         </div>
-        {wakeLockHeld && (
-          <span className="hidden sm:flex items-center gap-1 text-xs text-muted-foreground" title="Your screen will stay on while cooking">
-            <Sun className="w-3.5 h-3.5" /> Screen on
-          </span>
-        )}
-        <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setShowIngredients(true)} data-testid="cooking-mode-ingredients">
-          <ListChecks className="w-4 h-4" />
+        <Button variant="outline" className="md:hidden" onClick={() => setShowIngredients(true)} data-testid="cooking-mode-ingredients">
+          <ListChecks aria-hidden />
           Ingredients
         </Button>
-        <Button variant="ghost" size="icon" onClick={onClose} data-testid="cooking-mode-close">
-          <X className="w-5 h-5" />
+        <Button variant="ghost" className="min-h-12 px-3" onClick={onClose} data-testid="cooking-mode-close">
+          <X className="!size-5" aria-hidden />
+          Close
         </Button>
       </div>
 
-      {/* Active timer HUD */}
-      {timers.length > 0 && (
-        <div className="flex gap-2 px-4 py-2 border-b bg-muted/50 overflow-x-auto shrink-0">
-          {timers.map((t) => {
-            const remaining = (t.endsAt - now) / 1000;
-            return (
-              <div
-                key={t.id}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm shrink-0 ${
-                  t.done ? "bg-destructive text-destructive-foreground animate-pulse" : "bg-background border"
-                }`}
-                data-testid={`timer-${t.id}`}
-              >
-                {t.done ? <BellRing className="w-4 h-4" /> : <Timer className="w-4 h-4" />}
-                <span className="font-mono font-semibold">{t.done ? "Done!" : formatClock(remaining)}</span>
-                <span className="text-xs opacity-70">{t.label}</span>
-                <button onClick={() => dismissTimer(t.id)} className="opacity-70 hover:opacity-100">
-                  <Square className="w-3 h-3" />
-                </button>
-              </div>
-            );
-          })}
+      {/* Status: step, screen on, voice, timers */}
+      <div className="shrink-0 space-y-2 px-4 pt-2">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+          <p className="mr-auto text-base font-medium" aria-live="polite">
+            Step {stepIdx + 1} of {total}
+            {step.stepType && <span className="ml-2 text-sm font-normal capitalize text-muted-foreground">{step.stepType}</span>}
+          </p>
+          {wakeStatus === "unsupported" ? (
+            <p className="flex min-h-11 items-center gap-1.5 text-sm text-muted-foreground" data-testid="wake-lock-unsupported">
+              <SunDim className="h-4 w-4" aria-hidden />
+              This browser can't keep the screen on
+            </p>
+          ) : (
+            <button
+              type="button"
+              role="switch"
+              aria-checked={keepAwake}
+              onClick={() => setKeepAwake(!keepAwake)}
+              className="flex min-h-11 items-center gap-2 rounded-md px-1 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              data-testid="wake-lock-toggle"
+            >
+              {keepAwake ? <Sun className="h-4 w-4 text-primary" aria-hidden /> : <SunDim className="h-4 w-4" aria-hidden />}
+              <span>
+                {!keepAwake ? "Screen may turn off" : wakeStatus === "blocked" ? "Couldn't keep the screen on" : "Screen stays on"}
+              </span>
+              <SwitchPill on={keepAwake} />
+            </button>
+          )}
+          {voiceSupported && (
+            <button
+              type="button"
+              role="switch"
+              aria-checked={voiceOn}
+              onClick={() => setVoiceOn(!voiceOn)}
+              className="flex min-h-11 items-center gap-2 rounded-md px-1 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              data-testid="voice-commands-toggle"
+            >
+              {voiceOn ? <Mic className="h-4 w-4 text-primary" aria-hidden /> : <MicOff className="h-4 w-4" aria-hidden />}
+              Voice commands
+              <SwitchPill on={voiceOn} />
+            </button>
+          )}
         </div>
-      )}
-
-      {/* Progress */}
-      <div className="px-4 pt-3 shrink-0">
-        <div className="flex items-center justify-between text-sm text-muted-foreground mb-1.5">
-          <span>Step {stepIdx + 1} of {total}</span>
-          {step.stepType && <span className="uppercase tracking-wide text-xs">{step.stepType}</span>}
-        </div>
-        <Progress value={((stepIdx + 1) / total) * 100} className="h-1.5" />
+        {voiceOn && (
+          <p className="text-sm text-muted-foreground" role="status">
+            {voice.error ?? (voice.listening ? "Listening. Say “next”, “back”, “repeat” or “start timer”." : "Starting the microphone…")}
+          </p>
+        )}
+        <Progress value={((stepIdx + 1) / total) * 100} className="h-2" aria-label={`Step ${stepIdx + 1} of ${total}`} />
+        <TimerChips timers={timers} onGoToStep={goTo} className="pt-1" />
       </div>
 
-      {/* Step content */}
-      <div className="flex-1 overflow-y-auto px-4 py-6 sm:px-8">
-        <div className="max-w-2xl mx-auto space-y-6">
-          <p className="text-2xl sm:text-3xl leading-relaxed font-medium" data-testid="cooking-step-text">
-            {step.text}
-          </p>
+      {/* Body: checklist beside the step on tablets, step only on phones */}
+      <div className="flex min-h-0 flex-1 md:grid md:grid-cols-[minmax(16rem,1fr)_2fr]">
+        <aside className="hidden overflow-y-auto border-r px-4 py-4 md:block" aria-labelledby="cooking-ingredients-heading">
+          <h3 id="cooking-ingredients-heading" className="mb-2 text-lg font-semibold">Ingredients</h3>
+          <IngredientChecklist ingredients={ingredients} unitSystem={unitSystem} checked={checkedIngredients} onToggle={onToggleIngredient} />
+        </aside>
 
-          {/* Timer / temperature actions */}
-          <div className="flex flex-wrap gap-2">
-            {step.timeMinutes ? (
-              <Button variant="secondary" className="gap-2" onClick={startTimer} data-testid="start-step-timer">
-                <Timer className="w-4 h-4" />
-                Start {step.timeMinutes >= 60 ? `${Math.round(step.timeMinutes / 60 * 10) / 10}h` : `${step.timeMinutes} min`} timer
-              </Button>
-            ) : null}
-            {step.temperature?.value != null && (
-              <span className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md bg-muted text-sm font-medium">
-                <ThermometerSun className="w-4 h-4" />
-                {step.temperature.value}°{step.temperature.scale || ''}
-              </span>
+        <div className="min-w-0 flex-1 overflow-y-auto px-4 py-5 sm:px-8">
+          <div className="mx-auto max-w-2xl space-y-6">
+            {resumeOffer != null && (
+              <div className="rounded-lg border-2 border-primary/40 bg-primary/5 p-4" role="region" aria-label="Resume cooking">
+                <p className="text-lg">You were on step {resumeOffer + 1} last time.</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button className="min-h-12" onClick={() => goTo(resumeOffer)} data-testid="cooking-resume">
+                    Resume at step {resumeOffer + 1}
+                  </Button>
+                  <Button variant="outline" className="min-h-12" onClick={() => setResumeOffer(null)} data-testid="cooking-start-over">
+                    <RotateCcw aria-hidden />
+                    Start from step 1
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            <p className="text-2xl font-medium leading-relaxed sm:text-3xl" data-testid="cooking-step-text">
+              {step.text}
+            </p>
+
+            {(step.timeMinutes || step.temperature?.value != null) && (
+              <div className="flex flex-wrap items-center gap-2">
+                {step.timeMinutes ? (
+                  runningForStep ? (
+                    <p className="inline-flex min-h-12 items-center gap-2 rounded-md bg-muted px-4 text-lg font-medium">
+                      <Timer className="h-5 w-5" aria-hidden />
+                      Timer running: <span className="tabular-nums">{formatClock((runningForStep.endsAt - timers.now) / 1000)}</span>
+                    </p>
+                  ) : (
+                    <Button variant="secondary" className="min-h-12 text-base" onClick={startTimer} data-testid="start-step-timer">
+                      <Timer aria-hidden />
+                      Start {timerLength(step.timeMinutes)} timer
+                    </Button>
+                  )
+                ) : null}
+                {step.temperature?.value != null && (
+                  <span className="inline-flex min-h-12 items-center gap-1.5 rounded-md bg-muted px-4 text-lg font-medium">
+                    <ThermometerSun className="h-5 w-5" aria-hidden />
+                    {step.temperature.value}°{step.temperature.scale || ""}
+                  </span>
+                )}
+              </div>
+            )}
+
+            {stepIngredients.length > 0 && (
+              <div className="rounded-lg border bg-muted/40 p-4">
+                <h3 className="mb-2 text-base font-semibold">In this step</h3>
+                <ul className="space-y-1.5">
+                  {stepIngredients.map((ing, i) => (
+                    <li key={i} className="text-lg" data-testid={`step-ingredient-${i}`}>
+                      {ing.display}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {step.tools && step.tools.length > 0 && (
+              <p className="flex items-center gap-2 text-base text-muted-foreground">
+                <UtensilsCrossed className="h-5 w-5 shrink-0" aria-hidden />
+                {step.tools.join(" · ")}
+              </p>
+            )}
+
+            {step.donenessCue && (
+              <div className="flex gap-3 rounded-lg border-l-4 border-primary bg-primary/5 px-4 py-3">
+                <Eye className="mt-1 h-5 w-5 shrink-0 text-primary" aria-hidden />
+                <div>
+                  <p className="text-sm font-semibold text-primary">Ready when</p>
+                  <p className="text-lg">{step.donenessCue}</p>
+                </div>
+              </div>
             )}
           </div>
-
-          {/* Ingredients for this step */}
-          {stepIngredients.length > 0 && (
-            <div className="rounded-lg border bg-muted/40 p-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
-                In this step
-              </p>
-              <ul className="space-y-1.5">
-                {stepIngredients.map((ing, i) => (
-                  <li key={i} className="text-base" data-testid={`step-ingredient-${i}`}>
-                    {ing.display}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {/* Tools */}
-          {step.tools && step.tools.length > 0 && (
-            <p className="flex items-center gap-2 text-sm text-muted-foreground">
-              <UtensilsCrossed className="w-4 h-4 shrink-0" />
-              {step.tools.join(" · ")}
-            </p>
-          )}
-
-          {/* Doneness cue */}
-          {step.donenessCue && (
-            <div className="flex gap-2 rounded-lg border-l-4 border-primary bg-primary/5 px-4 py-3">
-              <Eye className="w-4 h-4 mt-0.5 shrink-0 text-primary" />
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-primary mb-0.5">Ready when</p>
-                <p className="text-sm">{step.donenessCue}</p>
-              </div>
-            </div>
-          )}
         </div>
       </div>
 
-      {/* Navigation */}
-      <div className="flex items-center gap-3 px-4 py-4 border-t shrink-0">
+      {/* Navigation: full width on phones */}
+      <div
+        className="grid shrink-0 grid-cols-2 gap-3 border-t px-4 pt-3 md:flex md:items-center"
+        style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom, 0px))" }}
+      >
         <Button
           variant="outline"
-          size="lg"
-          className="gap-1.5"
+          className="min-h-14 text-lg md:min-w-40"
           onClick={goPrev}
           disabled={stepIdx === 0}
           data-testid="cooking-prev"
         >
-          <ChevronLeft className="w-5 h-5" />
+          <ChevronLeft className="!size-6" aria-hidden />
           Back
         </Button>
-        <div className="flex-1 flex justify-center gap-1.5">
-          {instructions.map((_, i) => (
+        <div className="hidden flex-1 flex-wrap justify-center md:flex">
+          {total <= 24 && instructions.map((_, i) => (
             <button
               key={i}
-              onClick={() => setStepIdx(i)}
-              className={`w-2 h-2 rounded-full transition-colors ${i === stepIdx ? "bg-primary" : i < stepIdx ? "bg-primary/40" : "bg-muted-foreground/25"}`}
+              type="button"
+              onClick={() => goTo(i)}
+              className="flex h-11 w-7 items-center justify-center rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               aria-label={`Go to step ${i + 1}`}
-            />
+              aria-current={i === stepIdx ? "step" : undefined}
+            >
+              <span className={cn("h-2.5 w-2.5 rounded-full", i === stepIdx ? "bg-primary" : i < stepIdx ? "bg-primary/40" : "bg-muted-foreground/40")} />
+            </button>
           ))}
         </div>
         <Button
-          size="lg"
-          className="gap-1.5"
-          onClick={isLastStep ? onClose : goNext}
+          className="min-h-14 text-lg md:min-w-40"
+          onClick={isLastStep ? finish : goNext}
           data-testid="cooking-next"
         >
           {isLastStep ? "Finish" : "Next"}
-          {!isLastStep && <ChevronRight className="w-5 h-5" />}
+          {!isLastStep && <ChevronRight className="!size-6" aria-hidden />}
         </Button>
       </div>
 
-      {/* Ingredient checklist */}
+      {/* Ingredient checklist (phones) */}
       <Sheet open={showIngredients} onOpenChange={setShowIngredients}>
-        <SheetContent side="right" className="w-full sm:max-w-md z-[80]">
+        <SheetContent side="bottom" className="z-[80] max-h-[85vh] overflow-y-auto">
           <SheetHeader>
             <SheetTitle>Ingredients</SheetTitle>
           </SheetHeader>
-          <div className="mt-4 space-y-3 overflow-y-auto">
-            {ingredients.map((ing: any, i: number) => ({
-              display: typeof ing === 'string' ? ing : formatIngredientInSystem(ing, unitSystem),
-            })).map((ing, i) => (
-              <label key={i} className="flex items-start gap-3 cursor-pointer">
-                <Checkbox
-                  checked={checkedIngredients.has(i)}
-                  onCheckedChange={(c) => {
-                    setCheckedIngredients((prev) => {
-                      const next = new Set(prev);
-                      if (c) next.add(i); else next.delete(i);
-                      return next;
-                    });
-                  }}
-                  className="mt-0.5"
-                />
-                <span className={`text-base ${checkedIngredients.has(i) ? "line-through text-muted-foreground" : ""}`}>
-                  {ing.display}
-                </span>
-              </label>
-            ))}
+          <div className="mt-4">
+            <IngredientChecklist ingredients={ingredients} unitSystem={unitSystem} checked={checkedIngredients} onToggle={onToggleIngredient} />
           </div>
         </SheetContent>
       </Sheet>

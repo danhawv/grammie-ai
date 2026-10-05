@@ -23,15 +23,17 @@ export function StepIngredients({ stepIngredients, recipeIngredients, stepIndex 
   return (
     <div className="mt-2">
       <button
+        type="button"
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
+        aria-expanded={open}
+        className="flex min-h-11 items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
         data-testid={`step-ingredients-toggle-${stepIndex}`}
       >
-        <ChevronDown className={`h-3.5 w-3.5 transition-transform ${open ? "rotate-180" : ""}`} />
+        <ChevronDown className={`h-4 w-4 transition-transform ${open ? "rotate-180" : ""}`} aria-hidden />
         {matches.length} ingredient{matches.length === 1 ? "" : "s"} in this step
       </button>
       {open && (
-        <ul className="mt-2 ml-5 space-y-1 text-sm text-muted-foreground list-disc marker:text-border">
+        <ul className="mb-1 ml-5 space-y-1 text-base list-disc marker:text-muted-foreground">
           {matches.map((ing, i) => (
             <li key={i} data-testid={`step-${stepIndex}-ingredient-${i}`}>
               {ing.display}
