@@ -177,7 +177,7 @@ export function FamilyPhotosPanel({ cookbookId, layoutData, onChange, templateSt
         <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={(e) => { upload(e.target.files); e.target.value = ""; }} />
 
         {photos.length > 0 && (
-          <p className="text-xs text-muted-foreground">
+          <p className="text-sm text-muted-foreground">
             {placed.length} under recipes · {album.length} in album
             {unplaced.length ? ` · ${unplaced.length} don't fit` : ""}
             {notYet.length ? ` · ${notYet.length} not placed yet` : ""}
@@ -185,7 +185,7 @@ export function FamilyPhotosPanel({ cookbookId, layoutData, onChange, templateSt
         )}
 
         {unplaced.length > 0 && (
-          <div className="rounded-md border border-destructive/40 bg-destructive/5 p-2.5 text-xs space-y-2">
+          <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm space-y-2">
             <p className="flex items-start gap-1.5">
               <AlertTriangle className="w-3.5 h-3.5 text-destructive shrink-0 mt-px" />
               <span>
@@ -196,7 +196,7 @@ export function FamilyPhotosPanel({ cookbookId, layoutData, onChange, templateSt
             <Button
               size="sm"
               variant="secondary"
-              className="w-full h-7"
+              className="w-full"
               onClick={() => onChange(photos.map((p) => (p.placement?.type === "unplaced" ? { ...p, pinnedRecipeId: undefined, placement: { type: "album" as const } } : p)))}
             >
               Add {unplaced.length === 1 ? "it" : `all ${unplaced.length}`} to the album
@@ -214,8 +214,8 @@ export function FamilyPhotosPanel({ cookbookId, layoutData, onChange, templateSt
                     <img src={`/api/cookbook-photos/${p.id}`} alt="" className="w-full h-full object-cover" loading="lazy" />
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <button className="absolute top-1 right-1 rounded-full bg-black/55 p-0.5 text-white" aria-label="Photo options">
-                          <MoreVertical className="w-3.5 h-3.5" />
+                        <button className="absolute top-0 right-0 flex h-11 w-11 items-start justify-end p-1" aria-label="Photo options">
+                          <span className="rounded-full bg-black/60 p-1 text-white"><MoreVertical className="w-4 h-4" /></span>
                         </button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="w-56">
@@ -271,7 +271,7 @@ export function FamilyPhotosPanel({ cookbookId, layoutData, onChange, templateSt
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>
-                  <p className={`text-[10px] leading-tight truncate ${s.tone}`} title={s.text}>{s.text}</p>
+                  <p className={`text-xs leading-tight truncate ${s.tone}`} title={s.text}>{s.text}</p>
                 </div>
               );
             })}

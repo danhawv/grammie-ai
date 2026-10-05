@@ -3,18 +3,14 @@ import { isAuthenticated } from "../clerkAuth";
 import { getPdf, getUserId } from "./route-utils";
 import { storage } from "../storage";
 import { normalizeUsState } from "@shared/us-states";
-import { calculateCost, getPrintJob } from "../lib/lulu/client";
+import { calculateCost, getPrintJob, getShippingOptions } from "../lib/lulu/client";
+import { SHIPPING_LEVELS, ESTIMATE_ADDRESS, estimateArrival, DEFAULT_SHIPPING_LEVEL } from "@shared/print-checkout";
 import { buildPodPackageId, BINDING_PAGE_LIMITS, BINDING_PAPER_COMPATIBILITY } from "../lib/lulu/pod-package";
 import { BOOK_SIZES, BINDING_TYPE_INFO, PAPER_TYPE_INFO, COLOR_TYPE_INFO } from "../lib/lulu/book-sizes";
 import type { BookConfig, CostCalculationRequest, LuluAddress, ShippingLevel } from "../lib/lulu/types";
 
-const SHIPPING_OPTIONS = [
-  { id: "MAIL", name: "Mail", description: "7-21 business days" },
-  { id: "PRIORITY_MAIL", name: "Priority Mail", description: "4-8 business days" },
-  { id: "GROUND_HD", name: "Ground", description: "5-10 business days" },
-  { id: "EXPEDITED", name: "Expedited", description: "3-5 business days" },
-  { id: "EXPRESS", name: "Express", description: "1-3 business days" },
-] as const;
+// Shown on the status endpoint for older clients; checkout now shows dates
+const SHIPPING_OPTIONS = SHIPPING_LEVELS.map((l) => ({ id: l.id, name: l.name, description: `${l.transitDays[0]}-${l.transitDays[1]} business days in transit` }));
 
 const router = Router();
 
@@ -43,6 +39,8 @@ router.get("/api/print/lulu/status", isAuthenticated, async (req: any, res) => {
   const configured = Boolean(process.env.LULU_CLIENT_ID && process.env.LULU_CLIENT_SECRET);
   res.json({
     configured,
+    // Sandbox orders are never printed or charged; the checkout says so
+    testMode: (process.env.LULU_ENVIRONMENT || 'sandbox') !== 'production',
     shippingOptions: SHIPPING_OPTIONS,
     bookSizes: BOOK_SIZES,
     bindingTypes: BINDING_TYPE_INFO,
@@ -63,9 +61,9 @@ router.post("/api/print/lulu/calculate-price", isAuthenticated, async (req: any,
       });
     }
 
+    let { shippingAddress } = req.body;
     const {
       quantity,
-      shippingAddress,
       shippingLevel,
       cookbookId,
       // Legacy simple fields (backward compat)
@@ -99,8 +97,12 @@ router.post("/api/print/lulu/calculate-price", isAuthenticated, async (req: any,
     if (!quantity || quantity < 1) {
       return res.status(400).json({ error: "Quantity must be at least 1" });
     }
-    if (!shippingAddress || !shippingAddress.country_code) {
-      return res.status(400).json({ error: "Valid shipping address required" });
+    // No address yet: quote a typical US address so the person sees
+    // "about $X" before filling in the form
+    const isEstimate = !shippingAddress || !shippingAddress.street1;
+    if (isEstimate) shippingAddress = { ...ESTIMATE_ADDRESS };
+    if (!shippingAddress.country_code) {
+      return res.status(400).json({ error: "Choose a country." });
     }
     if (shippingAddress.country_code === 'US') {
       const state = normalizeUsState(shippingAddress.state_code);
@@ -150,15 +152,56 @@ router.post("/api/print/lulu/calculate-price", isAuthenticated, async (req: any,
       shipping_level: (shippingLevel || 'GROUND_HD') as ShippingLevel,
     };
 
-    const result = await calculateCost(costRequest);
+    // Price and Lulu's delivery dates for every level, in parallel. Dates are
+    // best-effort: if Lulu's shipping options fail we estimate from
+    // production time plus typical transit time.
+    const [result, options] = await Promise.all([
+      calculateCost(costRequest),
+      getShippingOptions({
+        currency: 'USD',
+        line_items: costRequest.line_items,
+        shipping_address: {
+          city: shippingAddress.city,
+          country: shippingAddress.country_code,
+          postcode: shippingAddress.postcode,
+          state_code: shippingAddress.state_code,
+          street1: shippingAddress.street1,
+        },
+      }).catch((err) => {
+        console.warn("[Print] Shipping options unavailable, estimating dates:", err?.message);
+        return [];
+      }),
+    ]);
 
+    const shippingOptions = SHIPPING_LEVELS.map((level) => {
+      const lulu = options.find((o) => o.level === level.id);
+      const estimated = estimateArrival(level.id);
+      return {
+        id: level.id,
+        name: level.name,
+        available: options.length === 0 || !!lulu,
+        // Shipping cost before tax; the selected level's full price is in the totals
+        shippingCost: lulu?.cost_excl_tax ?? null,
+        arrivalMin: lulu?.min_delivery_date ?? estimated.min,
+        arrivalMax: lulu?.max_delivery_date ?? estimated.max,
+        datesFromLulu: !!(lulu?.min_delivery_date && lulu?.max_delivery_date),
+      };
+    }).filter((o) => o.available);
+
+    const suggested = result.shipping_address?.suggested_address;
     res.json({
       podPackageId,
+      pageCount,
+      quantity,
+      isEstimate,
       totalCost: parseFloat(result.total_cost_incl_tax),
       printCost: parseFloat(result.total_cost_incl_tax) - parseFloat(result.shipping_cost.total_cost_incl_tax),
       shippingCost: parseFloat(result.shipping_cost.total_cost_incl_tax),
       currency: result.currency,
-      details: result,
+      shippingLevel: shippingLevel || DEFAULT_SHIPPING_LEVEL,
+      shippingOptions,
+      // Lulu's corrected version of the address, for "You entered / Suggested"
+      suggestedAddress: !isEstimate && suggested && result.shipping_address?.warnings?.length ? suggested : null,
     });
   } catch (error: any) {
     console.error("Error calculating price:", error);
@@ -170,12 +213,21 @@ router.post("/api/print/lulu/calculate-price", isAuthenticated, async (req: any,
 router.get("/api/print/orders/:orderId/status", isAuthenticated, async (req: any, res) => {
   try {
     const { orderId } = req.params;
+    const userId = getUserId(req);
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
     if (!process.env.LULU_CLIENT_ID || !process.env.LULU_CLIENT_SECRET) {
       return res.status(503).json({ error: "Lulu Print API not configured" });
     }
 
+    // Only the person who placed the order can see it
+    const project = (await storage.getPrintProjectsByUser(userId)).find((p) => p.luluOrderId === String(orderId));
+    if (!project) return res.status(404).json({ error: "Order not found" });
+
     const job = await getPrintJob(parseInt(orderId));
+    if (job.status?.name && job.status.name !== project.luluOrderStatus) {
+      await storage.updatePrintProjectLuluOrder(project.id, String(job.id), job.status.name);
+    }
     res.json({
       orderId: job.id,
       status: job.status.name,

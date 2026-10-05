@@ -3,6 +3,8 @@ import type {
   LuluPrintJob,
   CostCalculationRequest,
   CostCalculationResult,
+  ShippingOptionsRequest,
+  ShippingOption,
 } from './types';
 
 const ENVIRONMENTS = {
@@ -89,6 +91,16 @@ export async function calculateCost(
   request: CostCalculationRequest
 ): Promise<CostCalculationResult> {
   return luluFetch<CostCalculationResult>('/print-job-cost-calculations/', {
+    method: 'POST',
+    body: JSON.stringify(request),
+  });
+}
+
+/** Shipping levels available for an address, with Lulu's own delivery dates */
+export async function getShippingOptions(
+  request: ShippingOptionsRequest
+): Promise<ShippingOption[]> {
+  return luluFetch<ShippingOption[]>('/shipping-options/', {
     method: 'POST',
     body: JSON.stringify(request),
   });

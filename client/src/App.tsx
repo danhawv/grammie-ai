@@ -27,6 +27,7 @@ const SharedGroceryList = lazy(() => import("@/pages/shared-grocery-list"));
 const Pantry = lazy(() => import("@/pages/pantry"));
 const WhatCanIMake = lazy(() => import("@/pages/what-can-i-make"));
 const Profile = lazy(() => import("@/pages/profile"));
+const Cookbooks = lazy(() => import("@/pages/cookbooks"));
 const CookbookView = lazy(() => import("@/pages/cookbook-view"));
 const CookbookPrint = lazy(() => import("@/pages/cookbook-print"));
 const CookbookPrintEditor = lazy(() => import("@/pages/cookbook-print-editor"));
@@ -57,7 +58,7 @@ function Router() {
         <Route path="/settings" component={Settings} />
         <Route path="/login" component={Login} />
         <Route path="/kitchen" component={GroceryList} />
-        <Route path="/cookbooks" component={Home} />
+        <Route path="/cookbooks" component={Cookbooks} />
         <Route path="/grocery-list" component={GroceryList} />
         <Route path="/grocery-list/shared/:token" component={SharedGroceryList} />
         <Route path="/pantry" component={Pantry} />
