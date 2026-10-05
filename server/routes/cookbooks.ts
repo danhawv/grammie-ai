@@ -3,7 +3,7 @@ import { z } from "zod";
 import { isAuthenticated, optionalAuth } from "../clerkAuth";
 import { storage } from "../storage";
 import { db } from "../db";
-import { eq, and, inArray, getTableColumns } from "drizzle-orm";
+import { eq, and, inArray, getTableColumns, sql } from "drizzle-orm";
 import {
   insertCookbookSchema,
   printLayoutDataSchema,
@@ -802,32 +802,41 @@ router.post("/cookbooks/:id/preflight", isAuthenticated, async (req: any, res) =
     const bindingType = typeof req.body.bindingType === "string" ? req.body.bindingType : "PB";
     const trimSize = typeof req.body.trimSize === "string" ? req.body.trimSize : "0600X0900";
 
-    const facts: RecipePrintFacts[] = [];
-    for (let i = 0; i < allRecipeIds.length; i += 10) {
-      const batch = await Promise.all(allRecipeIds.slice(i, i + 10).map((rid) => storage.getRecipe(rid, userId)));
-      batch.forEach((recipe, j) => {
-        const rid = allRecipeIds[i + j];
-        if (!recipe) {
-          facts.push({ id: rid, title: "", found: false, hasPhoto: false, hasIngredients: false, hasInstructions: false });
-          return;
-        }
-        const image = recipe.dishImage || "";
-        let photoKB: number | undefined;
-        if (image.startsWith("data:image")) {
-          photoKB = Math.round(((image.length - image.indexOf(",") - 1) * 3) / 4 / 1024);
-        }
-        facts.push({
-          id: recipe.id,
-          title: recipe.title,
-          found: true,
-          hasPhoto: !!image,
-          photoKB,
-          hasIngredients: !!(recipe.ingredients?.length || (recipe as any).normalizedIngredients?.length),
-          hasInstructions: !!recipe.instructions?.length,
-          status: (recipe as any).status ?? null,
-        });
-      });
+    // Only the columns the check needs: the photo's size, not the photo
+    // itself (loading 50 full-size photos made this take minutes). Recipes
+    // must belong to this cookbook, the same rule printing uses.
+    const memberIds = new Set(
+      (await db.select({ id: cookbookRecipes.recipeId }).from(cookbookRecipes).where(eq(cookbookRecipes.cookbookId, cookbookId))).map((r) => r.id),
+    );
+    const wanted = allRecipeIds.filter((rid) => memberIds.has(rid));
+    const rows: { id: string; title: string; ingredients: string[] | null; normalizedIngredients: unknown[] | null; instructions: string[] | null; photoBytes: number | null; isDataUrl: boolean | null }[] = [];
+    for (let i = 0; i < wanted.length; i += 50) {
+      rows.push(...await db.select({
+        id: recipes.id,
+        title: recipes.title,
+        ingredients: recipes.ingredients,
+        normalizedIngredients: recipes.normalizedIngredients,
+        instructions: recipes.instructions,
+        photoBytes: sql<number | null>`length(${recipes.dishImage})`,
+        isDataUrl: sql<boolean | null>`left(${recipes.dishImage}, 10) = 'data:image'`,
+      }).from(recipes).where(inArray(recipes.id, wanted.slice(i, i + 50))) as any);
     }
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    const facts: RecipePrintFacts[] = allRecipeIds.map((rid) => {
+      const r = byId.get(rid);
+      if (!r) return { id: rid, title: "", found: false, hasPhoto: false, hasIngredients: false, hasInstructions: false };
+      const bytes = Number(r.photoBytes) || 0;
+      return {
+        id: r.id,
+        title: r.title,
+        found: true,
+        hasPhoto: bytes > 0,
+        // base64 is 4/3 the size of the image it holds
+        photoKB: r.isDataUrl ? Math.round((bytes * 3) / 4 / 1024) : undefined,
+        hasIngredients: !!(r.ingredients?.length || r.normalizedIngredients?.length),
+        hasInstructions: !!r.instructions?.length,
+      };
+    });
 
     const result = checkReadiness({
       recipes: facts,
