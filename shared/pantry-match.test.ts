@@ -10,6 +10,7 @@ import {
   rankRecipesByPantry,
   groceryMergeKey,
   normalizeUnit,
+  parseAmount,
 } from "./pantry-match";
 
 const pantry = ["butter", "eggs", "milk", "chicken thighs", "grapes", "tomatoes"].map((name) => ({ name }));
@@ -200,5 +201,25 @@ describe("groceryMergeKey", () => {
     expect(normalizeUnit("t")).toBe("tsp");
     expect(normalizeUnit("Pounds")).toBe("lb");
     expect(normalizeUnit("pinches")).toBe("pinch");
+  });
+});
+
+describe("parseAmount", () => {
+  it("accepts whole numbers, decimals and fractions", () => {
+    expect(parseAmount("2")).toBe(2);
+    expect(parseAmount("1.5")).toBe(1.5);
+    expect(parseAmount("1,5")).toBe(1.5);
+    expect(parseAmount("1/2")).toBe(0.5);
+    expect(parseAmount("1 1/2")).toBe(1.5);
+    expect(parseAmount("1½")).toBe(1.5);
+    expect(parseAmount("1 ½")).toBe(1.5);
+    expect(parseAmount("¾")).toBe(0.75);
+  });
+
+  it("returns null for empty or unreadable input", () => {
+    expect(parseAmount("")).toBeNull();
+    expect(parseAmount("   ")).toBeNull();
+    expect(parseAmount("a few")).toBeNull();
+    expect(parseAmount("1/0")).toBeNull();
   });
 });

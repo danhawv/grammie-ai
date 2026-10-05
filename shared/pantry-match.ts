@@ -481,3 +481,41 @@ export function groceryMergeKey(name: string, unit: string | null | undefined): 
   const n = (name ?? "").toLowerCase().trim().replace(/\s+/g, " ");
   return `${n}|${normalizeUnit(unit)}`;
 }
+
+// ---------------------------------------------------------------------------
+// Amounts typed by people
+// ---------------------------------------------------------------------------
+
+const UNICODE_FRACTIONS: Record<string, number> = {
+  "¼": 0.25, "½": 0.5, "¾": 0.75, "⅓": 1 / 3, "⅔": 2 / 3, "⅛": 0.125, "⅜": 0.375, "⅝": 0.625, "⅞": 0.875,
+  "⅕": 0.2, "⅖": 0.4, "⅗": 0.6, "⅘": 0.8, "⅙": 1 / 6, "⅚": 5 / 6,
+};
+
+/**
+ * Parse an amount a person typed: "2", "1.5", "1,5", "1/2", "1 1/2", "1½", "1 ½".
+ * Returns null for empty or unreadable input.
+ */
+export function parseAmount(input: string | null | undefined): number | null {
+  let s = (input ?? "").trim();
+  if (!s) return null;
+  let total = 0;
+  for (const [ch, val] of Object.entries(UNICODE_FRACTIONS)) {
+    if (s.includes(ch)) {
+      total += val;
+      s = s.replace(ch, " ").trim();
+    }
+  }
+  if (!s) return total || null;
+  const mixed = s.match(/^(\d+)\s+(\d+)\/(\d+)$/);
+  if (mixed) {
+    const d = Number(mixed[3]);
+    return d ? total + Number(mixed[1]) + Number(mixed[2]) / d : null;
+  }
+  const frac = s.match(/^(\d+)\/(\d+)$/);
+  if (frac) {
+    const d = Number(frac[2]);
+    return d ? total + Number(frac[1]) / d : null;
+  }
+  const num = Number(s.replace(",", "."));
+  return Number.isFinite(num) && num >= 0 ? total + num : null;
+}
