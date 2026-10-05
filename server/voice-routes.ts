@@ -14,6 +14,7 @@ import {
   type VoiceSession,
 } from "@shared/schema";
 import { isAuthenticated } from "./clerkAuth";
+import { getFoodProfile, type UserPreferences } from "@shared/food-profile";
 import { jobQueue } from "./job-queue";
 
 function getUserId(req: any): string | undefined {
@@ -21,6 +22,22 @@ function getUserId(req: any): string | undefined {
 }
 
 const router = Router();
+
+// The Food profile as the voice assistant sees it (same keys it always had)
+function voicePreferences(prefs: UserPreferences | null | undefined) {
+  const p = getFoodProfile(prefs);
+  return {
+    allergies: p.allergies,
+    dietaryRestrictions: p.diets,
+    dislikedIngredients: p.dislikes,
+    cookingSkillLevel: p.skillLevel,
+    cuisinePreferences: p.cuisines,
+    householdSize: p.householdSize,
+    cookingGoals: p.goals,
+    grammieNotes: p.notes,
+    unitSystem: prefs?.unitSystem || "us",
+  };
+}
 
 const SESSION_EXPIRY_MS = 30 * 60 * 1000; // 30 minutes
 const MAX_REQUESTS_PER_SESSION = 100; // Rate limit per session
@@ -112,15 +129,7 @@ router.post("/session/start", isAuthenticated, async (req, res) => {
       userContext: {
         name: user?.firstName || user?.username || "there",
         preferences: {
-          allergies: preferences.allergies || [],
-          dietaryRestrictions: preferences.dietaryRestrictions || [],
-          dislikedIngredients: preferences.dislikedIngredients || [],
-          cookingSkillLevel: preferences.cookingSkillLevel || "intermediate",
-          cuisinePreferences: preferences.cuisinePreferences || [],
-          householdSize: preferences.householdSize || 2,
-          cookingGoals: preferences.cookingGoals || [],
-          grammieNotes: preferences.grammieNotes || "",
-          unitSystem: preferences.unitSystem || "us",
+          ...voicePreferences(preferences),
         },
       },
     });
@@ -251,15 +260,7 @@ router.post("/preferences/get", async (req, res) => {
     res.json({
       success: true,
       preferences: {
-        allergies: prefs.allergies || [],
-        dietaryRestrictions: prefs.dietaryRestrictions || [],
-        dislikedIngredients: prefs.dislikedIngredients || [],
-        cookingSkillLevel: prefs.cookingSkillLevel || "intermediate",
-        cuisinePreferences: prefs.cuisinePreferences || [],
-        householdSize: prefs.householdSize || 2,
-        cookingGoals: prefs.cookingGoals || [],
-        grammieNotes: prefs.grammieNotes || "",
-        unitSystem: prefs.unitSystem || "us",
+        ...voicePreferences(prefs),
       },
     });
   } catch (error) {

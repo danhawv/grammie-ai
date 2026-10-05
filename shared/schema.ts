@@ -3,6 +3,7 @@ import { pgTable, text, varchar, integer, real, jsonb, boolean, timestamp, seria
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { relations } from "drizzle-orm";
+import type { UserPreferences } from "./food-profile";
 
 // Constant maps for comprehensive recipe enrichment
 export const DIETARY_FLAGS = {
@@ -244,24 +245,8 @@ export const users = pgTable("users", {
   notifyOnCookbookFollows: boolean("notify_on_cookbook_follows").default(true),
   
   // UI Preferences (JSONB for flexibility)
-  preferences: jsonb("preferences").$type<{
-    quickFilters?: {
-      enabled?: string[]; // e.g., ['all', 'yours', 'public', 'shared', 'vegetarian']
-      order?: string[]; // Display order
-    };
-    unitSystem?: 'metric' | 'us'; // Grocery list unit display preference
-    // Dietary restrictions for "What Can I Make?" feature
-    dietaryRestrictions?: string[]; // e.g., ['dairy-free', 'gluten-free', 'vegetarian', 'vegan', 'keto']
-    // Ingredients the user dislikes or wants to avoid
-    dislikedIngredients?: string[]; // e.g., ['zucchini', 'cilantro', 'mushrooms']
-    // Voice assistant / Grammie preferences
-    allergies?: string[]; // Safety-critical: 'peanuts', 'shellfish', 'dairy', etc.
-    cookingSkillLevel?: 'beginner' | 'intermediate' | 'advanced' | 'professional';
-    cuisinePreferences?: string[]; // Preferred cuisines: 'Italian', 'Mexican', 'Asian', etc.
-    householdSize?: number; // For portion recommendations
-    cookingGoals?: string[]; // 'meal-prep', 'quick-weeknight', 'healthy-eating', 'budget-friendly'
-    grammieNotes?: string; // Custom notes for Grammie to remember (e.g., "my husband doesn't like spicy food")
-  }>(),
+  // UI preferences, Food profile and Display settings (JSONB; see shared/food-profile.ts)
+  preferences: jsonb("preferences").$type<UserPreferences>(),
   
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),

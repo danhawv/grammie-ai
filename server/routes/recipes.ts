@@ -27,6 +27,7 @@ import { detectPlatform, isValidSocialUrl, scrapePost } from "../social-import-s
 import { extractRecipeFromSocialPostUnified } from "../ai-service";
 import { getUserId, upload } from "./route-utils";
 import { findPantryMatch } from "../../shared/pantry-matching";
+import { getFoodProfile, ingredientMatchesAvoid } from "@shared/food-profile";
 import { convertToBaseUnit } from "../unit-conversion";
 
 const router = Router();
@@ -151,9 +152,11 @@ router.get("/recipes/what-can-i-make", isAuthenticated, async (req: any, res) =>
     }
 
     // Get user preferences for dietary restrictions and dislikes
+    // Food profile: allergies and dislikes are both left out of suggestions
     const user = await storage.getUser(userId);
-    const dietaryRestrictions = user?.preferences?.dietaryRestrictions || [];
-    const dislikedIngredients = user?.preferences?.dislikedIngredients || [];
+    const foodProfile = getFoodProfile(user?.preferences);
+    const dietaryRestrictions = foodProfile.diets;
+    const dislikedIngredients = foodProfile.avoidAll;
 
     // Build pantry items array for shared matching utility
     const pantryItemsForMatching = pantryItems.map(item => ({
@@ -212,10 +215,8 @@ router.get("/recipes/what-can-i-make", isAuthenticated, async (req: any, res) =>
       );
 
       // Check for disliked ingredients
-      const hasDisliked = dislikedIngredients.some((disliked: string) =>
-        ingredientNames.some((name: string) =>
-          name.includes(disliked.toLowerCase()) || disliked.toLowerCase().includes(name)
-        )
+      const hasDisliked = ingredientNames.some((name: string) =>
+        ingredientMatchesAvoid(name, dislikedIngredients)
       );
       if (hasDisliked) continue;
 
@@ -449,9 +450,9 @@ router.post("/recipes/suggest-concepts", isAuthenticated, async (req: any, res) 
 
     // Get user dietary prefs
     const user = await storage.getUser(userId);
-    const prefs = (user as any)?.preferences || {};
-    const dietaryRestrictions: string[] = prefs.dietaryRestrictions || [];
-    const dislikedIngredients: string[] = prefs.dislikedIngredients || [];
+    const foodProfile = getFoodProfile(user?.preferences);
+    const dietaryRestrictions: string[] = foodProfile.diets;
+    const dislikedIngredients: string[] = foodProfile.avoidAll;
 
     // Generate concept suggestions via AI
     const { suggestRecipeConceptsUnified } = await import('../ai-service');
@@ -502,8 +503,12 @@ router.post("/recipes/generate-full-recipe", isAuthenticated, async (req: any, r
 
     // Get user dietary prefs
     const user = await storage.getUser(userId);
-    const prefs = (user as any)?.preferences || {};
-    const dietaryRestrictions: string[] = prefs.dietaryRestrictions || [];
+    const foodProfile = getFoodProfile(user?.preferences);
+    // Allergies ride along as hard rules for the generated recipe
+    const dietaryRestrictions: string[] = [
+      ...foodProfile.diets,
+      ...foodProfile.allergies.map((a) => `no ${a} (allergy)`),
+    ];
 
     // Generate full recipe via AI
     const { generateFullRecipeUnified } = await import('../ai-service');
