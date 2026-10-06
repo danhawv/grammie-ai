@@ -1,4 +1,5 @@
 import { useMemo, useState, useRef } from "react";
+import { formatDuration } from "@shared/format";
 import { useQuery, useMutation, useInfiniteQuery } from "@tanstack/react-query";
 import { useParams, Link } from "wouter";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -67,13 +68,8 @@ interface CookbookRecipesResponse {
   total: number;
 }
 
-const formatTime = (minutes: number): string => {
-  const hours = Math.floor(minutes / 60);
-  const mins = minutes % 60;
-  if (hours > 0 && mins > 0) return `${hours} hr ${mins} min`;
-  if (hours > 0) return `${hours} hr`;
-  return `${mins} min`;
-};
+// Shared wording: "1 hr 30 min", "3 days" (shared/format.ts)
+const formatTime = (minutes: number): string => formatDuration(minutes) ?? "";
 
 export default function CookbookViewPage() {
   const { id } = useParams<{ id: string }>();
