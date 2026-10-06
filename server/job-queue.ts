@@ -1,5 +1,6 @@
 import { buildImagePrompt } from "./openai";
 import { storage } from "./storage";
+import { detectRateLimit } from "./lib/rate-limit";
 import {
   extractRecipeFromImageUnified,
   extractRecipeFromMultipleImagesUnified,
@@ -108,29 +109,6 @@ async function updateSessionProgress(recipeId: string) {
 }
 
 // Rate limit error detection helper
-interface RateLimitInfo {
-  isRateLimited: boolean;
-  retryAfterMs: number | null;
-  statusCode?: number;
-}
-
-function detectRateLimit(error: unknown): RateLimitInfo {
-  if (error instanceof Error) {
-    const message = error.message.toLowerCase();
-    // Check for common rate limit indicators
-    if (message.includes('429') || message.includes('rate limit') || message.includes('quota') || message.includes('too many requests')) {
-      // Try to extract retry-after if present
-      const retryMatch = message.match(/retry.?after[:\s]*(\d+)/i);
-      const retryAfterMs = retryMatch ? parseInt(retryMatch[1]) * 1000 : 60000; // Default 60s
-      return { isRateLimited: true, retryAfterMs, statusCode: 429 };
-    }
-    // Check for 503 service unavailable (often temporary)
-    if (message.includes('503') || message.includes('service unavailable')) {
-      return { isRateLimited: true, retryAfterMs: 30000, statusCode: 503 };
-    }
-  }
-  return { isRateLimited: false, retryAfterMs: null };
-}
 
 // Fast job types (extraction/enrichment - quick AI operations)
 type FastJob = ExtractionJob | MultiImageExtractionJob | EnrichmentJob | ContentEnrichmentJob;
@@ -145,10 +123,15 @@ class JobQueue {
   private readonly IMAGE_JOB_TIMEOUT_MS = 3 * 60 * 1000; // 3 minutes for image jobs (fail fast)
   
   // Separate worker pools to prevent blocking
-  private readonly MAX_FAST_WORKERS = 3; // Extraction/enrichment workers
-  private readonly MAX_IMAGE_WORKERS = 2; // Image generation workers (separate pool)
+  // How many AI calls run at once. Gemini accepted 60 parallel text calls and
+  // 25 parallel images in testing (Oct 2026), so these limits are about our
+  // server's memory, not Google's quota.
+  private readonly MAX_FAST_WORKERS = Number(process.env.QUEUE_TEXT_WORKERS) || 10; // Extraction/enrichment workers
+  private readonly MAX_IMAGE_WORKERS = Number(process.env.QUEUE_IMAGE_WORKERS) || 8; // Image generation workers (separate pool)
   private activeFastWorkers = 0;
   private activeImageWorkers = 0;
+  // Jobs waiting out a retry delay (not in a queue, not running)
+  private retrying = new Set<string>();
   
   // Legacy getter for backward compatibility
   private get queue(): Job[] {
@@ -185,6 +168,9 @@ class JobQueue {
   }
 
   private isJobQueued(recipeId: string, type: string): boolean {
+    if (Array.from(this.retrying).some(id => id.endsWith(recipeId) && (type === 'image' ? id.startsWith('img-') : !id.startsWith('img-')))) {
+      return true;
+    }
     if (type === 'image') {
       return this.imageQueue.some(j => j.recipeId === recipeId);
     }
@@ -303,7 +289,10 @@ class JobQueue {
   // Start workers for fast jobs (extraction/enrichment)
   private startFastWorkers() {
     while (this.activeFastWorkers < this.MAX_FAST_WORKERS && this.fastQueue.length > 0) {
-      const job = this.fastQueue.shift();
+      // Tips/variations content is optional extra: it waits until no
+      // extraction or core enrichment (what makes a recipe usable) is queued
+      const urgent = this.fastQueue.findIndex(j => j.type !== 'content-enrichment');
+      const [job] = this.fastQueue.splice(urgent === -1 ? 0 : urgent, 1);
       if (!job) break;
       
       this.activeFastWorkers++;
@@ -381,9 +370,13 @@ class JobQueue {
         
         console.log(`[Worker] Re-queuing ${job.type} job (retry ${job.retries}/${this.MAX_RETRIES}) after ${Math.round(retryDelay)}ms`);
         
-        await new Promise(resolve => setTimeout(resolve, retryDelay));
-        this.fastQueue.push(job);
-        this.startFastWorkers();
+        // Wait without holding a worker slot, so other recipes keep moving
+        this.retrying.add(job.id);
+        setTimeout(() => {
+          this.retrying.delete(job.id);
+          this.fastQueue.push(job);
+          this.startFastWorkers();
+        }, retryDelay);
       } else {
         console.error(`[Worker] Max retries reached for ${job.type} job on recipe ${job.recipeId}`);
 
@@ -454,9 +447,13 @@ class JobQueue {
         
         console.log(`[Worker] Re-queuing image job (retry ${job.retries}/${imageMaxRetries}) after ${Math.round(retryDelay)}ms`);
         
-        await new Promise(resolve => setTimeout(resolve, retryDelay));
-        this.imageQueue.push(job);
-        this.startImageWorkers();
+        // Wait without holding a worker slot, so other photos keep moving
+        this.retrying.add(job.id);
+        setTimeout(() => {
+          this.retrying.delete(job.id);
+          this.imageQueue.push(job);
+          this.startImageWorkers();
+        }, retryDelay);
       } else {
         // Mark as failed after graceful degradation - recipe still usable without image
         console.log(`[Worker] Image generation failed for ${job.recipeId} after ${imageMaxRetries} retries - skipping (recipe still usable)`);

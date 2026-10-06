@@ -52,3 +52,15 @@ export function generationConfigFor(choice: ModelChoice, json = true): Record<st
   if (choice.thinkingLevel) config.thinkingConfig = { thinkingLevel: choice.thinkingLevel };
   return config;
 }
+
+/**
+ * Longest we wait for one AI call before treating it as failed (the queue
+ * then retries it, or the image falls back to the backup model). Normal
+ * times: text 1-12s, card photos 6-15s, dish photos ~10s. Without a limit a
+ * stalled call held a queue slot for up to 5 minutes.
+ */
+export const AI_CALL_TIMEOUT_MS = {
+  text: 60_000,
+  vision: 90_000,
+  image: 30_000,
+};

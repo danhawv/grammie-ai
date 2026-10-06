@@ -7,7 +7,7 @@
  */
 
 import { generateDishImage as generateImageOpenAI } from "./openai";
-import { modelFor, generationConfigFor, type AIJob } from "./ai-models";
+import { modelFor, generationConfigFor, AI_CALL_TIMEOUT_MS, type AIJob } from "./ai-models";
 import { 
   extractRecipeFromImageWithGemini,
   extractRecipeFromMultipleImagesWithGemini,
@@ -1125,10 +1125,10 @@ async function callGeminiForJSON(prompt: string, job: AIJob): Promise<any> {
   const genAI = new GoogleGenerativeAI(apiKey);
   
   const choice = modelFor(job);
-  const model = genAI.getGenerativeModel({
-    model: choice.model,
-    generationConfig: generationConfigFor(choice) as any,
-  });
+  const model = genAI.getGenerativeModel(
+    { model: choice.model, generationConfig: generationConfigFor(choice) as any },
+    { timeout: AI_CALL_TIMEOUT_MS.text }
+  );
   
   let responseText: string;
   try {

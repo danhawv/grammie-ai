@@ -61,3 +61,31 @@ Why each model was chosen:
 - Photo and handwriting extraction (`GEMINI_TEXT_MODEL` in `server/gemini.ts`) still uses `gemini-3-flash-preview` with thinking on. Handwriting is the hardest reading job, so benchmark it on real recipe cards before moving it.
 - The `@google/generative-ai` SDK is deprecated in favor of `@google/genai`. It still works, including thinking settings, but plan the move.
 - The OpenAI code paths only run when `AI_PROVIDER=openai` and OpenAI keys are set. Production has neither.
+
+## Delays and batch imports (October 2026)
+
+**Rate limits aren't the problem.** In testing, Gemini accepted 60 text calls and 25 image calls at the same moment with no rejections. Images took about 9s each.
+
+**What does cause delays:**
+- Google has short capacity blips. These show up as a 429 without a quota violation, a 500, or a call that hangs. One image call took 108s.
+- Our own queue made those blips worse:
+  - It ran only 3 text jobs and 2 photo jobs at once.
+  - A failed job held its worker slot while it waited 60s to retry.
+  - Calls had no time limit short of the job's 5-minute timeout.
+  - Optional tips content competed with extraction.
+
+**What the queue does now (`server/job-queue.ts`):**
+- Runs 10 text jobs and 8 image jobs at once. Change this with `QUEUE_TEXT_WORKERS` and `QUEUE_IMAGE_WORKERS`.
+- Retries without holding a slot. It uses the delay Google asks for, or 15s after a 429 and 5s after a 5xx (`server/lib/rate-limit.ts`).
+- Time-limits each call: text 60s, card photos 90s, dish photos 30s (`AI_CALL_TIMEOUT_MS`). A stalled dish photo switches to the backup image model.
+- Runs tips content only when no extraction or core enrichment is waiting.
+
+**Simulated batch of recipe-card photos**, using measured step times (cards 11s, enrichment 12s, tips 9s, photo 9s):
+
+| Cards | Before: all recipes usable | Before: everything done | After: all recipes usable | After: everything done |
+|---|---|---|---|---|
+| 5 | 0.8 min | 0.9 min | 0.4 min | 0.5 min |
+| 20 | 2.7 min | 3.6 min | 0.8 min | 1.1 min |
+| 50 | 6.5 min | 8.9 min | 1.9 min | 2.7 min |
+
+Splitting core enrichment into parallel calls (12s down to 3.5s, tested) would bring 50 cards down to about 1.2 min until every recipe is usable.

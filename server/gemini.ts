@@ -1,7 +1,7 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import sharp from "sharp";
 import type { ExtractedRecipeRaw } from "./enrichment";
-import { modelFor, generationConfigFor } from "./ai-models";
+import { modelFor, generationConfigFor, AI_CALL_TIMEOUT_MS } from "./ai-models";
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
@@ -179,7 +179,7 @@ export async function extractRecipeFromImageWithGemini(
     throw new Error("Gemini API not configured");
   }
 
-  const model = genAI.getGenerativeModel({ model: GEMINI_TEXT_MODEL });
+  const model = genAI.getGenerativeModel({ model: GEMINI_TEXT_MODEL }, { timeout: AI_CALL_TIMEOUT_MS.vision });
   
   // Optimize image for faster Vision API processing
   const optimized = await optimizeImageForVision(imageBase64);
@@ -262,7 +262,7 @@ export async function extractRecipeFromMultipleImagesWithGemini(
     throw new Error("Gemini API not configured");
   }
 
-  const model = genAI.getGenerativeModel({ model: GEMINI_TEXT_MODEL });
+  const model = genAI.getGenerativeModel({ model: GEMINI_TEXT_MODEL }, { timeout: AI_CALL_TIMEOUT_MS.vision });
 
   const prompt = `You are an expert at reading handwritten recipes. You have been given ${imagesBase64.length} images that together form ONE COMPLETE recipe (e.g., front and back of a recipe card, or multiple pages).
 
@@ -637,7 +637,7 @@ export async function generateRecipeImageWithGemini(
     let result;
     try {
       result = await genAI
-        .getGenerativeModel({ model: modelFor("dishImage").model }, { timeout: 30_000 })
+        .getGenerativeModel({ model: modelFor("dishImage").model }, { timeout: AI_CALL_TIMEOUT_MS.image })
         .generateContent(request);
     } catch (err: any) {
       if (!/\b(429|500|502|503|504)\b|abort|timed? ?out/i.test(String(err?.message))) throw err;
@@ -706,7 +706,10 @@ export async function extractRecipeFromSocialPostWithGemini(
   }
 
   const choice = modelFor("socialExtraction");
-  const model = genAI.getGenerativeModel({ model: choice.model, generationConfig: generationConfigFor(choice) as any });
+  const model = genAI.getGenerativeModel(
+    { model: choice.model, generationConfig: generationConfigFor(choice) as any },
+    { timeout: AI_CALL_TIMEOUT_MS.text }
+  );
 
   const prompt = `You are an expert chef and recipe analyst who extracts and completes recipe information from ${platform} post captions.
 
@@ -802,7 +805,10 @@ export async function extractRecipeFromTextWithGemini(
   }
 
   const choice = modelFor("textExtraction");
-  const model = genAI.getGenerativeModel({ model: choice.model, generationConfig: generationConfigFor(choice) as any });
+  const model = genAI.getGenerativeModel(
+    { model: choice.model, generationConfig: generationConfigFor(choice) as any },
+    { timeout: AI_CALL_TIMEOUT_MS.text }
+  );
 
   const prompt = `Read the recipe in ${TEXT_SOURCE_LABEL[kind]} and return it as JSON.
 
