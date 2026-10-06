@@ -98,7 +98,8 @@ export default function RecipeDetail() {
     refetchInterval: (query: any) => {
       const data = query.state.data;
       if (!data) return false;
-      // Poll every 3s while enrichment, content enrichment or image generation runs
+      // Poll every 3s while enrichment, content enrichment or image generation
+      // runs (the light status check below covers the first seconds)
       const busy =
         data.enrichmentStatus === "enriching" ||
         data.enrichmentStatus === "extracting" ||
@@ -106,6 +107,24 @@ export default function RecipeDetail() {
         data.imageGenerationStatus === "pending" ||
         data.imageGenerationStatus === "generating";
       return busy ? 3000 : false;
+    },
+  });
+
+  // A new import opens here straight away. While it's being read, check the
+  // light status endpoint every second (the full recipe carries photos) and
+  // reload the recipe as soon as it moves on a step.
+  const readingStage = recipe && (recipe.enrichmentStatus === "extracting" || recipe.enrichmentStatus === "enriching") ? recipe.enrichmentStatus : null;
+  useQuery({
+    queryKey: ["/api/recipe-imports/status", recipeId, "detail"],
+    enabled: !!readingStage && !!user && user.id === recipe?.ownerUserId,
+    refetchInterval: 1000,
+    queryFn: async () => {
+      const res = await fetch(`/api/recipe-imports/status?ids=${encodeURIComponent(recipeId ?? "")}`, { credentials: "include" });
+      if (!res.ok) return null;
+      const data = (await res.json()) as { items: Array<{ stage?: string }> };
+      const stage = data.items[0]?.stage;
+      if (stage && stage !== readingStage) queryClient.invalidateQueries({ queryKey: ["/api/recipes", recipeId] });
+      return data;
     },
   });
 

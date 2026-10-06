@@ -1,3 +1,5 @@
+import { usePreferences } from "@/hooks/use-preferences";
+import { wantsImportCheck } from "@shared/food-profile";
 import { useState, useRef, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiRequest } from '@/lib/queryClient';
@@ -112,6 +114,7 @@ function useSpeechInput(onResult: (text: string) => void) {
 
 export default function RecipeCreator() {
   const [, navigate] = useLocation();
+  const { preferences } = usePreferences();
   const { addRecipe } = useUploadProgress();
   const [prompt, setPrompt] = useState('');
   const [ingredientInput, setIngredientInput] = useState('');
@@ -194,9 +197,9 @@ export default function RecipeCreator() {
     onSuccess: (saved: { id: string; title?: string }) => {
       setSavedRecipeId(true);
       queryClient.invalidateQueries({ queryKey: ['/api/recipes'] });
-      // Grammie's draft is checked on the review screen before it's final (§6.2)
+      // Straight to the recipe, unless "Check each recipe" is on in Me → Adding recipes
       addRecipe(saved.id, saved.title || 'Your Recipe', { kind: 'creator' });
-      navigate(`/recipe/${saved.id}/review`);
+      navigate(wantsImportCheck(preferences) ? `/recipe/${saved.id}/review` : `/recipe/${saved.id}`);
     },
     onError: () => {
       toast({ title: 'Failed to save recipe', variant: 'destructive' });

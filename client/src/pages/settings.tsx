@@ -18,6 +18,7 @@ import { ErrorState, LoadingState } from "@/components/page-states";
 import { useTheme } from "@/components/theme-provider";
 import { useAuth } from "@/hooks/useAuth";
 import { usePreferences, useAutosavePreferences, type SaveStatus } from "@/hooks/use-preferences";
+import { wantsImportCheck } from "@shared/food-profile";
 import { useTextSize } from "@/hooks/use-display-prefs";
 import { applyAccountUnitDefault, useUnitSystem } from "@/hooks/use-unit-system";
 import { queryClient } from "@/lib/queryClient";
@@ -86,6 +87,12 @@ export default function Settings() {
           <Section id="display" title="Display" description="Text size, units and dark mode.">
             <DisplaySettings signedIn={isSignedIn} preferences={preferences} queue={queue} />
           </Section>
+
+          {isSignedIn && (
+            <Section id="adding-recipes" title="Adding recipes">
+              <ImportCheckSetting preferences={preferences} queue={queue} />
+            </Section>
+          )}
 
           {isSignedIn && <AdminSettings />}
         </div>
@@ -674,6 +681,33 @@ function DisplaySettings({ signedIn, preferences, queue }: { signedIn: boolean; 
         <p className="text-sm text-muted-foreground">These are saved on this device. Sign in to keep them everywhere.</p>
       )}
     </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Adding recipes
+
+function ImportCheckSetting({ preferences, queue }: { preferences: UserPreferences | null; queue: Queue }) {
+  const [on, setOn] = useState(wantsImportCheck(preferences));
+  useEffect(() => setOn(wantsImportCheck(preferences)), [preferences]);
+  return (
+    <div className="flex min-h-11 items-center justify-between gap-4">
+      <div>
+        <Label htmlFor="check-imports" className="text-base font-semibold">Check each recipe before it's saved</Label>
+        <p className="text-sm text-muted-foreground">
+          Off: Grammie reads the link, photo or text and opens the finished recipe. On: you see what she read next to the original and fix anything first.
+        </p>
+      </div>
+      <Switch
+        id="check-imports"
+        checked={on}
+        onCheckedChange={(checked) => {
+          setOn(checked);
+          queue({ checkImports: checked });
+        }}
+        data-testid="switch-check-imports"
+      />
+    </div>
   );
 }
 

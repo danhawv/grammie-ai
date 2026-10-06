@@ -37,7 +37,8 @@ export default function Processing() {
     statusText: importStatusText(i.status, i.kind),
     error: i.error,
     thumbnail: i.thumbnail,
-    href: i.recipeId ? (i.status === "saved" ? `/recipe/${i.recipeId}` : `/recipe/${i.recipeId}/review`) : undefined,
+    // The check page only for recipes waiting to be checked or that failed (it has Try again)
+    href: i.recipeId ? (i.status === "needs_review" || i.status === "failed" ? `/recipe/${i.recipeId}/review` : `/recipe/${i.recipeId}`) : undefined,
     actionLabel: i.status === "needs_review" ? "Check it" : i.status === "saved" ? "Open" : undefined,
     onRetry: () => void handleRetry(i.key),
     retrying: retrying.has(i.key),

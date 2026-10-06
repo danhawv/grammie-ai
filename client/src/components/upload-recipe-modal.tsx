@@ -13,6 +13,8 @@ import { PhotoPicker } from "@/components/photo-picker";
 import { CookbookSelect } from "@/components/cookbook-select";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useUploadProgress } from "@/contexts/UploadProgressContext";
+import { usePreferences } from "@/hooks/use-preferences";
+import { wantsImportCheck } from "@shared/food-profile";
 import { downscaleImage, makeThumbnail, rotateImage } from "@/lib/images";
 import {
   addToCookbook,
@@ -61,6 +63,9 @@ export function UploadRecipeModal({ open, onOpenChange, initialMode }: UploadRec
   const [, navigate] = useLocation();
   const queryClient = useQueryClient();
   const { addRecipe, startPhotoBatch } = useUploadProgress();
+  // Straight to the recipe, unless "Check each recipe" is on in Me → Adding recipes
+  const { preferences } = usePreferences();
+  const recipePageAfterImport = (id: string) => (wantsImportCheck(preferences) ? `/recipe/${id}/review` : `/recipe/${id}`);
 
   const [view, setView] = useState<View>(viewFor(initialMode));
   const [batch, setBatch] = useState(false);
@@ -184,7 +189,7 @@ export function UploadRecipeModal({ open, onOpenChange, initialMode }: UploadRec
       const recipeId = await uploadRecipePhotos(await finalBlobs());
       addRecipe(recipeId, "Your Recipe", { kind: "photo", thumbnail: photos[0].thumbnail });
       await addToCookbook(cookbookId, recipeId);
-      done(`/recipe/${recipeId}/review`);
+      done(recipePageAfterImport(recipeId));
     } catch (err) {
       setBusy(null);
       setError(apiErrorMessage(err, "The photo didn't upload. Check your connection and try again."));
@@ -206,7 +211,7 @@ export function UploadRecipeModal({ open, onOpenChange, initialMode }: UploadRec
       const { recipeId } = await importLink(link);
       addRecipe(recipeId, "Your Recipe", { kind: platform === "web" ? "link" : "social" });
       await addToCookbook(cookbookId, recipeId);
-      done(`/recipe/${recipeId}/review`);
+      done(recipePageAfterImport(recipeId));
     } catch (err) {
       setBusy(null);
       setError(apiErrorMessage(err, "Grammie couldn't read that link. Check it opens in your browser, or paste the recipe text instead."));
@@ -224,7 +229,7 @@ export function UploadRecipeModal({ open, onOpenChange, initialMode }: UploadRec
       const recipeId = await importText(text);
       addRecipe(recipeId, "Your Recipe", { kind: "text" });
       await addToCookbook(cookbookId, recipeId);
-      done(`/recipe/${recipeId}/review`);
+      done(recipePageAfterImport(recipeId));
     } catch (err) {
       setBusy(null);
       setError(apiErrorMessage(err, "Grammie couldn't find a recipe in that text. Include a title, ingredients and steps."));

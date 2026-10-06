@@ -82,6 +82,8 @@ router.get("/recipe-imports/status", isAuthenticated, async (req: any, res) => {
           title: r.title,
           reviewStatus,
           status: importStatusOf({ ...r, reviewStatus }, true),
+          // extracting -> enriching -> ready, so the recipe page can reload at each step
+          stage: r.enrichmentStatus,
           error: r.enrichmentStatus === "failed" && !hasExtractedContent(r) ? friendlyImportError(r.enrichmentError) : null,
         };
       }),

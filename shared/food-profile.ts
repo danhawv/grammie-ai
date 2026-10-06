@@ -36,6 +36,8 @@ export interface UserPreferences {
   cookingGoals?: string[];
   grammieNotes?: string;
   display?: DisplayPreferences;
+  /** Open a "Check this recipe" step after each import. Off unless turned on in Me → Adding recipes. */
+  checkImports?: boolean;
 }
 
 export const DIET_OPTIONS = [
@@ -146,6 +148,11 @@ export function isDisplayUnits(v: unknown): v is DisplayUnits {
   return typeof v === "string" && UNITS.has(v);
 }
 
+/** Whether imports stop at the "Check this recipe" step (off by default) */
+export function wantsImportCheck(prefs: UserPreferences | null | undefined): boolean {
+  return prefs?.checkImports === true;
+}
+
 /** Display preferences with gaps left as undefined (so callers can fall back to local values). */
 export function getDisplayPrefs(prefs: UserPreferences | null | undefined): DisplayPreferences {
   const d = prefs?.display;
@@ -212,6 +219,7 @@ export const userPreferencesUpdateSchema = z.object({
   householdSize: z.number().int().min(1).max(MAX_HOUSEHOLD_SIZE).optional(),
   cookingGoals: z.array(z.string().max(60)).max(30).optional(),
   grammieNotes: z.string().max(2000).optional(),
+  checkImports: z.boolean().optional(),
   display: z.object({
     textSize: z.enum(["default", "large", "xlarge"]).optional(),
     units: z.enum(["original", "us", "metric"]).optional(),

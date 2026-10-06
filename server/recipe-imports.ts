@@ -1,6 +1,7 @@
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { db } from "./db";
-import { recipeImports, recipes, type RecipeImport } from "@shared/schema";
+import { recipeImports, recipes, users, type RecipeImport } from "@shared/schema";
+import { wantsImportCheck } from "@shared/food-profile";
 
 // Data access for the import review step (docs/DESIGN_PRINCIPLES.md §6).
 //
@@ -52,6 +53,9 @@ export async function recordImport(input: {
   sourceText?: string | null;
 }): Promise<boolean> {
   return guarded("recordImport", false, async () => {
+    // Most people go straight to the recipe; the check step is opt-in
+    const [owner] = await db.select({ preferences: users.preferences }).from(users).where(eq(users.id, input.ownerUserId));
+    const reviewStatus = wantsImportCheck(owner?.preferences) ? "needs_review" : "reviewed";
     await db.insert(recipeImports).values({
       recipeId: input.recipeId,
       ownerUserId: input.ownerUserId,
@@ -59,7 +63,7 @@ export async function recordImport(input: {
       extraPageImages: input.extraPageImages?.length ? input.extraPageImages : null,
       sourceUrl: input.sourceUrl ?? null,
       sourceText: input.sourceText ? input.sourceText.slice(0, 50_000) : null,
-      reviewStatus: "needs_review",
+      reviewStatus,
     }).onConflictDoNothing();
     return true;
   });
