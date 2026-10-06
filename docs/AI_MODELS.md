@@ -56,9 +56,23 @@ Why each model was chosen:
   - Gemini 3+ models think by default, which cost about 1,000 extra tokens and 3–4 seconds per extraction for no change in the output.
   - Use `:low` or a Flash-Lite model for transcription-style work.
 
+## Recipe cards (handwriting)
+
+The `vision` job uses `gemini-3.6-flash` with minimal thinking. It was tested on 6 real recipe cards, scored against the saved, reviewed versions:
+
+| Model | Median time | Slowest | Ingredient match | Long card (27 lines) |
+|---|---|---|---|---|
+| gemini-3-flash-preview (old) | 17.1s | 31.1s | 100% | 28 lines |
+| gemini-3-flash-preview:low | 4.5s | 8.3s | 98% | 28 lines |
+| **gemini-3.6-flash:minimal** | **3.1–3.3s** | **4.7s** | **99%** | **27 lines** |
+| gemini-3.6-flash:low | 4.3s | 6.4s | 99% | 27 lines |
+| gemini-3.5-flash-lite | 2.6s | 8.8s | 96% | 30 lines |
+| gemini-3.8-flash:low | 7.7s | 10.6s | 99% | 28 lines |
+
+Flash-Lite is slightly faster but invents extra lines. Gemini 3.6 Flash is a stable release, unlike the old preview model.
+
 ## Not changed yet
 
-- Photo and handwriting extraction (`GEMINI_TEXT_MODEL` in `server/gemini.ts`) still uses `gemini-3-flash-preview` with thinking on. Handwriting is the hardest reading job, so benchmark it on real recipe cards before moving it.
 - The `@google/generative-ai` SDK is deprecated in favor of `@google/genai`. It still works, including thinking settings, but plan the move.
 - The OpenAI code paths only run when `AI_PROVIDER=openai` and OpenAI keys are set. Production has neither.
 
@@ -89,3 +103,32 @@ Why each model was chosen:
 | 50 | 6.5 min | 8.9 min | 1.9 min | 2.7 min |
 
 Splitting core enrichment into parallel calls (12s down to 3.5s, tested) would bring 50 cards down to about 1.2 min until every recipe is usable.
+
+## Single-recipe speed loop (October 2026)
+
+`scripts/bench-import.ts` runs every kind of import through the real pipeline and saves nothing. Run `single 3` for median per-stage timings, or `batch 20` for cards run concurrently through queue-sized pools. "Review" is when the review page opens; "photo" is when the dish photo appears.
+
+| Change | Median review | Median photo |
+|---|---|---|
+| Start of the loop | 16.0s | 24.2s |
+| Core enrichment split into parallel calls (ingredients in batches of 5, steps, recipe details), plus a JSON parser fix for bare arrays | 8.1s | 16.9s |
+| Cards read by gemini-3.6-flash (minimal thinking); review page polls every 1s, not 3s; photo starts when the recipe is read, beside enrichment | 6.5s | 11.8s |
+| Batch-size check: 3 = 6.6s, **5 = 6.2s**, 8 = 7.1s; short batches retried, originals kept if still short | 6.2s | 11.7s |
+| Final run, 3 repetitions over 9 import types | **6.4s** | **11.3s** |
+
+For links and pasted text, the review page now shows the recipe it has read (title, ingredients, steps) while the details finish. The recipe appears about 3s after pasting.
+
+**20 recipe cards at once:**
+
+| | First recipe usable | All usable | All photos |
+|---|---|---|---|
+| Before | 77s | 125s | 168s |
+| After | 7s | 14s | 29s |
+
+**Where a social link's ~6.4s goes now:**
+- Reading the post: 0.5s
+- Caption to recipe: about 2s
+- Details: about 3s. That's the slowest batch, and below it is per-call overhead.
+- The page noticing: 0.5s
+
+Going further would need streaming or a much faster inference host, which is past the point of diminishing returns.

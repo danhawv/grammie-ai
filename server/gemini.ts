@@ -179,7 +179,11 @@ export async function extractRecipeFromImageWithGemini(
     throw new Error("Gemini API not configured");
   }
 
-  const model = genAI.getGenerativeModel({ model: GEMINI_TEXT_MODEL }, { timeout: AI_CALL_TIMEOUT_MS.vision });
+  const visionChoice = modelFor("vision");
+  const model = genAI.getGenerativeModel(
+    { model: visionChoice.model, generationConfig: generationConfigFor(visionChoice, false) as any },
+    { timeout: AI_CALL_TIMEOUT_MS.vision }
+  );
   
   // Optimize image for faster Vision API processing
   const optimized = await optimizeImageForVision(imageBase64);
@@ -262,7 +266,11 @@ export async function extractRecipeFromMultipleImagesWithGemini(
     throw new Error("Gemini API not configured");
   }
 
-  const model = genAI.getGenerativeModel({ model: GEMINI_TEXT_MODEL }, { timeout: AI_CALL_TIMEOUT_MS.vision });
+  const visionChoice = modelFor("vision");
+  const model = genAI.getGenerativeModel(
+    { model: visionChoice.model, generationConfig: generationConfigFor(visionChoice, false) as any },
+    { timeout: AI_CALL_TIMEOUT_MS.vision }
+  );
 
   const prompt = `You are an expert at reading handwritten recipes. You have been given ${imagesBase64.length} images that together form ONE COMPLETE recipe (e.g., front and back of a recipe card, or multiple pages).
 
@@ -741,14 +749,6 @@ Return JSON with this exact structure:
   "totalTimeMinutes": number or null,
   "cuisineType": "type or null",
   "mealType": "breakfast/lunch/dinner/snack/dessert/appetizer/side dish/beverage/sauce/dip/marinade/rub or null",
-  "difficulty": "easy/medium/hard or null",
-  "dietaryTags": ["tag1", "tag2"],
-  "nutritionInfo": {
-    "calories": number or null,
-    "protein": number or null,
-    "carbs": number or null,
-    "fat": number or null
-  },
   "inferredFields": ["list of fields you had to infer/complete"],
   "hasEnoughContext": true or false (false only if caption has no food/recipe content at all),
   "captionHasRecipe": true if the caption itself lists ingredients or cooking steps, false if it only names or describes the dish
@@ -798,13 +798,13 @@ const TEXT_SOURCE_LABEL: Record<TextSourceKind, string> = {
  */
 export async function extractRecipeFromTextWithGemini(
   text: string,
-  kind: TextSourceKind = "pasted"
+  kind: TextSourceKind = "pasted",
+  choice = modelFor("textExtraction")
 ): Promise<ExtractedRecipeRaw | null> {
   if (!genAI) {
     throw new Error("Gemini API not configured");
   }
 
-  const choice = modelFor("textExtraction");
   const model = genAI.getGenerativeModel(
     { model: choice.model, generationConfig: generationConfigFor(choice) as any },
     { timeout: AI_CALL_TIMEOUT_MS.text }

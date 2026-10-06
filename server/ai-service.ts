@@ -8,6 +8,7 @@
 
 import { generateDishImage as generateImageOpenAI } from "./openai";
 import { modelFor, generationConfigFor, AI_CALL_TIMEOUT_MS, type AIJob } from "./ai-models";
+import { parseModelJson } from "./lib/model-json";
 import { 
   extractRecipeFromImageWithGemini,
   extractRecipeFromMultipleImagesWithGemini,
@@ -984,12 +985,131 @@ interface GroupResult<T> {
 }
 
 // Group 1: Core recipe structure (normalized ingredients/instructions, times, dietary flags)
+//
+// One call that writes all of this takes ~12s because it's ~5,000 output
+// tokens. It runs as parallel calls instead: ingredients in small batches,
+// the steps, and the recipe-level fields. Total time is the slowest batch
+// (~3s). Batch size: ENRICH_INGREDIENT_BATCH (default 5).
+const INGREDIENT_FIELDS = `{raw, quantity, unit, item, preparation, isOptional, isToolOrConsumable, emoji (single Unicode emoji), nutrition: {calories, protein, carbohydrates, fat, fiber}, groceryMapping: {name, aisle, packageSize, category}}`;
+
+async function callWithOneRetry(prompt: string, provider: AIProvider, label: string): Promise<any> {
+  try {
+    return await callAIForJSON(prompt, provider, "enrichCore");
+  } catch (err: any) {
+    console.warn(`[AI Service] ${label} failed (${err?.message}), retrying once`);
+    return callAIForJSON(prompt, provider, "enrichCore");
+  }
+}
+
+function arrayField(result: any, key: string): any[] {
+  if (Array.isArray(result)) return result;
+  if (Array.isArray(result?.[key])) return result[key];
+  return [];
+}
+
 async function enrichGroup1Core(
   rawRecipe: ExtractedRecipeRaw,
   provider: AIProvider
 ): Promise<GroupResult<Partial<EnrichedRecipeData>>> {
   const startTime = Date.now();
-  
+  if (process.env.ENRICH_SPLIT === "0") return enrichGroup1CoreSingleCall(rawRecipe, provider);
+  const ingredients = (rawRecipe.ingredients || []).filter((i) => typeof i === "string" && i.trim());
+  const instructions = rawRecipe.instructions || [];
+  const batchSize = Math.max(1, Number(process.env.ENRICH_INGREDIENT_BATCH) || 5);
+  const context = `RECIPE: ${rawRecipe.title || "Untitled"}${rawRecipe.servings ? ` (serves ${rawRecipe.servings})` : ""}`;
+
+  const batches: string[][] = [];
+  for (let i = 0; i < ingredients.length; i += batchSize) batches.push(ingredients.slice(i, i + batchSize));
+
+  const ingredientCalls = batches.map(async (batch, n) => {
+    const label = `Group1 ingredients ${n + 1}/${batches.length}`;
+    const prompt = `${context}
+
+Normalize ONLY these ${batch.length} ingredient lines, in this order, exactly one object per line (${batch.length} objects). Nutrition is for the full quantity on the line.
+Return JSON {"normalizedIngredients": [${INGREDIENT_FIELDS}]}
+
+INGREDIENT LINES:
+${batch.map((line, i) => `${i + 1}. ${line}`).join("\n")}`;
+    let items = arrayField(await callWithOneRetry(prompt, provider, label), "normalizedIngredients");
+    // A batch that comes back short gets one more try; after that, keep the
+    // original line for anything missing so no ingredient ever disappears
+    if (items.length !== batch.length) {
+      console.warn(`[AI Service] ${label} returned ${items.length} of ${batch.length}, retrying`);
+      const again = arrayField(await callWithOneRetry(prompt, provider, label).catch(() => null), "normalizedIngredients");
+      if (again.length === batch.length) items = again;
+    }
+    return batch.map((line, i) => (items.length === batch.length ? items[i] : items.find((it: any) => it?.raw === line)) ?? { raw: line, item: line, quantity: null, unit: null });
+  });
+
+  const stepsCall = instructions.length
+    ? callWithOneRetry(
+        `${context}
+INGREDIENTS: ${ingredients.join("; ")}
+
+Structure ONLY these ${instructions.length} steps, in order, one object per step, keeping the text.
+Return JSON {"normalizedInstructions": [{stepNumber, text, ingredients[], tools[], timeMinutes, temperature: {value, scale: "F"|"C"}, stepType, donenessCue}]}
+
+STEPS:
+${instructions.map((step, i) => `${i + 1}. ${step}`).join("\n")}`,
+        provider,
+        "Group1 steps"
+      ).then((r) => arrayField(r, "normalizedInstructions"))
+    : Promise.resolve([]);
+
+  const metaCall = callWithOneRetry(
+    `Analyze this recipe and return JSON with the following fields ONLY:
+
+RECIPE DATA:
+${JSON.stringify(rawRecipe, null, 2)}
+
+REQUIRED FIELDS:
+1. correctedTitle: string (fix any spelling/OCR errors in "${rawRecipe.title}")
+2. servings: number (REQUIRED - infer from ingredients if not stated)
+3. prepTimeMinutes, cookTimeMinutes, totalTimeMinutes: numbers
+4. skillLevel: "Beginner"|"Intermediate"|"Advanced"
+5. skillLevelExplanation: string
+6. cuisines: string[] (e.g. ["Italian", "Mediterranean"])
+7. cookingMethods: string[]
+8. allergens: string[] (Gluten, Dairy, Eggs, Peanuts, Tree Nuts, Soy, Fish, Shellfish, Sesame)
+9. seasonTags: string[]
+10. occasionTags: string[]
+11. standardEquipment: string[] (common tools)
+12. specializedEquipment: string[] (advanced tools)
+13. mealType: string[] (REQUIRED - ALWAYS assign at least one. Choose from: "Breakfast", "Lunch", "Dinner", "Snack", "Dessert", "Appetizer", "Side Dish", "Beverage", "Sauce", "Dip", "Marinade", "Rub". A recipe can have multiple types e.g. ["Dinner", "Side Dish"]. Never leave empty or null.)
+14. Dietary flags (all boolean): isVegetarian, isVegan, isPescatarian, isGlutenFree, isDairyFree, isKeto, isPaleo, isLowCarb, isHighProtein, isLowCalorie, isHighFiber, isLactoVegetarian, isMediterranean, isOvoVegetarian, isOvoLactoVegetarian, isFlexitarian, isCarnivore, isKosher, isHalal, isHindu
+
+Return ONLY valid JSON with these exact field names.`,
+    provider,
+    "Group1 recipe details"
+  );
+
+  const [ingredientResults, normalizedInstructions, meta] = await Promise.all([
+    Promise.all(ingredientCalls),
+    stepsCall,
+    metaCall,
+  ]);
+
+  const normalizedIngredients = ingredientResults.flat();
+  if (normalizedIngredients.length !== ingredients.length) {
+    console.warn(`[AI Service] Group1 normalized ${normalizedIngredients.length} of ${ingredients.length} ingredients`);
+  }
+
+  return {
+    data: {
+      ...(meta || {}),
+      normalizedIngredients,
+      normalizedInstructions: normalizedInstructions.map((step: any, i: number) => ({ ...step, stepNumber: i + 1 })),
+    },
+    durationMs: Date.now() - startTime,
+  };
+}
+
+// The original one-call version (ENRICH_SPLIT=0), kept for comparison
+async function enrichGroup1CoreSingleCall(
+  rawRecipe: ExtractedRecipeRaw,
+  provider: AIProvider
+): Promise<GroupResult<Partial<EnrichedRecipeData>>> {
+  const startTime = Date.now();
   const prompt = `Analyze this recipe and return JSON with the following fields ONLY:
 
 RECIPE DATA:
@@ -997,7 +1117,7 @@ ${JSON.stringify(rawRecipe, null, 2)}
 
 REQUIRED FIELDS:
 1. correctedTitle: string (fix any spelling/OCR errors in "${rawRecipe.title}")
-2. normalizedIngredients: [{raw, quantity, unit, item, preparation, isOptional, isToolOrConsumable, emoji (single Unicode emoji), nutrition: {calories, protein, carbohydrates, fat, fiber}, groceryMapping: {name, aisle, packageSize, category}}]
+2. normalizedIngredients: [${INGREDIENT_FIELDS}]
 3. normalizedInstructions: [{stepNumber, text, ingredients[], tools[], timeMinutes, temperature: {value, scale: "F"|"C"}, stepType, donenessCue}]
 4. servings: number (REQUIRED - infer from ingredients if not stated)
 5. prepTimeMinutes, cookTimeMinutes, totalTimeMinutes: numbers
@@ -1014,13 +1134,8 @@ REQUIRED FIELDS:
 16. Dietary flags (all boolean): isVegetarian, isVegan, isPescatarian, isGlutenFree, isDairyFree, isKeto, isPaleo, isLowCarb, isHighProtein, isLowCalorie, isHighFiber, isLactoVegetarian, isMediterranean, isOvoVegetarian, isOvoLactoVegetarian, isFlexitarian, isCarnivore, isKosher, isHalal, isHindu
 
 Return ONLY valid JSON with these exact field names.`;
-
   const result = await callAIForJSON(prompt, provider, "enrichCore");
-  
-  return {
-    data: result,
-    durationMs: Date.now() - startTime,
-  };
+  return { data: result, durationMs: Date.now() - startTime };
 }
 
 // Group 2: Nutrition & cost analysis
@@ -1151,15 +1266,8 @@ async function callGeminiForJSON(prompt: string, job: AIJob): Promise<any> {
     cleaned = cleaned.replace(/```\n?/g, "");
   }
   
-  // Extract JSON object if wrapped in extra content
-  const jsonStart = cleaned.indexOf("{");
-  const jsonEnd = cleaned.lastIndexOf("}");
-  if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
-    cleaned = cleaned.substring(jsonStart, jsonEnd + 1);
-  }
-  
   try {
-    return JSON.parse(cleaned);
+    return parseModelJson(cleaned);
   } catch (parseError: any) {
     console.error(`[AI Service] Gemini JSON parse error:`, parseError.message);
     console.error(`[AI Service] Response preview:`, responseText.substring(0, 300));

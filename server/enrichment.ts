@@ -2,6 +2,7 @@ import OpenAI from "openai";
 import * as cheerio from "cheerio";
 import { applyEmojiDefaults } from "./emoji-fallback";
 import { extractRecipeFromTextWithGemini, isGeminiAvailable, type TextSourceKind } from "./gemini";
+import { modelFor } from "./ai-models";
 import {
   type NormalizedIngredient,
   type InstructionStep,
@@ -736,7 +737,13 @@ async function extractRecipeFromHtmlWithAI(html: string): Promise<ExtractedRecip
   }
 
   if (provider === "gemini") {
-    const recipe = await extractRecipeFromTextWithGemini(cleanedText, "webpage");
+    let recipe = await extractRecipeFromTextWithGemini(cleanedText, "webpage");
+    // Busy pages (a whole cookbook, lots of ads) occasionally make the fast
+    // model miss the recipe; give the card-reading model one look before
+    // telling the person there's no recipe
+    if (!recipe || !validateExtractedRecipe(recipe)) {
+      recipe = await extractRecipeFromTextWithGemini(cleanedText, "webpage", modelFor("vision")).catch(() => null);
+    }
     if (!recipe || !validateExtractedRecipe(recipe)) {
       throw new Error("We couldn't find a recipe on that page. If the page shows one, copy it and use Paste text.");
     }

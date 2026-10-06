@@ -22,6 +22,8 @@ const DEFAULTS = {
   enrichNutrition: { model: "gemini-3.5-flash-lite" },
   /** Enrichment group 3: tips, variations, pairings (runs after the recipe is usable) */
   enrichContent: { model: "gemini-3.5-flash-lite" },
+  /** Reading recipe cards and cookbook pages from photos (handwriting) */
+  vision: { model: "gemini-3.6-flash", thinkingLevel: "minimal" },
   /** Short helper answers (substitutions, generated steps) */
   quickText: { model: "gemini-3.5-flash-lite" },
   /** Dish photo for recipes without one */

@@ -82,11 +82,12 @@ export default function RecipeReview() {
   const recipe = recipeQuery.data;
   const reading = recipe?.enrichmentStatus === "extracting" || recipe?.enrichmentStatus === "enriching";
 
-  // While Grammie reads, poll the light status endpoint, then reload the recipe once
+  // While Grammie reads, poll the light status endpoint every second (reading
+  // takes ~3-8s, so a 3s poll added up to 3s of waiting), then reload once
   useQuery({
     queryKey: ["/api/recipe-imports/status", recipeId, "review"],
     enabled: !!recipeId && reading,
-    refetchInterval: 3000,
+    refetchInterval: 1000,
     queryFn: async () => {
       const res = await fetch(`/api/recipe-imports/status?ids=${encodeURIComponent(recipeId)}`, { credentials: "include" });
       if (!res.ok) return null;
@@ -182,9 +183,7 @@ function ReviewBody({ recipe, record, reading }: { recipe: Recipe; record: Impor
               />
             </ul>
             {reading ? (
-              <p className="text-base text-muted-foreground">
-                This usually takes under a minute. You can leave this page; Grammie keeps reading, and the bell at the top shows when it's ready to check.
-              </p>
+              <ReadingPreview recipe={recipe} />
             ) : (
               <div className="flex flex-wrap gap-3">
                 <Button variant="outline" asChild>
@@ -222,6 +221,46 @@ function ReviewBody({ recipe, record, reading }: { recipe: Recipe; record: Impor
         />
       </div>
     </div>
+  );
+}
+
+// While enrichment runs (a few seconds), show what Grammie has already read,
+// so the recipe appears as soon as the link or text is read. Editing opens
+// once she's done, because enrichment can still correct the title.
+function ReadingPreview({ recipe }: { recipe: Recipe }) {
+  const hasText = recipe.enrichmentStatus === "enriching" && (recipe.ingredients?.length ?? 0) > 0;
+  if (!hasText) {
+    return (
+      <p className="text-base text-muted-foreground">
+        This usually takes under a minute. You can leave this page; Grammie keeps reading, and the bell at the top shows when it's ready to check.
+      </p>
+    );
+  }
+  return (
+    <section aria-labelledby="preview-heading" aria-busy="true" className="space-y-4 rounded-lg border bg-card p-4">
+      <div>
+        <h2 id="preview-heading" className="font-serif text-2xl font-bold">{recipe.title}</h2>
+        <p className="text-sm text-muted-foreground">Grammie is adding the details. You can check and edit it in a moment.</p>
+      </div>
+      <div>
+        <h3 className="mb-1 text-base font-semibold">Ingredients</h3>
+        <ul className="list-disc space-y-0.5 pl-5 text-base">
+          {recipe.ingredients.map((line, i) => (
+            <li key={i}>{line}</li>
+          ))}
+        </ul>
+      </div>
+      {(recipe.instructions?.length ?? 0) > 0 && (
+        <div>
+          <h3 className="mb-1 text-base font-semibold">Steps</h3>
+          <ol className="list-decimal space-y-1 pl-5 text-base">
+            {recipe.instructions.map((step, i) => (
+              <li key={i}>{step}</li>
+            ))}
+          </ol>
+        </div>
+      )}
+    </section>
   );
 }
 

@@ -968,6 +968,8 @@ async function importWebLink(url: string, userId: string, foundVia?: string): Pr
   await recordImport({ recipeId: recipe.id, ownerUserId: userId, sourceType: foundVia ? 'social' : 'link', sourceUrl: foundVia || url });
   console.log(`[URL import] Recipe ${recipe.id} saved from ${new URL(url).hostname} in ${Date.now() - started}ms, queuing enrichment`);
   jobQueue.addEnrichmentJob(recipe.id);
+  // Start the dish photo now, alongside enrichment, so it's ready sooner
+  jobQueue.addImageGenerationJob(recipe.id, recipe.title, recipe.ingredients);
 
   return { status: 201, body: { recipeId: recipe.id } };
 }
@@ -1075,6 +1077,8 @@ router.post("/recipes/extract-text", isAuthenticated, async (req: any, res) => {
 
     // Queue Phase 2 enrichment
     jobQueue.addEnrichmentJob(recipe.id);
+    // Start the dish photo now, alongside enrichment, so it's ready sooner
+    jobQueue.addImageGenerationJob(recipe.id, recipe.title, recipe.ingredients);
 
     res.status(201).json({ recipeId: recipe.id });
   } catch (error) {
@@ -1163,6 +1167,8 @@ async function importSocialLink(url: string, userId: string): Promise<{ status: 
   await recordImport({ recipeId: recipe.id, ownerUserId: userId, sourceType: 'social', sourceUrl: url });
   console.log(`[Social Import] Recipe ${recipe.id} saved from ${platformName} in ${Date.now() - started}ms, queuing enrichment`);
   jobQueue.addEnrichmentJob(recipe.id);
+  // Start the dish photo now, alongside enrichment, so it's ready sooner
+  jobQueue.addImageGenerationJob(recipe.id, recipe.title, recipe.ingredients);
 
   return {
     status: 201,

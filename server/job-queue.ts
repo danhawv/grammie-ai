@@ -680,10 +680,11 @@ class JobQueue {
         enrichmentStatus: 'enriching',
       });
 
-      console.log(`Recipe ${job.recipeId} extracted, queuing enrichment...`);
+      console.log(`Recipe ${job.recipeId} extracted, queuing enrichment and photo...`);
 
-      // Queue enrichment job (image generation will happen after enrichment completes)
+      // Enrichment and the dish photo run side by side
       this.addEnrichmentJob(job.recipeId);
+      this.addImageGenerationJob(job.recipeId, rawRecipe.title, rawRecipe.ingredients);
     } catch (error) {
       // Mark extraction as failed but don't update imageGenerationStatus yet
       // (retries might still succeed, and we need imageGenerationStatus='pending' for that)
@@ -773,10 +774,11 @@ class JobQueue {
         enrichmentStatus: 'enriching',
       });
 
-      console.log(`Recipe ${job.recipeId} extracted from ${job.imagesBase64.length} images, queuing enrichment...`);
+      console.log(`Recipe ${job.recipeId} extracted from ${job.imagesBase64.length} images, queuing enrichment and photo...`);
 
-      // Queue enrichment job (image generation will happen after enrichment completes)
+      // Enrichment and the dish photo run side by side
       this.addEnrichmentJob(job.recipeId);
+      this.addImageGenerationJob(job.recipeId, rawRecipe.title!, rawRecipe.ingredients);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error during multi-image extraction';
       await storage.updateRecipe(job.recipeId, {
