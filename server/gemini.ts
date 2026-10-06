@@ -596,8 +596,6 @@ export async function generateRecipeImageWithGemini(
     throw new Error("Gemini API not configured");
   }
 
-  const model = genAI.getGenerativeModel({ model: modelFor("dishImage").model });
-
   const cuisineStr = cuisines.length > 0 ? cuisines.join(" and ") : "";
   const methodsStr = cookingMethods.length > 0 ? `, ${cookingMethods.join(" and ")}` : "";
 
@@ -629,17 +627,23 @@ export async function generateRecipeImageWithGemini(
   try {
     console.log(`[Gemini] Generating image for: ${recipeName}`);
 
-    // Use proper SDK format: pass generationConfig inside generateContent call
-    const result = await model.generateContent({
-      contents: [{
-        role: "user",
-        parts: [{ text: prompt }]
-      }],
-      generationConfig: {
-        // @ts-ignore - responseModalities may not be in types yet
-        responseModalities: ["TEXT", "IMAGE"],
-      } as any,
-    });
+    const request = {
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      generationConfig: { responseModalities: ["TEXT", "IMAGE"] } as any,
+    };
+    // A busy, failing or stalled image model (429/5xx, or no answer in 30s;
+    // normally ~10s) falls back to the backup model, which has its own
+    // quota, instead of leaving the recipe waiting for a photo
+    let result;
+    try {
+      result = await genAI
+        .getGenerativeModel({ model: modelFor("dishImage").model }, { timeout: 30_000 })
+        .generateContent(request);
+    } catch (err: any) {
+      if (!/\b(429|500|502|503|504)\b|abort|timed? ?out/i.test(String(err?.message))) throw err;
+      console.warn(`[Gemini] ${modelFor("dishImage").model} unavailable (${String(err?.message).match(/\[(\d{3})/)?.[1] ?? "timed out"}), trying ${modelFor("dishImageBackup").model}`);
+      result = await genAI.getGenerativeModel({ model: modelFor("dishImageBackup").model }).generateContent(request);
+    }
     const response = result.response;
 
     // Extract image from response

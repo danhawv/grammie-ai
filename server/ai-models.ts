@@ -26,6 +26,8 @@ const DEFAULTS = {
   quickText: { model: "gemini-3.5-flash-lite" },
   /** Dish photo for recipes without one */
   dishImage: { model: "gemini-3.1-flash-image" },
+  /** Tried when dishImage is rate-limited or erroring (separate quota) */
+  dishImageBackup: { model: "gemini-nano-banana-2.1" },
 } satisfies Record<string, ModelChoice>;
 
 export type AIJob = keyof typeof DEFAULTS;

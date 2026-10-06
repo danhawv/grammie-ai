@@ -121,6 +121,28 @@ async function instagramFromEmbed(code: string, kind: "p" | "reel"): Promise<Soc
   };
 }
 
+// Second free route, for posts whose creator turned off embedding: the post
+// page's link-preview description holds the caption, after a
+// '105K likes, 325 comments - user on July 29, 2026: "' prefix
+async function instagramFromPostPage(code: string, kind: "p" | "reel"): Promise<SocialPost | null> {
+  const res = await timedFetch(`https://www.instagram.com/${kind}/${code}/`);
+  if (!res.ok) return null;
+  const $ = cheerio.load(await res.text());
+  const description = $('meta[property="og:description"]').attr("content") || "";
+  const m = description.match(/^[^"]*?-\s*([\w.]+) on [^:]+:\s*"([\s\S]*)"\.?\s*$/);
+  const text = (m ? m[2] : "").trim();
+  if (!text) return null;
+  return {
+    platform: "instagram",
+    id: code,
+    caption: text,
+    creatorUsername: m?.[1],
+    url: `https://www.instagram.com/${kind}/${code}/`,
+    coverImageUrl: $('meta[property="og:image"]').attr("content") || undefined,
+    links: captionLinks(text),
+  };
+}
+
 async function instagramFromApify(url: string): Promise<SocialPost | null> {
   const items = await runApify("apify~instagram-scraper", {
     directUrls: [url],
@@ -155,6 +177,15 @@ async function scrapeInstagram(url: string): Promise<ScrapeResult> {
     return null;
   });
   if (embedded) return { success: true, post: embedded };
+
+  const fromPage = await instagramFromPostPage(ref.code, ref.kind).catch((err) => {
+    console.warn(`[Instagram] Post page read failed: ${err?.message}`);
+    return null;
+  });
+  if (fromPage) {
+    console.log(`[Instagram] Embed had no caption (embedding off?); used the post page`);
+    return { success: true, post: fromPage };
+  }
 
   const viaApify = APIFY_API_KEY ? await instagramFromApify(canonical).catch(() => null) : null;
   if (viaApify) return { success: true, post: viaApify };
