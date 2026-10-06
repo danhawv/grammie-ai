@@ -8,7 +8,7 @@ import { storage } from "../storage";
 import type { RecipeFilterParams } from "../pg-storage";
 import { parseFiltersFromQuery } from "./filter-parser";
 import { db } from "../db";
-import { eq, or } from "drizzle-orm";
+import { eq, or, sql } from "drizzle-orm";
 import {
   insertRecipeSchema,
   updateRecipeSchema,
@@ -84,7 +84,13 @@ router.get("/recipes/filter-counts", async (req: any, res) => {
 
     // Determine base condition based on scope and user
     let baseCondition;
-    if (scope === 'my' && userId) {
+    const cookbookId = Number(req.query.cookbookId);
+    if (Number.isInteger(cookbookId) && cookbookId > 0) {
+      // Counts within one cookbook (search/filter inside a cookbook)
+      const cookbook = await storage.getCookbook(cookbookId, userId);
+      if (!cookbook) return res.status(404).json({ error: "Cookbook not found" });
+      baseCondition = sql`${recipes.id} IN (SELECT recipe_id FROM cookbook_recipes WHERE cookbook_id = ${cookbookId})`;
+    } else if (scope === 'my' && userId) {
       baseCondition = eq(recipes.ownerUserId, userId);
     } else if (scope === 'public') {
       baseCondition = eq(recipes.isPublic, true);

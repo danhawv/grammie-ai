@@ -168,7 +168,7 @@ export interface IStorage {
   addRecipeToCookbook(cookbookId: number, recipeId: string, position?: number): Promise<void>;
   removeRecipeFromCookbook(cookbookId: number, recipeId: string): Promise<boolean>;
   getCookbookRecipes(cookbookId: number): Promise<RecipeListItem[]>;
-  getCookbookRecipesPaginated(cookbookId: number, page?: number, limit?: number): Promise<{ recipes: RecipeListItem[]; total: number; hasMore: boolean }>;
+  getCookbookRecipesPaginated(cookbookId: number, page?: number, limit?: number, filters?: RecipeFilterParams): Promise<{ recipes: RecipeListItem[]; total: number; hasMore: boolean }>;
   reorderCookbookRecipes(cookbookId: number, recipePositions: { recipeId: string; position: number }[]): Promise<void>;
   
   // Bulk operations
@@ -1617,9 +1617,13 @@ export class PostgresStorage implements IStorage {
     return await this.enrichRecipesWithCookbooks(results.map(r => ({ ...r.recipe, owner: r.owner } as any)));
   }
 
-  async getCookbookRecipesPaginated(cookbookId: number, page: number = 1, limit: number = 24): Promise<{ recipes: RecipeListItem[]; total: number; hasMore: boolean }> {
+  async getCookbookRecipesPaginated(cookbookId: number, page: number = 1, limit: number = 24, filters?: RecipeFilterParams): Promise<{ recipes: RecipeListItem[]; total: number; hasMore: boolean }> {
     const offset = (page - 1) * limit;
     const cardFields = this.getCardFields();
+    // Search and filters work the same as the main recipe list; without an
+    // explicit sort the cookbook keeps its own order
+    const whereClause = and(eq(cookbookRecipes.cookbookId, cookbookId), ...this.buildFilterConditions(filters));
+    const orderBy = filters?.sortBy ? this.getSortOrder(filters.sortBy) : cookbookRecipes.position;
     
     const [results, [countResult]] = await Promise.all([
       db
@@ -1636,14 +1640,15 @@ export class PostgresStorage implements IStorage {
         .from(cookbookRecipes)
         .innerJoin(recipes, eq(cookbookRecipes.recipeId, recipes.id))
         .leftJoin(users, eq(recipes.ownerUserId, users.id))
-        .where(eq(cookbookRecipes.cookbookId, cookbookId))
-        .orderBy(cookbookRecipes.position)
+        .where(whereClause)
+        .orderBy(orderBy)
         .limit(limit)
         .offset(offset),
       db
         .select({ count: sql<number>`count(*)::int` })
         .from(cookbookRecipes)
-        .where(eq(cookbookRecipes.cookbookId, cookbookId))
+        .innerJoin(recipes, eq(cookbookRecipes.recipeId, recipes.id))
+        .where(whereClause)
     ]);
     
     const total = countResult?.count || 0;

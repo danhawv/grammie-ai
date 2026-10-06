@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { parseFiltersFromQuery } from "./filter-parser";
 import { z } from "zod";
 import { isAuthenticated, optionalAuth } from "../clerkAuth";
 import { storage } from "../storage";
@@ -300,10 +301,12 @@ router.get("/cookbooks/:id/recipes", optionalAuth, async (req: any, res) => {
       return res.status(404).json({ error: "Cookbook not found or not accessible" });
     }
 
+    const filters = parseFiltersFromQuery(req.query);
     const result = await storage.getCookbookRecipesPaginated(
       Number(id),
       Number(page),
-      Number(limit)
+      Math.min(Number(limit) || 24, 100),
+      Object.keys(filters).length > 0 ? filters : undefined,
     );
 
     res.json(result);

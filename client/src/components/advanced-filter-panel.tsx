@@ -92,6 +92,8 @@ interface AdvancedFilterSheetProps {
   dispatch: Dispatch<FilterAction>;
   userId?: string;
   scope?: string;
+  /** Count options within one cookbook */
+  cookbookId?: number;
   totalResults: number;
   onReset: () => void;
   /** Sections the page adds above the standard ones (e.g. Show, Cookbook) */
@@ -116,15 +118,16 @@ function serializeFiltersForCounts(f: FiltersState): Record<string, string> {
   return params;
 }
 
-export function AdvancedFilterSheet({ open, onOpenChange, filters, dispatch, userId, scope, totalResults, onReset, leadingSections, activeCountOverride }: AdvancedFilterSheetProps) {
+export function AdvancedFilterSheet({ open, onOpenChange, filters, dispatch, userId, scope, cookbookId, totalResults, onReset, leadingSections, activeCountOverride }: AdvancedFilterSheetProps) {
   const filterParams = useMemo(() => serializeFiltersForCounts(filters), [filters]);
   const activeCount = activeCountOverride ?? countActiveFilters(filters);
 
   const { data: filterCounts } = useQuery<FilterCounts>({
-    queryKey: ['/api/recipes/filter-counts', filterParams, scope],
+    queryKey: ['/api/recipes/filter-counts', filterParams, scope, cookbookId],
     queryFn: async () => {
       const params = new URLSearchParams(filterParams);
       if (scope) params.set('scope', scope);
+      if (cookbookId) params.set('cookbookId', String(cookbookId));
       const res = await fetch(`/api/recipes/filter-counts?${params}`);
       if (!res.ok) return {};
       return res.json();

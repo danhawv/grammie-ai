@@ -1,4 +1,4 @@
-import { useMemo, useState, useRef } from "react";
+import { useEffect, useMemo, useReducer, useState, useRef } from "react";
 import { formatDuration } from "@shared/format";
 import { useQuery, useMutation, useInfiniteQuery } from "@tanstack/react-query";
 import { useParams, Link } from "wouter";
@@ -38,6 +38,26 @@ import { downscaleImage } from "@/lib/images";
 import { ownerDisplayName, ownerInitials, type CookbookOwner } from "@/lib/cookbook-owner";
 import { CookbookCollaboratorsDialog } from "@/components/cookbook-collaborators-dialog";
 import { orderStatusLabel } from "@shared/print-checkout";
+import { Input } from "@/components/ui/input";
+import { AdvancedFilterSheet } from "@/components/advanced-filter-panel";
+import { SortMenu, sortOptions, serializeFiltersToParams, filterChips, FilterChipsRow } from "@/components/recipe-filter-controls";
+import { filtersReducer, defaultFilters, type FiltersState } from "@/lib/filters";
+import { Search, SlidersHorizontal } from "lucide-react";
+
+// Search and filters inside one cookbook, remembered per cookbook for the
+// session so going into a recipe and back keeps them
+const COOKBOOK_SORTS = [{ value: "position", label: "Cookbook order" }, ...sortOptions];
+const listStateKey = (id: number) => `grammie-cookbook-list:${id}`;
+function loadListState(id: number): { filters: FiltersState; sortBy: string } {
+  try {
+    const raw = sessionStorage.getItem(listStateKey(id));
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return { filters: { ...defaultFilters, ...parsed.filters, dietary: { ...defaultFilters.dietary, ...parsed.filters?.dietary } }, sortBy: parsed.sortBy || "position" };
+    }
+  } catch { /* ignore */ }
+  return { filters: defaultFilters, sortBy: "position" };
+}
 import type { CookbookPrintProject } from "@shared/schema";
 import grammieImage from "@assets/image_1763329917086.png";
 
@@ -148,6 +168,38 @@ export default function CookbookViewPage() {
     enabled: cookbookId > 0,
   });
 
+  const initialList = useMemo(() => loadListState(cookbookId), [cookbookId]);
+  const [filters, dispatch] = useReducer(filtersReducer, initialList.filters);
+  const [sortBy, setSortBy] = useState(initialList.sortBy);
+  const [searchText, setSearchText] = useState(initialList.filters.search || "");
+  const [filtersOpen, setFiltersOpen] = useState(false);
+
+  // Debounce typing into the search filter
+  useEffect(() => {
+    const t = setTimeout(() => {
+      if (searchText !== filters.search) dispatch({ type: "SET_SEARCH", payload: searchText });
+    }, 300);
+    return () => clearTimeout(t);
+  }, [searchText, filters.search]);
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(listStateKey(cookbookId), JSON.stringify({ filters, sortBy }));
+    } catch { /* storage unavailable */ }
+  }, [cookbookId, filters, sortBy]);
+
+  const listParams = useMemo(() => {
+    const p = serializeFiltersToParams(filters);
+    if (sortBy !== "position") p.sortBy = sortBy;
+    return p;
+  }, [filters, sortBy]);
+  const chips = useMemo(() => filterChips(filters, dispatch), [filters]);
+  const isFiltering = chips.length > 0 || !!filters.search;
+  const clearAllFilters = () => {
+    setSearchText("");
+    dispatch({ type: "RESET_ALL" });
+  };
+
   const {
     data: recipesData,
     isLoading: recipesLoading,
@@ -156,10 +208,12 @@ export default function CookbookViewPage() {
     fetchNextPage,
     hasNextPage,
     isFetchingNextPage,
+    isFetching: recipesFetching,
   } = useInfiniteQuery<CookbookRecipesResponse>({
-    queryKey: ["/api/cookbooks", cookbookId, "recipes"],
+    queryKey: ["/api/cookbooks", cookbookId, "recipes", listParams],
     queryFn: async ({ pageParam = 1 }) => {
-      const response = await fetch(`/api/cookbooks/${cookbookId}/recipes?page=${pageParam}&limit=24`, {
+      const qs = new URLSearchParams({ ...listParams, page: String(pageParam), limit: "24" });
+      const response = await fetch(`/api/cookbooks/${cookbookId}/recipes?${qs}`, {
         credentials: "include",
       });
       if (!response.ok) throw new Error("Failed to load recipes");
@@ -172,7 +226,19 @@ export default function CookbookViewPage() {
   });
 
   const recipes = useMemo(() => recipesData?.pages.flatMap((page) => page.recipes) || [], [recipesData]);
-  const totalRecipes = recipesData?.pages[0]?.total ?? cookbook?.recipeCount ?? 0;
+  // Matching recipes (after search/filters) vs. everything in the cookbook.
+  // The full count is its own tiny query so it stays right while filtering.
+  const matchingRecipes = recipesData?.pages[0]?.total ?? 0;
+  const { data: fullCount } = useQuery<number>({
+    queryKey: ["/api/cookbooks", cookbookId, "recipes", "count"],
+    queryFn: async () => {
+      const response = await fetch(`/api/cookbooks/${cookbookId}/recipes?page=1&limit=1`, { credentials: "include" });
+      if (!response.ok) throw new Error("Failed to count recipes");
+      return (await response.json()).total as number;
+    },
+    enabled: cookbookId > 0 && !!cookbook,
+  });
+  const totalRecipes = fullCount ?? (isFiltering ? cookbook?.recipeCount ?? 0 : matchingRecipes);
 
   const { data: followedCookbookIds = [] } = useQuery<number[]>({
     queryKey: ["/api/cookbooks/following/ids"],
@@ -431,10 +497,61 @@ export default function CookbookViewPage() {
       )}
 
       <h2 className="sr-only">Recipes</h2>
+
+      {/* Search and filter just this cookbook */}
+      {(totalRecipes > 0 || isFiltering) && (
+        <div className="mb-6" role="search">
+          <label htmlFor="cookbook-search" className="sr-only">Search this cookbook</label>
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" aria-hidden />
+            <Input
+              id="cookbook-search"
+              type="search"
+              placeholder={`Search ${cookbook?.name?.trim() || "this cookbook"}`}
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+              className="h-12 pl-10 text-sm"
+              data-testid="input-cookbook-search"
+            />
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <Button variant="outline" className="gap-2" onClick={() => setFiltersOpen(true)} data-testid="button-cookbook-filters">
+              <SlidersHorizontal aria-hidden />
+              Filters{chips.length > 0 ? ` (${chips.length})` : ""}
+            </Button>
+            <SortMenu sortBy={sortBy} onSortChange={setSortBy} options={COOKBOOK_SORTS} />
+            {isFiltering && !recipesLoading && (
+              <span className="text-sm text-muted-foreground" aria-live="polite">
+                {matchingRecipes} of {totalRecipes} recipes
+              </span>
+            )}
+          </div>
+          <FilterChipsRow chips={chips} onClearAll={clearAllFilters} />
+        </div>
+      )}
+
+      <AdvancedFilterSheet
+        open={filtersOpen}
+        onOpenChange={setFiltersOpen}
+        filters={filters}
+        dispatch={dispatch}
+        userId={user?.id}
+        cookbookId={cookbookId}
+        totalResults={matchingRecipes}
+        onReset={clearAllFilters}
+      />
+
       {recipesLoading ? (
         <LoadingState variant="cards" rows={6} label="Loading recipes" />
       ) : recipesError ? (
         <ErrorState title="Couldn't load the recipes" onRetry={() => refetchRecipes()} />
+      ) : recipes.length === 0 && isFiltering ? (
+        <EmptyState
+          icon={Search}
+          title="No recipes match"
+          description={filters.search ? `Nothing in this cookbook matches "${filters.search}"${chips.length ? " with these filters" : ""}.` : "Nothing in this cookbook matches these filters."}
+          action={<Button onClick={clearAllFilters}>Clear search and filters</Button>}
+        />
       ) : recipes.length === 0 ? (
         <EmptyState
           icon={BookOpen}
@@ -454,7 +571,10 @@ export default function CookbookViewPage() {
         />
       ) : (
         <>
-          <ul className="grid grid-cols-2 gap-4 md:grid-cols-3">
+          <ul
+            className={`grid grid-cols-2 gap-4 transition-opacity md:grid-cols-3 ${recipesFetching && !isFetchingNextPage ? "opacity-60" : ""}`}
+            aria-busy={recipesFetching}
+          >
             {recipes.map((recipe) => (
               <li key={recipe.id}>
                 <Link
