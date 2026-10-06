@@ -1,7 +1,7 @@
 import { Link } from "wouter";
 import type { Recipe } from "@shared/schema";
 import { ArrowLeftRight, ExternalLink, Wand2, ZoomIn } from "lucide-react";
-import { SiInstagram, SiTiktok } from "react-icons/si";
+import { SiInstagram, SiTiktok, SiYoutube } from "react-icons/si";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 
@@ -24,7 +24,9 @@ function SourceAttribution({
       ? { name: "Instagram", Icon: SiInstagram, iconClass: "text-white", bubble: "bg-gradient-to-r from-purple-500 via-pink-500 to-orange-500" }
       : platform === "tiktok"
         ? { name: "TikTok", Icon: SiTiktok, iconClass: "text-foreground", bubble: "bg-muted" }
-        : { name: "social media", Icon: ExternalLink, iconClass: "text-muted-foreground", bubble: "bg-muted" };
+        : platform === "youtube"
+          ? { name: "YouTube", Icon: SiYoutube, iconClass: "text-white", bubble: "bg-red-600" }
+          : { name: "social media", Icon: ExternalLink, iconClass: "text-muted-foreground", bubble: "bg-muted" };
   const { Icon } = config;
 
   return (

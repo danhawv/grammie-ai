@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { modelFor } from "../ai-models";
 import { isAuthenticated } from "../clerkAuth";
 import { storage } from "../storage";
 import { jobQueue } from "../job-queue";
@@ -487,7 +488,7 @@ Return JSON array with this structure:
 
         const genAI = new GoogleGenerativeAI(apiKey);
         const model = genAI.getGenerativeModel({
-          model: "gemini-2.0-flash",
+          model: modelFor("quickText").model,
           generationConfig: { responseMimeType: "application/json" },
         });
 

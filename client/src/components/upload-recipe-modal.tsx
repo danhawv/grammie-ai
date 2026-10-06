@@ -259,7 +259,7 @@ export function UploadRecipeModal({ open, onOpenChange, initialMode }: UploadRec
           ? `Each photo becomes its own recipe (up to ${MAX_BATCH}). You'll check each one after Grammie reads it.`
           : `Add up to ${MAX_PAGES} photos of the same recipe, like the front and back of a card. They're read as one recipe.`
         : view === "link"
-          ? "Paste a link to a recipe website, or an Instagram or TikTok post."
+          ? "Paste a link to a recipe website, or an Instagram, TikTok or YouTube post."
           : "Type the recipe or paste it from somewhere else. Grammie sorts it into ingredients and steps.";
 
   const body = needsSignIn ? (
@@ -271,7 +271,7 @@ export function UploadRecipeModal({ open, onOpenChange, initialMode }: UploadRec
   ) : view === "choose" ? (
     <div className="grid gap-3">
       <ChoiceButton icon={<Camera className="h-7 w-7" aria-hidden />} title="Photo" detail="Take a photo of a recipe card or cookbook page, or choose one" onClick={() => goTo("photo")} testId="choice-photo" />
-      <ChoiceButton icon={<Link2 className="h-7 w-7" aria-hidden />} title="Link or post" detail="A recipe website, Instagram or TikTok" onClick={() => goTo("link")} testId="choice-link" />
+      <ChoiceButton icon={<Link2 className="h-7 w-7" aria-hidden />} title="Link or post" detail="A recipe website, Instagram, TikTok or YouTube" onClick={() => goTo("link")} testId="choice-link" />
       <ChoiceButton icon={<FileText className="h-7 w-7" aria-hidden />} title="Type or paste" detail="Write it in, or paste it from an email or note" onClick={() => goTo("text")} testId="choice-text" />
     </div>
   ) : view === "photo" ? (

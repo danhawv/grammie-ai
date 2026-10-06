@@ -7,6 +7,7 @@
  */
 
 import { generateDishImage as generateImageOpenAI } from "./openai";
+import { modelFor, generationConfigFor, type AIJob } from "./ai-models";
 import { 
   extractRecipeFromImageWithGemini,
   extractRecipeFromMultipleImagesWithGemini,
@@ -161,6 +162,8 @@ export interface ExtractedSocialRecipeData {
   sourceType: string;
   creatorUsername?: string;
   inferredFields?: string[];
+  /** false when the caption only describes the dish (recipe is elsewhere) */
+  captionHasRecipe?: boolean;
 }
 
 export interface SocialPost {
@@ -179,7 +182,7 @@ export async function extractRecipeFromSocialPostUnified(
   post: SocialPost
 ): Promise<ExtractedSocialRecipeData | null> {
   const provider = getCurrentProvider();
-  const platformName = post.platform === "instagram" ? "Instagram" : "TikTok";
+  const platformName = ({ instagram: "Instagram", tiktok: "TikTok", youtube: "YouTube" } as Record<string, string>)[post.platform] || "social media";
   
   console.log(`[AI Service] Social post extraction using: ${provider.toUpperCase()}`);
   const startTime = Date.now();
@@ -225,6 +228,7 @@ export async function extractRecipeFromSocialPostUnified(
         sourceType: post.platform,
         creatorUsername: post.creatorUsername,
         inferredFields: result.inferredFields || [],
+        captionHasRecipe: result.captionHasRecipe,
       };
     }
     
@@ -481,7 +485,7 @@ async function generateInstructionsWithGemini(rawRecipe: ExtractedRecipeRaw): Pr
   const { GoogleGenerativeAI } = await import("@google/generative-ai");
   const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
   const model = genAI.getGenerativeModel({ 
-    model: "gemini-3-flash-preview",
+    model: modelFor("quickText").model,
     generationConfig: {
       responseMimeType: "application/json",
     },
@@ -940,7 +944,7 @@ IMPORTANT: Analyze the ACTUAL ingredients listed. For example:
 
 Return ONLY valid JSON.`;
 
-  const result = await callAIForJSON(prompt, provider);
+  const result = await callAIForJSON(prompt, provider, "enrichCore");
   
   return {
     data: result,
@@ -1011,7 +1015,7 @@ REQUIRED FIELDS:
 
 Return ONLY valid JSON with these exact field names.`;
 
-  const result = await callAIForJSON(prompt, provider);
+  const result = await callAIForJSON(prompt, provider, "enrichCore");
   
   return {
     data: result,
@@ -1050,7 +1054,7 @@ REQUIRED FIELDS (per serving):
 
 Estimate based on typical US grocery prices. Return ONLY valid JSON.`;
 
-  const result = await callAIForJSON(prompt, provider);
+  const result = await callAIForJSON(prompt, provider, "enrichNutrition");
   
   return {
     data: result,
@@ -1096,7 +1100,7 @@ REQUIRED FIELDS:
 
 Return ONLY valid JSON.`;
 
-  const result = await callAIForJSON(prompt, provider);
+  const result = await callAIForJSON(prompt, provider, "enrichContent");
   
   return {
     data: result,
@@ -1105,14 +1109,14 @@ Return ONLY valid JSON.`;
 }
 
 // Helper to call AI and get JSON response
-async function callAIForJSON(prompt: string, provider: AIProvider): Promise<any> {
+async function callAIForJSON(prompt: string, provider: AIProvider, job: AIJob): Promise<any> {
   if (provider === "gemini") {
-    return callGeminiForJSON(prompt);
+    return callGeminiForJSON(prompt, job);
   }
   return callOpenAIForJSON(prompt);
 }
 
-async function callGeminiForJSON(prompt: string): Promise<any> {
+async function callGeminiForJSON(prompt: string, job: AIJob): Promise<any> {
   const { GoogleGenerativeAI } = await import("@google/generative-ai");
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
@@ -1120,10 +1124,10 @@ async function callGeminiForJSON(prompt: string): Promise<any> {
   }
   const genAI = new GoogleGenerativeAI(apiKey);
   
-  // Use the same model as gemini.ts for consistency
+  const choice = modelFor(job);
   const model = genAI.getGenerativeModel({
-    model: "gemini-3-flash-preview",
-    generationConfig: { responseMimeType: "application/json" },
+    model: choice.model,
+    generationConfig: generationConfigFor(choice) as any,
   });
   
   let responseText: string;
@@ -1389,7 +1393,7 @@ Only return the JSON array, no other text.`;
     if (provider === 'gemini' && isGeminiAvailable()) {
       const { GoogleGenerativeAI } = await import("@google/generative-ai");
       const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
-      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+      const model = genAI.getGenerativeModel({ model: modelFor("quickText").model });
       
       const result = await model.generateContent(prompt);
       const text = result.response.text();

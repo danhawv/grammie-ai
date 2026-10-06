@@ -1,6 +1,7 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import sharp from "sharp";
 import type { ExtractedRecipeRaw } from "./enrichment";
+import { modelFor, generationConfigFor } from "./ai-models";
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
@@ -151,8 +152,7 @@ const genAI = hasGemini ? new GoogleGenerativeAI(GEMINI_API_KEY!) : null;
 
 // Use Gemini 3 Flash Preview for text/vision tasks (released Dec 17, 2025 - 3x faster, 1M context)
 const GEMINI_TEXT_MODEL = "gemini-3-flash-preview";
-// Use Nano Banana Pro (gemini-3-pro-image-preview) for image generation - Google's state-of-the-art image model
-const GEMINI_IMAGE_MODEL = "gemini-3-pro-image-preview";
+// Dish photos: see modelFor("dishImage") in ai-models.ts
 
 export function isGeminiAvailable(): boolean {
   return hasGemini;
@@ -596,7 +596,7 @@ export async function generateRecipeImageWithGemini(
     throw new Error("Gemini API not configured");
   }
 
-  const model = genAI.getGenerativeModel({ model: GEMINI_IMAGE_MODEL });
+  const model = genAI.getGenerativeModel({ model: modelFor("dishImage").model });
 
   const cuisineStr = cuisines.length > 0 ? cuisines.join(" and ") : "";
   const methodsStr = cookingMethods.length > 0 ? `, ${cookingMethods.join(" and ")}` : "";
@@ -689,6 +689,8 @@ export interface SocialRecipeExtractionResult {
   };
   inferredFields?: string[];
   hasEnoughContext: boolean;
+  /** false when the caption only describes the dish and the recipe is elsewhere */
+  captionHasRecipe?: boolean;
 }
 
 export async function extractRecipeFromSocialPostWithGemini(
@@ -699,12 +701,8 @@ export async function extractRecipeFromSocialPostWithGemini(
     throw new Error("Gemini API not configured");
   }
 
-  const model = genAI.getGenerativeModel({ 
-    model: GEMINI_TEXT_MODEL,
-    generationConfig: {
-      responseMimeType: "application/json",
-    },
-  });
+  const choice = modelFor("socialExtraction");
+  const model = genAI.getGenerativeModel({ model: choice.model, generationConfig: generationConfigFor(choice) as any });
 
   const prompt = `You are an expert chef and recipe analyst who extracts and completes recipe information from ${platform} post captions.
 
@@ -745,7 +743,8 @@ Return JSON with this exact structure:
     "fat": number or null
   },
   "inferredFields": ["list of fields you had to infer/complete"],
-  "hasEnoughContext": true or false (false only if caption has no food/recipe content at all)
+  "hasEnoughContext": true or false (false only if caption has no food/recipe content at all),
+  "captionHasRecipe": true if the caption itself lists ingredients or cooking steps, false if it only names or describes the dish
 }`;
 
   const startTime = Date.now();
@@ -778,64 +777,70 @@ Return JSON with this exact structure:
   }
 }
 
+export type TextSourceKind = "pasted" | "webpage" | "caption";
+
+const TEXT_SOURCE_LABEL: Record<TextSourceKind, string> = {
+  pasted: "text the person pasted in",
+  webpage: "the text of a recipe web page (menus, ads and comments may be mixed in)",
+  caption: "a social media caption",
+};
+
+/**
+ * Reads a recipe out of plain text: pasted text, a web page without
+ * structured data, or a caption. Returns null when the text isn't a recipe.
+ */
 export async function extractRecipeFromTextWithGemini(
-  text: string
-): Promise<ExtractedRecipeRaw> {
+  text: string,
+  kind: TextSourceKind = "pasted"
+): Promise<ExtractedRecipeRaw | null> {
   if (!genAI) {
     throw new Error("Gemini API not configured");
   }
 
-  const model = genAI.getGenerativeModel({ 
-    model: GEMINI_TEXT_MODEL,
-    generationConfig: {
-      responseMimeType: "application/json",
-    },
-  });
+  const choice = modelFor("textExtraction");
+  const model = genAI.getGenerativeModel({ model: choice.model, generationConfig: generationConfigFor(choice) as any });
 
-  const prompt = `You are a recipe extraction assistant. Extract recipe data from the provided social media caption and return it in JSON format.
+  const prompt = `Read the recipe in ${TEXT_SOURCE_LABEL[kind]} and return it as JSON.
 
-TEXT:
-${text}
+Rules:
+- Copy ingredients exactly as written, with their quantities. Keep section headings like "For the sauce" as their own line ending in a colon.
+- One instruction step per array item, in order, in the author's words. Don't merge or split steps.
+- Times as short strings like "15 mins" or "1 hr 30 mins". Only include times the text states.
+- servings is a whole number; use null if the text doesn't say.
+- Leave out ads, life stories, hashtags, "link in bio" and other promotion.
+- If the text has no recipe in it, return {"isRecipe": false}.
 
-Return JSON with this exact structure:
+Return:
 {
-  "title": "Recipe name",
-  "ingredients": ["ingredient 1", "ingredient 2", ...],
-  "instructions": ["step 1", "step 2", ...],
-  "servings": number,
-  "prepTimeMinutes": number or null,
-  "cookTimeMinutes": number or null,
-  "calories": number or null
+  "isRecipe": true,
+  "title": string,
+  "description": string or null (one or two sentences from the text, not invented),
+  "ingredients": string[],
+  "instructions": string[],
+  "servings": number or null,
+  "servingUnit": string or null,
+  "yield": string or null,
+  "prepTime": string or null,
+  "cookTime": string or null,
+  "totalTime": string or null,
+  "equipment": string[]
 }
 
-Important:
-- Extract ingredients as written (with quantities)
-- Extract instructions as separate steps
-- Estimate times if not explicitly stated
-- Return null for fields you cannot determine
-- If this doesn't appear to be a recipe, return null for all fields except an error message in title`;
+TEXT:
+${text}`;
 
   const startTime = Date.now();
-
   try {
-    console.log("[Gemini] Extracting recipe from text...");
-
     const result = await model.generateContent(prompt);
-    const response = result.response;
-    const responseText = response.text();
-
-    const elapsed = Date.now() - startTime;
-    console.log(`[Gemini] Text extraction completed in ${elapsed}ms`);
-
-    // Parse JSON
-    const jsonMatch = responseText.match(/```json\s*([\s\S]*?)\s*```/) || responseText.match(/\{[\s\S]*\}/);
-    const jsonStr = jsonMatch ? (jsonMatch[1] || jsonMatch[0]) : responseText;
-    const parsed = JSON.parse(jsonStr) as ExtractedRecipeRaw;
-
-    return parsed;
+    const parsed = JSON.parse(repairJson(result.response.text()));
+    console.log(`[Gemini] ${kind} text extraction (${choice.model}) in ${Date.now() - startTime}ms`);
+    if (parsed.isRecipe === false || !parsed.title || !parsed.ingredients?.length) return null;
+    const { isRecipe, ...recipe } = parsed;
+    for (const key of Object.keys(recipe)) if (recipe[key] === null) delete recipe[key];
+    if (recipe.servings != null) recipe.servings = Math.round(Number(recipe.servings)) || undefined;
+    return recipe as ExtractedRecipeRaw;
   } catch (error) {
-    const elapsed = Date.now() - startTime;
-    console.error(`[Gemini] Text extraction failed after ${elapsed}ms:`, error);
+    console.error(`[Gemini] ${kind} text extraction failed after ${Date.now() - startTime}ms:`, error);
     throw error;
   }
 }
@@ -1254,7 +1259,7 @@ export async function testGeminiCapabilities(): Promise<GeminiTestResult> {
   const result: GeminiTestResult = {
     available: hasGemini,
     textModel: GEMINI_TEXT_MODEL,
-    imageModel: GEMINI_IMAGE_MODEL,
+    imageModel: modelFor("dishImage").model,
   };
 
   if (!hasGemini || !genAI) {

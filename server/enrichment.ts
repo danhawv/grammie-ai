@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import * as cheerio from "cheerio";
 import { applyEmojiDefaults } from "./emoji-fallback";
+import { extractRecipeFromTextWithGemini, isGeminiAvailable, type TextSourceKind } from "./gemini";
 import {
   type NormalizedIngredient,
   type InstructionStep,
@@ -261,12 +262,6 @@ export async function extractRecipeFromUrl(
     // Validate URL for security
     validateUrl(url);
     
-    // Check if Instagram URL and handle specially
-    if (url.includes('instagram.com')) {
-      console.log("Instagram URL detected, using special handling...");
-      return await extractInstagramRecipe(url);
-    }
-    
     // Fetch HTML content with timeout and size limits
     const html = await fetchUrlSafely(url);
     
@@ -293,126 +288,32 @@ export async function extractRecipeFromUrl(
   }
 }
 
-// Helper: Extract recipe from Instagram post caption
-async function extractInstagramRecipe(url: string): Promise<ExtractedRecipeRaw> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15000);
-  
-  try {
-    console.log("Fetching Instagram page with meta tag extraction...");
-    
-    const response = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
-      },
-    });
-    
-    if (!response.ok) {
-      throw new Error(`Failed to fetch Instagram URL: ${response.status}`);
-    }
-    
-    // Read response (limit to 512KB - enough for meta tags, not full page)
-    const reader = response.body?.getReader();
-    if (!reader) {
-      throw new Error("Unable to read response");
-    }
-    
-    const chunks: Uint8Array[] = [];
-    let totalSize = 0;
-    const maxSize = 512 * 1024; // 512KB should include all meta tags
-    
-    // Read up to size limit (don't try to detect </head> as it can be misleading)
-    while (totalSize < maxSize) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      
-      chunks.push(value);
-      totalSize += value.length;
-    }
-    
-    // Cancel remaining stream
-    await reader.cancel();
-    
-    const decoder = new TextDecoder();
-    const html = decoder.decode(Buffer.concat(chunks));
-    
-    // Extract caption from meta tags
-    console.log(`Extracting caption from meta tags... (HTML size: ${html.length} chars)`);
-    console.log(`Has og:description in HTML: ${html.includes('og:description')}`);
-    console.log(`Has </head> in HTML: ${html.includes('</head>')}`);
-    const caption = extractInstagramCaption(html);
-    
-    if (!caption) {
-      console.log("Caption extraction failed - no caption found in meta tags");
-      throw new Error("Could not extract recipe text from Instagram post. Please copy and paste the recipe text manually.");
-    }
-    
-    console.log(`Extracted caption (${caption.length} chars), parsing with GPT-4...`);
-    
-    // Use GPT-4 to extract recipe from caption
-    return await extractRecipeFromText(caption);
-    
-  } catch (error: any) {
-    if (error.name === "AbortError") {
-      throw new Error("Request timeout");
-    }
-    throw error;
-  } finally {
-    clearTimeout(timeout);
-  }
+// The configured AI provider for text work; Gemini unless AI_PROVIDER=openai
+// and OpenAI is actually set up
+async function textProvider(): Promise<"gemini" | "openai" | null> {
+  const { getCurrentProvider } = await import("./ai-service");
+  const preferred = getCurrentProvider();
+  if (preferred === "openai" && openai) return "openai";
+  if (isGeminiAvailable()) return "gemini";
+  return openai ? "openai" : null;
 }
 
-// Helper: Extract caption from Instagram HTML meta tags
-function extractInstagramCaption(html: string): string | null {
-  try {
-    const $ = cheerio.load(html);
-    
-    // Debug: check what meta tags exist
-    const allMeta = $('meta').length;
-    const ogMeta = $('meta[property^="og:"]').length;
-    console.log(`Found ${allMeta} total meta tags, ${ogMeta} og: tags`);
-    
-    // Try og:description meta tag (most reliable for Instagram)
-    const ogDesc = $('meta[property="og:description"]').attr('content');
-    console.log(`og:description found: ${!!ogDesc}, length: ${ogDesc?.length || 0}`);
-    
-    if (ogDesc && ogDesc.length > 50) {
-      // Decode HTML entities and clean up
-      const decoded = $('<div>').html(ogDesc).text();
-      console.log(`Extracted caption: ${decoded.substring(0, 200)}...`);
-      return decoded;
-    }
-    
-    // Try twitter:description
-    const twitterDesc = $('meta[name="twitter:description"]').attr('content');
-    if (twitterDesc && twitterDesc.length > 50) {
-      const decoded = $('<div>').html(twitterDesc).text();
-      return decoded;
-    }
-    
-    // Try regular description meta tag
-    const desc = $('meta[name="description"]').attr('content');
-    if (desc && desc.length > 50) {
-      const decoded = $('<div>').html(desc).text();
-      return decoded;
-    }
-    
-    return null;
-  } catch (error) {
-    console.error("Error extracting Instagram caption:", error);
-    return null;
-  }
-}
+const NOT_A_RECIPE = "We couldn't find a recipe in that text. Include the title, the ingredients and the steps.";
 
-// Extract recipe from plain text using GPT-4 (used for Instagram captions and pasted text)
-export async function extractRecipeFromText(text: string): Promise<ExtractedRecipeRaw> {
-  if (!openai) {
-    throw new Error("OpenAI API is not configured");
+// Extract recipe from plain text (pasted text and captions)
+export async function extractRecipeFromText(
+  text: string,
+  kind: TextSourceKind = "pasted"
+): Promise<ExtractedRecipeRaw> {
+  const provider = await textProvider();
+  if (!provider) throw new Error("Recipe reading is unavailable right now. Try again later.");
+  if (provider === "gemini") {
+    const recipe = await extractRecipeFromTextWithGemini(text, kind);
+    if (!recipe) throw new Error(NOT_A_RECIPE);
+    return recipe;
   }
-  
+  if (!openai) throw new Error("Recipe reading is unavailable right now. Try again later.");
+
   try {
     const response = await openai.chat.completions.create({
       model: "gpt-4o",
@@ -457,14 +358,14 @@ Important:
     
     // Validate it looks like a recipe
     if (!parsed.title || !parsed.ingredients || parsed.ingredients.length === 0) {
-      throw new Error("The text does not appear to contain a valid recipe. Please check the Instagram post contains recipe instructions.");
+      throw new Error(NOT_A_RECIPE);
     }
     
     return parsed;
     
   } catch (error) {
     console.error("Error extracting recipe from text:", error);
-    throw new Error("Could not parse recipe from text. Please ensure the Instagram post contains complete recipe instructions.");
+    throw new Error(NOT_A_RECIPE);
   }
 }
 
@@ -519,75 +420,77 @@ function validateUrl(url: string): void {
 }
 
 // Helper: Fetch URL with timeout and size limits
+// Recipe sites disagree about bots: some block anything that claims to be a
+// browser but isn't, others block anything that admits to being a bot. Try
+// an honest identity first, then a browser one.
+const FETCH_IDENTITIES: Record<string, string>[] = [
+  {
+    "User-Agent": "Mozilla/5.0 (compatible; GrammieBot/1.0; +https://grammie.ai)",
+    "Accept": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+  },
+  {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+  },
+];
+
+const BLOCKED_STATUSES = new Set([401, 402, 403, 405, 406, 429, 451, 503]);
+const MAX_PAGE_BYTES = 6 * 1024 * 1024;
+
+export const SITE_BLOCKS_IMPORT =
+  "This website doesn't let apps read its recipes. Open the recipe in your browser, copy the ingredients and steps, and use Paste text instead.";
+
 async function fetchUrlSafely(url: string): Promise<string> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15000); // 15 second timeout
-  
-  try {
-    // Use realistic browser headers to avoid anti-scraping blocks
-    const response = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Accept-Encoding": "gzip, deflate, br",
-        "Referer": "https://www.google.com/",
-        "Connection": "keep-alive",
-        "Upgrade-Insecure-Requests": "1",
-        "Sec-Fetch-Dest": "document",
-        "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Site": "none",
-        "Sec-Fetch-User": "?1",
-        "Cache-Control": "max-age=0",
-      },
-    });
-    
-    if (!response.ok) {
-      throw new Error(`Failed to fetch URL: ${response.status} ${response.statusText}`);
-    }
-    
-    // Check content type (strict validation)
-    const contentType = (response.headers.get("content-type") || "").toLowerCase();
-    if (!contentType.startsWith("text/html") && !contentType.startsWith("application/xhtml+xml")) {
-      throw new Error("URL does not appear to be an HTML page");
-    }
-    
-    // Read response with size limit (1MB)
-    const reader = response.body?.getReader();
-    if (!reader) {
-      throw new Error("Unable to read response body");
-    }
-    
-    const chunks: Uint8Array[] = [];
-    let totalSize = 0;
-    const maxSize = 1024 * 1024; // 1MB
-    
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      
-      totalSize += value.length;
-      if (totalSize > maxSize) {
-        reader.cancel();
-        throw new Error("Response too large (max 1MB)");
+  let lastStatus = 0;
+  for (const headers of FETCH_IDENTITIES) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    try {
+      const response = await fetch(url, { signal: controller.signal, headers, redirect: "follow" });
+      if (!response.ok) {
+        lastStatus = response.status;
+        response.body?.cancel().catch(() => {});
+        if (BLOCKED_STATUSES.has(response.status)) continue;
+        if (response.status === 404 || response.status === 410) {
+          throw new Error("That page doesn't exist anymore. Check the link and try again.");
+        }
+        throw new Error(`The website returned an error (${response.status}). Try again later.`);
       }
-      
-      chunks.push(value);
+
+      const contentType = (response.headers.get("content-type") || "").toLowerCase();
+      if (!contentType.startsWith("text/html") && !contentType.startsWith("application/xhtml+xml")) {
+        response.body?.cancel().catch(() => {});
+        throw new Error("That link isn't a web page. Paste a link to a recipe page.");
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error("Unable to read response body");
+      const chunks: Uint8Array[] = [];
+      let totalSize = 0;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        totalSize += value.length;
+        if (totalSize > MAX_PAGE_BYTES) {
+          reader.cancel();
+          break; // the recipe and its structured data are near the top
+        }
+        chunks.push(value);
+      }
+      return new TextDecoder().decode(Buffer.concat(chunks));
+    } catch (error: any) {
+      if (error.name === "AbortError") {
+        throw new Error("Request timed out. The website took too long to respond.");
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeout);
     }
-    
-    const decoder = new TextDecoder();
-    const html = decoder.decode(Buffer.concat(chunks));
-    
-    return html;
-  } catch (error: any) {
-    if (error.name === "AbortError") {
-      throw new Error("Request timeout (10 seconds exceeded)");
-    }
-    throw error;
-  } finally {
-    clearTimeout(timeout);
   }
+  console.warn(`[URL import] ${new URL(url).hostname} refused both identities (last status ${lastStatus})`);
+  throw new Error(SITE_BLOCKS_IMPORT);
 }
 
 // Helper: Validate extracted recipe has minimum required data
@@ -795,56 +698,52 @@ function convertJsonLdToExtracted(recipe: any): ExtractedRecipeRaw {
 
 // Helper: Extract recipe from HTML using AI when JSON-LD isn't available
 async function extractRecipeFromHtmlWithAI(html: string): Promise<ExtractedRecipeRaw> {
-  if (!hasOpenAI || !openai) {
-    throw new Error(
-      "Cannot extract recipe from this URL: AI extraction is unavailable (OpenAI not configured). " +
-      "This URL does not have structured recipe data (JSON-LD)."
-    );
+  const provider = await textProvider();
+  if (!provider) {
+    throw new Error("Recipe reading is unavailable right now. Try again later.");
   }
-  
-  // Clean HTML comprehensively to prevent prompt injection
+
+  // Keep only the readable text. The page is untrusted, so scripts, forms
+  // and markup never reach the model; it only sees plain text.
   const $ = cheerio.load(html);
-  
-  // Multi-pass sanitization: remove dangerous elements
-  // Pass 1: Remove executable/embedded content
-  $("script, style, noscript, iframe, object, embed, applet").remove();
-  
-  // Pass 2: Remove navigation and non-content elements
+  $("script, style, noscript, iframe, object, embed, applet, svg").remove();
   $("nav, footer, header, aside, form, button, input, select, textarea").remove();
-  
-  // Pass 3: Remove ads and social elements
-  $(".ad, .advertisement, .sidebar, .comments, .social, #sidebar, #ads").remove();
-  
-  // Pass 4: Remove all elements with event handlers (prevents nested handlers)
-  $("[onclick], [onload], [onerror], [onmouseover], [onmouseout], [onfocus], [onblur]").remove();
-  
-  // Pass 5: Remove data attributes that could contain instructions
-  $("*").removeAttr("data-*");
-  
-  // Get text content from main content area (prefer article, main, or body)
+  $(".ad, .advertisement, .sidebar, .comments, .social, #sidebar, #ads, #comments").remove();
+
+  // Keep line breaks between list items and paragraphs so ingredient lists
+  // stay one item per line
+  $("br").replaceWith("\n");
+  $("li, p, h1, h2, h3, h4, h5, h6, div, tr, section").each((_, el) => {
+    $(el).append("\n");
+  });
+
   const mainContent = $("article, main, [role='main'], body").first();
-  let cleanedText = mainContent.text();
-  
-  // Aggressive normalization to prevent prompt injection
-  cleanedText = cleanedText
-    .replace(/[\x00-\x1F\x7F-\x9F]/g, "") // Remove control characters
-    .replace(/[^\x20-\x7E\n]/g, " ") // Keep only ASCII printable + newlines
-    .replace(/\s+/g, " ") // Collapse whitespace
-    .replace(/\n\s*\n/g, "\n") // Remove empty lines
+  let cleanedText = mainContent
+    .text()
+    .replace(/[\x00-\x09\x0B-\x1F\x7F-\x9F]/g, "") // control characters (keeps \n)
+    .replace(/[ \t\u00a0]+/g, " ")
+    .replace(/ *\n[ \n]*/g, "\n") // collapse blank lines
     .trim();
-  
-  // Limit to 15k characters (preserve UTF-8, don't split mid-character)
-  const maxLength = 15000;
+
+  const maxLength = 20000;
   if (cleanedText.length > maxLength) {
-    // Find the last complete space before the limit
-    const truncatePoint = cleanedText.lastIndexOf(" ", maxLength);
-    cleanedText = cleanedText.slice(0, truncatePoint > 0 ? truncatePoint : maxLength) + "... [truncated]";
+    const truncatePoint = cleanedText.lastIndexOf("\n", maxLength);
+    cleanedText = cleanedText.slice(0, truncatePoint > 0 ? truncatePoint : maxLength);
   }
-  
+
   if (cleanedText.length < 100) {
-    throw new Error("Insufficient text content found on the page");
+    throw new Error("We couldn't find a recipe on that page. If the page shows one, copy it and use Paste text.");
   }
-  
+
+  if (provider === "gemini") {
+    const recipe = await extractRecipeFromTextWithGemini(cleanedText, "webpage");
+    if (!recipe || !validateExtractedRecipe(recipe)) {
+      throw new Error("We couldn't find a recipe on that page. If the page shows one, copy it and use Paste text.");
+    }
+    return recipe;
+  }
+  if (!openai) throw new Error("Recipe reading is unavailable right now. Try again later.");
+
   try {
     const response = await openai.chat.completions.create({
       model: "gpt-5",

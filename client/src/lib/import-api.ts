@@ -1,4 +1,5 @@
 import { apiRequest } from "@/lib/queryClient";
+import { detectLinkPlatform, normalizeUrl, type LinkPlatform } from "@shared/link-platform";
 
 // Server calls for adding recipes (the "Add recipe" sheet and the import
 // progress list). Endpoints are unchanged from before the redesign.
@@ -62,29 +63,7 @@ export async function uploadBatchPhoto(photo: Blob, sessionId: string | undefine
   return ((await res.json()) as { recipeId: string }).recipeId;
 }
 
-export type LinkPlatform = "instagram" | "tiktok" | "web";
-
-export function detectLinkPlatform(input: string): LinkPlatform | null {
-  const url = normalizeUrl(input);
-  if (!url) return null;
-  const lower = url.toLowerCase();
-  if (lower.includes("instagram.com") && (lower.includes("/p/") || lower.includes("/reel/"))) return "instagram";
-  if (lower.includes("tiktok.com") && (lower.includes("/video/") || lower.includes("/t/") || lower.includes("vm.tiktok"))) return "tiktok";
-  return "web";
-}
-
-/** Adds https:// when missing; null if it can't be a web address */
-export function normalizeUrl(input: string): string | null {
-  const trimmed = input.trim();
-  if (!trimmed) return null;
-  const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
-  try {
-    const u = new URL(withScheme);
-    return u.hostname.includes(".") ? u.toString() : null;
-  } catch {
-    return null;
-  }
-}
+export { detectLinkPlatform, normalizeUrl, type LinkPlatform } from "@shared/link-platform";
 
 export async function importLink(input: string): Promise<{ recipeId: string; platform: LinkPlatform }> {
   const url = normalizeUrl(input);

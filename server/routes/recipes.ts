@@ -22,8 +22,7 @@ import {
 import { buildScaledRecipeResponse } from "../scaling";
 import { jobQueue } from "../job-queue";
 import { generateThumbnail } from "../thumbnail";
-import { scrapeInstagramPost, extractRecipeFromInstagram, isInstagramUrl } from "../instagram-scraper";
-import { detectPlatform, isValidSocialUrl, scrapePost } from "../social-import-service";
+import { detectPlatform, isValidSocialUrl, scrapePost, PLATFORM_NAMES, type SocialPlatform } from "../social-import-service";
 import { extractRecipeFromSocialPostUnified } from "../ai-service";
 import { getUserId, upload } from "./route-utils";
 import { findPantryMatch } from "../../shared/pantry-matching";
@@ -893,7 +892,88 @@ router.post(
   }
 );
 
-// Extract recipe from URL endpoint (requires auth)
+// Gray placeholder shown until the dish photo is generated. The title is
+// escaped: an "&" in "Mac & Cheese" would otherwise break the SVG.
+function placeholderImage(title: string, subtitle: string): string {
+  const esc = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  const svg = `<svg width="1024" height="1024" xmlns="http://www.w3.org/2000/svg">
+      <rect width="1024" height="1024" fill="#f3f4f6"/>
+      <text x="512" y="462" font-family="Arial" font-size="48" fill="#9ca3af" text-anchor="middle">${esc(title)}</text>
+      <text x="512" y="530" font-family="Arial" font-size="24" fill="#9ca3af" text-anchor="middle">${esc(subtitle)}</text>
+    </svg>`;
+  return `data:image/svg+xml;base64,${Buffer.from(svg, "utf8").toString("base64")}`;
+}
+
+// Web page import: structured data (JSON-LD) when the page has it, otherwise
+// the AI reads the page text. `foundVia` is the social post that linked here.
+async function importWebLink(url: string, userId: string, foundVia?: string): Promise<{ status: number; body: any }> {
+  const started = Date.now();
+  const rawRecipe = await extractRecipeFromUrl(url);
+
+  if (!rawRecipe.title || !rawRecipe.ingredients?.length || !rawRecipe.instructions?.length) {
+    console.error("Invalid recipe data from URL extraction:", rawRecipe.title, rawRecipe.ingredients?.length, rawRecipe.instructions?.length);
+    return {
+      status: 400,
+      body: { error: "We couldn't find a full recipe on that page. If the page shows one, copy it and use Paste text." },
+    };
+  }
+
+  if (!rawRecipe.servings || rawRecipe.servings <= 0) rawRecipe.servings = 4;
+  if (!rawRecipe.prepTime) rawRecipe.prepTime = "0 mins";
+  if (!rawRecipe.totalTime) rawRecipe.totalTime = rawRecipe.cookTime || "0 mins";
+
+  const cuisinesArray = rawRecipe.cuisine
+    ? (Array.isArray(rawRecipe.cuisine) ? rawRecipe.cuisine : [rawRecipe.cuisine])
+    : [];
+
+  // Save what the page says now; enrichment fills in the rest in the background
+  const recipeData = {
+    ownerUserId: userId,
+    isPublic: true,
+
+    title: rawRecipe.title,
+    description: rawRecipe.description,
+    prepTime: rawRecipe.prepTime,
+    cookTime: rawRecipe.cookTime,
+    totalTime: rawRecipe.totalTime,
+    coolingTime: rawRecipe.coolingTime,
+    servings: rawRecipe.servings,
+    servingUnit: rawRecipe.servingUnit,
+    yield: rawRecipe.yield,
+    ingredients: rawRecipe.ingredients,
+    instructions: rawRecipe.instructions,
+    equipment: rawRecipe.equipment,
+    dietType: rawRecipe.dietType,
+    cuisine: cuisinesArray[0] || null,
+    cuisines: cuisinesArray,
+    mealType: rawRecipe.mealType,
+
+    calories: rawRecipe.calories,
+    protein: rawRecipe.protein,
+    carbohydrates: rawRecipe.carbohydrates,
+    fat: rawRecipe.fat,
+    fiber: rawRecipe.fiber,
+    sugar: rawRecipe.sugar,
+    sodium: rawRecipe.sodium,
+    cholesterol: rawRecipe.cholesterol,
+
+    dishImage: placeholderImage(rawRecipe.title, "Enriching metadata..."),
+
+    enrichmentStatus: 'enriching' as const,
+    enrichmentRetryCount: 0,
+  };
+
+  const validatedData = insertRecipeSchema.parse(recipeData);
+  const recipe = await storage.createRecipe(validatedData);
+  await recordImport({ recipeId: recipe.id, ownerUserId: userId, sourceType: foundVia ? 'social' : 'link', sourceUrl: foundVia || url });
+  console.log(`[URL import] Recipe ${recipe.id} saved from ${new URL(url).hostname} in ${Date.now() - started}ms, queuing enrichment`);
+  jobQueue.addEnrichmentJob(recipe.id);
+
+  return { status: 201, body: { recipeId: recipe.id } };
+}
+
+// Extract recipe from URL endpoint (requires auth). Social links pasted here
+// go to the social importer.
 router.post("/recipes/extract-url", isAuthenticated, async (req: any, res) => {
   try {
     const userId = getUserId(req);
@@ -902,123 +982,17 @@ router.post("/recipes/extract-url", isAuthenticated, async (req: any, res) => {
     }
 
     const { url } = req.body;
-
     if (!url || typeof url !== "string") {
       return res.status(400).json({ error: "Valid URL is required" });
     }
 
-    // === PHASE 1: Extract raw recipe data from URL (fast, synchronous) ===
-    console.log(`Phase 1: Extracting recipe from URL: ${url}`);
-    const rawRecipe = await extractRecipeFromUrl(url);
-
-    // Validate extracted recipe has required fields
-    if (
-      !rawRecipe.title ||
-      !rawRecipe.ingredients ||
-      rawRecipe.ingredients.length === 0 ||
-      !rawRecipe.instructions ||
-      rawRecipe.instructions.length === 0 ||
-      !rawRecipe.servings ||
-      rawRecipe.servings <= 0
-    ) {
-      console.error("Invalid recipe data from URL extraction:", rawRecipe);
-      return res.status(400).json({
-        error: "Failed to extract valid recipe data from this URL. The page may not contain a recipe.",
-      });
-    }
-
-    // Ensure required time fields exist (provide defaults if missing)
-    if (!rawRecipe.prepTime) rawRecipe.prepTime = "0 mins";
-    if (!rawRecipe.totalTime) rawRecipe.totalTime = rawRecipe.cookTime || "0 mins";
-
-    // Create placeholder SVG for immediate display
-    const placeholderSvg = `<svg width="1024" height="1024" xmlns="http://www.w3.org/2000/svg">
-      <rect width="1024" height="1024" fill="#f3f4f6"/>
-      <text x="512" y="462" font-family="Arial" font-size="48" fill="#9ca3af" text-anchor="middle">${rawRecipe.title}</text>
-      <text x="512" y="562" font-family="Arial" font-size="24" fill="#d1d5db" text-anchor="middle">Enriching metadata...</text>
-    </svg>`;
-    const placeholderDataUrl = `data:image/svg+xml;base64,${Buffer.from(placeholderSvg, "utf8").toString("base64")}`;
-
-    // Convert cuisine to cuisines array format
-    const cuisinesArray = rawRecipe.cuisine
-      ? (Array.isArray(rawRecipe.cuisine) ? rawRecipe.cuisine : [rawRecipe.cuisine])
-      : [];
-
-    // Save Phase 1 data immediately (NO enrichment yet - that happens in background)
-    const recipeData = {
-      // Ownership and visibility
-      ownerUserId: userId,
-      isPublic: true,
-
-      // Basic fields from extraction
-      title: rawRecipe.title,
-      description: rawRecipe.description,
-      prepTime: rawRecipe.prepTime,
-      cookTime: rawRecipe.cookTime,
-      totalTime: rawRecipe.totalTime,
-      coolingTime: rawRecipe.coolingTime,
-      servings: rawRecipe.servings,
-      servingUnit: rawRecipe.servingUnit,
-      yield: rawRecipe.yield,
-      ingredients: rawRecipe.ingredients,
-      instructions: rawRecipe.instructions,
-      equipment: rawRecipe.equipment,
-      dietType: rawRecipe.dietType,
-      cuisine: cuisinesArray[0] || null, // Legacy field - first cuisine or null
-      cuisines: cuisinesArray, // New array field
-      mealType: rawRecipe.mealType,
-
-      // Nutrition estimates from Phase 1
-      calories: rawRecipe.calories,
-      protein: rawRecipe.protein,
-      carbohydrates: rawRecipe.carbohydrates,
-      fat: rawRecipe.fat,
-      fiber: rawRecipe.fiber,
-      sugar: rawRecipe.sugar,
-      sodium: rawRecipe.sodium,
-      cholesterol: rawRecipe.cholesterol,
-
-      // Images
-      dishImage: placeholderDataUrl,
-
-      // Enrichment status - Phase 2 will happen in background
-      enrichmentStatus: 'enriching' as const,
-      enrichmentRetryCount: 0,
-    };
-
-    // Validate and save Phase 1 data
-    const validatedData = insertRecipeSchema.parse(recipeData);
-    const recipe = await storage.createRecipe(validatedData);
-    await recordImport({ recipeId: recipe.id, ownerUserId: userId, sourceType: 'link', sourceUrl: url });
-    console.log(`Recipe ${recipe.id} saved with Phase 1 data from URL, queuing enrichment...`);
-
-    // Queue Phase 2 enrichment for background processing
-    jobQueue.addEnrichmentJob(recipe.id);
-
-    res.status(201).json({ recipeId: recipe.id });
+    const result = detectPlatform(url) === "web" ? await importWebLink(url, userId) : await importSocialLink(url, userId);
+    res.status(result.status).json(result.body);
   } catch (error) {
     console.error("Error extracting recipe from URL:", error);
-
-    // Provide more specific error messages
-    let errorMessage = "Failed to extract recipe from URL";
-    if (error instanceof Error) {
-      if (error.message.includes("Only HTTP and HTTPS")) {
-        errorMessage = "Invalid URL: Only HTTP and HTTPS URLs are supported";
-      } else if (error.message.includes("private")) {
-        errorMessage = "Access to private/local addresses is not allowed";
-      } else if (error.message.includes("timeout")) {
-        errorMessage = "Request timed out. The website took too long to respond";
-      } else if (error.message.includes("too large")) {
-        errorMessage = "The page is too large to process (max 1MB)";
-      } else if (error.message.includes("does not appear to be an HTML page")) {
-        errorMessage = "The URL does not point to an HTML page";
-      } else if (error.message.includes("AI extraction is unavailable")) {
-        errorMessage = error.message;
-      } else {
-        errorMessage = error.message;
-      }
-    }
-
+    let errorMessage = error instanceof Error ? error.message : "We couldn't import that link.";
+    if (errorMessage.includes("Only HTTP and HTTPS")) errorMessage = "That link isn't a web page. Paste a link that starts with https://";
+    else if (/private|local addresses/i.test(errorMessage)) errorMessage = "That link points to a private address.";
     res.status(400).json({ error: errorMessage });
   }
 });
@@ -1039,36 +1013,18 @@ router.post("/recipes/extract-text", isAuthenticated, async (req: any, res) => {
 
     console.log(`Extracting recipe from pasted text (${text.length} chars)`);
 
-    // Use GPT to parse the raw text into structured recipe data
-    const rawRecipe = await extractRecipeFromText(text);
+    const rawRecipe = await extractRecipeFromText(text, "pasted");
 
-    // Validate extracted recipe has required fields
-    if (
-      !rawRecipe.title ||
-      !rawRecipe.ingredients ||
-      rawRecipe.ingredients.length === 0 ||
-      !rawRecipe.instructions ||
-      rawRecipe.instructions.length === 0 ||
-      !rawRecipe.servings ||
-      rawRecipe.servings <= 0
-    ) {
-      console.error("Invalid recipe data from text extraction:", rawRecipe);
+    if (!rawRecipe.title || !rawRecipe.ingredients?.length || !rawRecipe.instructions?.length) {
       return res.status(400).json({
-        error: "Could not extract a valid recipe from the text. Please include a title, ingredients, and instructions.",
+        error: "We couldn't find a full recipe in that text. Include the title, the ingredients and the steps.",
       });
     }
 
-    // Ensure required time fields exist (provide defaults if missing)
+    if (!rawRecipe.servings || rawRecipe.servings <= 0) rawRecipe.servings = 4;
     if (!rawRecipe.prepTime) rawRecipe.prepTime = "0 mins";
     if (!rawRecipe.totalTime) rawRecipe.totalTime = rawRecipe.cookTime || "0 mins";
-
-    // Create placeholder SVG for immediate display
-    const placeholderSvg = `<svg width="1024" height="1024" xmlns="http://www.w3.org/2000/svg">
-      <rect width="1024" height="1024" fill="#f3f4f6"/>
-      <text x="512" y="462" font-family="Arial" font-size="48" fill="#9ca3af" text-anchor="middle">${rawRecipe.title}</text>
-      <text x="512" y="530" font-family="Arial" font-size="24" fill="#9ca3af" text-anchor="middle">Generating image...</text>
-    </svg>`;
-    const placeholderDataUrl = `data:image/svg+xml;base64,${Buffer.from(placeholderSvg).toString('base64')}`;
+    const placeholderDataUrl = placeholderImage(rawRecipe.title, "Generating image...");
 
     // Handle cuisines array
     const cuisinesArray = rawRecipe.cuisine
@@ -1128,115 +1084,97 @@ router.post("/recipes/extract-text", isAuthenticated, async (req: any, res) => {
   }
 });
 
-// Import recipe from Instagram post/reel URL
-router.post("/recipes/import-instagram", isAuthenticated, async (req: any, res) => {
-  try {
-    const userId = getUserId(req);
-    if (!userId) {
-      return res.status(401).json({ error: "Unauthorized" });
-    }
+// Social import (Instagram, TikTok, YouTube): read the caption, turn it into
+// a recipe, save it, and queue enrichment. If the caption only points
+// somewhere else ("full recipe at mysite.com/..."), import that page instead.
+async function importSocialLink(url: string, userId: string): Promise<{ status: number; body: any }> {
+  const platform = detectPlatform(url) as SocialPlatform;
+  const platformName = PLATFORM_NAMES[platform];
+  const started = Date.now();
 
-    const { url } = req.body;
-
-    if (!url || typeof url !== "string") {
-      return res.status(400).json({ error: "Instagram URL is required" });
-    }
-
-    if (!isInstagramUrl(url)) {
-      return res.status(400).json({
-        error: "Invalid Instagram URL. Please provide a link to an Instagram post or reel."
-      });
-    }
-
-    console.log(`[Instagram Import] Starting import from: ${url}`);
-
-    // Step 1: Scrape Instagram post using Apify
-    const scrapeResult = await scrapeInstagramPost(url);
-    if (!scrapeResult.success || !scrapeResult.post) {
-      return res.status(400).json({ error: scrapeResult.error || "Failed to scrape Instagram post" });
-    }
-
-    // Step 2: Extract recipe data from caption using AI
-    const extractedRecipe = await extractRecipeFromInstagram(scrapeResult.post);
-    if (!extractedRecipe) {
-      return res.status(400).json({
-        error: "Could not extract a complete recipe from this Instagram post. The caption must contain the recipe title, a list of ingredients, and step-by-step instructions. Some creators only include a short caption or link to their website for the full recipe."
-      });
-    }
-
-    // Step 3: Create placeholder image
-    const placeholderSvg = `<svg width="1024" height="1024" xmlns="http://www.w3.org/2000/svg">
-      <rect width="1024" height="1024" fill="#f3f4f6"/>
-      <text x="512" y="462" font-family="Arial" font-size="48" fill="#9ca3af" text-anchor="middle">${extractedRecipe.title}</text>
-      <text x="512" y="530" font-family="Arial" font-size="24" fill="#9ca3af" text-anchor="middle">Imported from Instagram</text>
-      <text x="512" y="580" font-family="Arial" font-size="20" fill="#d1d5db" text-anchor="middle">Generating image...</text>
-    </svg>`;
-    const placeholderDataUrl = `data:image/svg+xml;base64,${Buffer.from(placeholderSvg).toString('base64')}`;
-
-    // Step 4: Create recipe in database
-    const recipeData = {
-      ownerUserId: userId,
-      isPublic: true,
-
-      title: extractedRecipe.title,
-      description: extractedRecipe.description || `Recipe imported from Instagram @${extractedRecipe.creatorUsername || 'unknown'}`,
-
-      ingredients: extractedRecipe.rawIngredients,
-      instructions: extractedRecipe.rawInstructions,
-
-      servings: extractedRecipe.servings || 4,
-      prepTime: extractedRecipe.prepTimeMinutes ? `${extractedRecipe.prepTimeMinutes} mins` : "Not specified",
-      cookTime: extractedRecipe.cookTimeMinutes ? `${extractedRecipe.cookTimeMinutes} mins` : null,
-      totalTime: extractedRecipe.totalTimeMinutes ? `${extractedRecipe.totalTimeMinutes} mins` : null,
-
-      cuisine: extractedRecipe.cuisineType || null,
-      cuisines: extractedRecipe.cuisineType ? [extractedRecipe.cuisineType] : [],
-      mealType: extractedRecipe.mealType ? [extractedRecipe.mealType] : [],
-      dietType: extractedRecipe.dietaryTags || [],
-
-      calories: extractedRecipe.nutritionInfo?.calories || null,
-      protein: extractedRecipe.nutritionInfo?.protein || null,
-      carbohydrates: extractedRecipe.nutritionInfo?.carbs || null,
-      fat: extractedRecipe.nutritionInfo?.fat || null,
-
-      dishImage: placeholderDataUrl,
-
-      enrichmentStatus: 'enriching' as const,
-      enrichmentRetryCount: 0,
-
-      // Social media source attribution
-      socialSourcePlatform: 'instagram' as const,
-      socialSourceUrl: extractedRecipe.sourceUrl,
-      socialSourceCreatorUsername: scrapeResult.post.ownerUsername || null,
-      socialSourceCreatorAvatar: null,
-      socialSourcePostDate: scrapeResult.post.timestamp ? new Date(scrapeResult.post.timestamp) : null,
-    };
-
-    const validatedData = insertRecipeSchema.parse(recipeData);
-    const recipe = await storage.createRecipe(validatedData);
-
-    console.log(`[Instagram Import] Recipe ${recipe.id} created from Instagram, queuing enrichment...`);
-
-    // Queue enrichment for background processing
-    jobQueue.addEnrichmentJob(recipe.id);
-
-    res.status(201).json({
-      recipeId: recipe.id,
-      message: `Recipe "${extractedRecipe.title}" imported successfully from Instagram!`,
-      source: {
-        type: 'instagram',
-        url: extractedRecipe.sourceUrl,
-        creator: extractedRecipe.creatorUsername,
-      }
-    });
-  } catch (error) {
-    console.error("[Instagram Import] Error:", error);
-    const errorMessage = error instanceof Error ? error.message : "Failed to import recipe from Instagram";
-    res.status(400).json({ error: errorMessage });
+  const scrapeResult = await scrapePost(url);
+  if (!scrapeResult.success || !scrapeResult.post) {
+    return { status: 400, body: { error: scrapeResult.error || `We couldn't read that ${platformName} post.` } };
   }
-});
+  const post = scrapeResult.post;
 
-// Unified social media import (Instagram, TikTok, etc.) with auto-detection
+  const extractedRecipe = await extractRecipeFromSocialPostUnified(post);
+  // When the caption only describes the dish, the linked recipe page beats
+  // a recipe the AI would have to make up
+  if (!extractedRecipe || (extractedRecipe.captionHasRecipe === false && post.links.length)) {
+    for (const link of post.links) {
+      try {
+        console.log(`[Social Import] Caption has no recipe, trying linked page ${link}`);
+        const result = await importWebLink(link, userId, url);
+        if (result.status === 201) return result;
+      } catch (err: any) {
+        console.warn(`[Social Import] Linked page failed: ${err?.message}`);
+      }
+    }
+    if (!extractedRecipe) return {
+      status: 400,
+      body: {
+        error: post.links.length
+          ? `That ${platformName} caption doesn't include the recipe, and we couldn't read the page it links to. Open the full recipe, copy it, and use Paste text.`
+          : `That ${platformName} caption doesn't include the recipe. If the creator says the recipe is in the video or a link in their bio, copy it from there and use Paste text.`,
+      },
+    };
+  }
+
+  const recipeData = {
+    ownerUserId: userId,
+    isPublic: true,
+
+    title: extractedRecipe.title,
+    description: extractedRecipe.description || `Recipe imported from ${platformName}${post.creatorUsername ? ` @${post.creatorUsername}` : ""}`,
+
+    ingredients: extractedRecipe.rawIngredients,
+    instructions: extractedRecipe.rawInstructions,
+
+    servings: extractedRecipe.servings || 4,
+    prepTime: extractedRecipe.prepTimeMinutes ? `${extractedRecipe.prepTimeMinutes} mins` : "Not specified",
+    cookTime: extractedRecipe.cookTimeMinutes ? `${extractedRecipe.cookTimeMinutes} mins` : null,
+    totalTime: extractedRecipe.totalTimeMinutes ? `${extractedRecipe.totalTimeMinutes} mins` : null,
+
+    cuisine: extractedRecipe.cuisineType || null,
+    cuisines: extractedRecipe.cuisineType ? [extractedRecipe.cuisineType] : [],
+    mealType: extractedRecipe.mealType ? [extractedRecipe.mealType] : [],
+    dietType: extractedRecipe.dietaryTags || [],
+
+    calories: extractedRecipe.nutritionInfo?.calories || null,
+    protein: extractedRecipe.nutritionInfo?.protein || null,
+    carbohydrates: extractedRecipe.nutritionInfo?.carbs || null,
+    fat: extractedRecipe.nutritionInfo?.fat || null,
+
+    dishImage: placeholderImage(extractedRecipe.title, `Imported from ${platformName}`),
+
+    enrichmentStatus: 'enriching' as const,
+    enrichmentRetryCount: 0,
+
+    socialSourcePlatform: platform,
+    socialSourceUrl: post.url,
+    socialSourceCreatorUsername: post.creatorUsername || null,
+    socialSourceCreatorAvatar: post.creatorAvatarUrl || null,
+    socialSourcePostDate: post.postDate || null,
+  };
+
+  const validatedData = insertRecipeSchema.parse(recipeData);
+  const recipe = await storage.createRecipe(validatedData);
+  await recordImport({ recipeId: recipe.id, ownerUserId: userId, sourceType: 'social', sourceUrl: url });
+  console.log(`[Social Import] Recipe ${recipe.id} saved from ${platformName} in ${Date.now() - started}ms, queuing enrichment`);
+  jobQueue.addEnrichmentJob(recipe.id);
+
+  return {
+    status: 201,
+    body: {
+      recipeId: recipe.id,
+      message: `Recipe "${extractedRecipe.title}" imported from ${platformName}`,
+      source: { type: platform, url: post.url, creator: post.creatorUsername },
+      inferredFields: extractedRecipe.inferredFields,
+    },
+  };
+}
+
 router.post("/recipes/import-social", isAuthenticated, async (req: any, res) => {
   try {
     const userId = getUserId(req);
@@ -1245,113 +1183,13 @@ router.post("/recipes/import-social", isAuthenticated, async (req: any, res) => 
     }
 
     const { url } = req.body;
-
-    if (!url || typeof url !== "string") {
-      return res.status(400).json({ error: "URL is required" });
+    if (!url || typeof url !== "string" || !isValidSocialUrl(url)) {
+      return res.status(400).json({ error: "That doesn't look like a link. Copy the whole link and paste it again." });
     }
 
-    if (!isValidSocialUrl(url)) {
-      return res.status(400).json({
-        error: "Invalid URL. Please provide a valid link."
-      });
-    }
-
-    // Auto-detect platform
-    const platform = detectPlatform(url);
-    console.log(`[Social Import] Detected platform: ${platform} for URL: ${url}`);
-
-    // For web URLs, redirect to existing URL import endpoint
-    if (platform === "web") {
-      return res.status(400).json({
-        error: "This appears to be a regular website URL. Please use the 'Web URL' tab to import from websites.",
-        detectedPlatform: "web"
-      });
-    }
-
-    const platformName = platform === "instagram" ? "Instagram" : "TikTok";
-    console.log(`[Social Import] Starting ${platformName} import from: ${url}`);
-
-    // Step 1: Scrape social media post using Apify
-    const scrapeResult = await scrapePost(url);
-    if (!scrapeResult.success || !scrapeResult.post) {
-      return res.status(400).json({ error: scrapeResult.error || `Failed to scrape ${platformName} post` });
-    }
-
-    // Step 2: Extract recipe data from caption using unified AI service (Gemini/OpenAI)
-    const extractedRecipe = await extractRecipeFromSocialPostUnified(scrapeResult.post);
-    if (!extractedRecipe) {
-      return res.status(400).json({
-        error: `Could not extract a complete recipe from this ${platformName} post. The caption must contain recipe-related content like ingredients or cooking steps.`
-      });
-    }
-
-    // Step 3: Create placeholder image
-    const placeholderSvg = `<svg width="1024" height="1024" xmlns="http://www.w3.org/2000/svg">
-      <rect width="1024" height="1024" fill="#f3f4f6"/>
-      <text x="512" y="462" font-family="Arial" font-size="48" fill="#9ca3af" text-anchor="middle">${extractedRecipe.title}</text>
-      <text x="512" y="530" font-family="Arial" font-size="24" fill="#9ca3af" text-anchor="middle">Imported from ${platformName}</text>
-      <text x="512" y="580" font-family="Arial" font-size="20" fill="#d1d5db" text-anchor="middle">Generating image...</text>
-    </svg>`;
-    const placeholderDataUrl = `data:image/svg+xml;base64,${Buffer.from(placeholderSvg).toString('base64')}`;
-
-    // Step 4: Create recipe in database
-    const recipeData = {
-      ownerUserId: userId,
-      isPublic: true,
-
-      title: extractedRecipe.title,
-      description: extractedRecipe.description || `Recipe imported from ${platformName} @${extractedRecipe.creatorUsername || 'unknown'}`,
-
-      ingredients: extractedRecipe.rawIngredients,
-      instructions: extractedRecipe.rawInstructions,
-
-      servings: extractedRecipe.servings || 4,
-      prepTime: extractedRecipe.prepTimeMinutes ? `${extractedRecipe.prepTimeMinutes} mins` : "Not specified",
-      cookTime: extractedRecipe.cookTimeMinutes ? `${extractedRecipe.cookTimeMinutes} mins` : null,
-      totalTime: extractedRecipe.totalTimeMinutes ? `${extractedRecipe.totalTimeMinutes} mins` : null,
-
-      cuisine: extractedRecipe.cuisineType || null,
-      cuisines: extractedRecipe.cuisineType ? [extractedRecipe.cuisineType] : [],
-      mealType: extractedRecipe.mealType ? [extractedRecipe.mealType] : [],
-      dietType: extractedRecipe.dietaryTags || [],
-
-      calories: extractedRecipe.nutritionInfo?.calories || null,
-      protein: extractedRecipe.nutritionInfo?.protein || null,
-      carbohydrates: extractedRecipe.nutritionInfo?.carbs || null,
-      fat: extractedRecipe.nutritionInfo?.fat || null,
-
-      dishImage: placeholderDataUrl,
-
-      enrichmentStatus: 'enriching' as const,
-      enrichmentRetryCount: 0,
-
-      // Social media source attribution (only for supported platforms)
-      socialSourcePlatform: (platform === 'instagram' || platform === 'tiktok') ? platform : null,
-      socialSourceUrl: (platform === 'instagram' || platform === 'tiktok') ? scrapeResult.post.url : null,
-      socialSourceCreatorUsername: scrapeResult.post.creatorUsername || null,
-      socialSourceCreatorAvatar: scrapeResult.post.creatorAvatarUrl || null,
-      socialSourcePostDate: scrapeResult.post.postDate ? scrapeResult.post.postDate : null,
-    };
-
-    const validatedData = insertRecipeSchema.parse(recipeData);
-    const recipe = await storage.createRecipe(validatedData);
-    await recordImport({ recipeId: recipe.id, ownerUserId: userId, sourceType: 'social', sourceUrl: url });
-
-    console.log(`[Social Import] Recipe ${recipe.id} created from ${platformName}, queuing enrichment...`);
-
-    // Queue enrichment for background processing
-    jobQueue.addEnrichmentJob(recipe.id);
-
-    res.status(201).json({
-      recipeId: recipe.id,
-      message: `Recipe "${extractedRecipe.title}" imported successfully from ${platformName}!`,
-      source: {
-        type: platform,
-        url: extractedRecipe.sourceUrl,
-        creator: extractedRecipe.creatorUsername,
-      },
-      inferredFields: extractedRecipe.inferredFields,
-    });
+    // Web pages go through the web importer
+    const result = detectPlatform(url) === "web" ? await importWebLink(url, userId) : await importSocialLink(url, userId);
+    res.status(result.status).json(result.body);
   } catch (error) {
     console.error("[Social Import] Error:", error);
     const errorMessage = error instanceof Error ? error.message : "Failed to import recipe";

@@ -465,7 +465,7 @@ export const recipes = pgTable("recipes", {
   sourceImageIndex: integer("source_image_index"), // Order in batch upload
   
   // Social media source attribution (for imported recipes)
-  socialSourcePlatform: text("social_source_platform").$type<'instagram' | 'tiktok'>(),
+  socialSourcePlatform: text("social_source_platform").$type<'instagram' | 'tiktok' | 'youtube'>(),
   socialSourceUrl: text("social_source_url"),
   socialSourceCreatorUsername: text("social_source_creator_username"),
   socialSourceCreatorAvatar: text("social_source_creator_avatar"),
