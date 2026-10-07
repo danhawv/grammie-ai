@@ -43,7 +43,21 @@ export function transformRecipe(recipe: Recipe, unitSystem: UnitSystem = 'origin
   };
 }
 
+/** "For the sauce:" style lines: a heading, not an ingredient */
+const isHeadingLine = (line: string) => /:\s*$/.test(line.trim()) && line.trim().length <= 60;
+
 function transformIngredients(recipe: Recipe, unitSystem: UnitSystem): IngredientGroup[] {
+  // Recipes written in sections ("For the sauce:") print from the original
+  // lines, because the detailed version flattens the headings into items
+  if (recipe.ingredients?.some(isHeadingLine)) {
+    const groups: IngredientGroup[] = [{ items: [] }];
+    for (const line of recipe.ingredients) {
+      if (isHeadingLine(line)) groups.push({ heading: line.trim().replace(/:\s*$/, ''), items: [] });
+      else groups[groups.length - 1].items.push(line);
+    }
+    return groups.filter((g) => g.items.length > 0);
+  }
+
   // If normalized ingredients with categories exist, group them
   if (recipe.normalizedIngredients && recipe.normalizedIngredients.length > 0) {
     const groups = new Map<string, string[]>();
@@ -76,7 +90,7 @@ function transformInstructions(recipe: Recipe): InstructionStep[] {
   if (recipe.normalizedInstructions && recipe.normalizedInstructions.length > 0) {
     return recipe.normalizedInstructions.map((inst: any, i: number) => ({
       step: inst.stepNumber ?? i + 1,
-      text: inst.instruction || inst.text || '',
+      text: stripStepLabel(inst.instruction || inst.text || ''),
     }));
   }
 
@@ -84,9 +98,14 @@ function transformInstructions(recipe: Recipe): InstructionStep[] {
   if (recipe.instructions && recipe.instructions.length > 0) {
     return recipe.instructions.map((text, i) => ({
       step: i + 1,
-      text,
+      text: stripStepLabel(text),
     }));
   }
 
   return [];
+}
+
+/** "Step 3: Stir..." -> "Stir..." (the page numbers the steps itself) */
+function stripStepLabel(text: string): string {
+  return text.replace(/^\s*step\s*\d+\s*[:.)-]\s*/i, '');
 }

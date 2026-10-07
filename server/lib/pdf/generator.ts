@@ -1,5 +1,5 @@
 import { paginateToc, tocMetrics, type TocMetrics } from "@shared/toc-layout";
-import { buildRecipeCardHtml, CARD_THEME } from "@shared/recipe-card";
+import { buildRecipeCardHtml, CARD_THEME, HEIRLOOM_THEME } from "@shared/recipe-card";
 import {
   buildAlbumPageHtml, chunkAlbum, familyPhotoSlotHtml, fitFamilyPhotoSlots,
   FAMILY_ALBUM_TITLE, type AlbumPhoto, type RecipeGap,
@@ -27,7 +27,7 @@ export async function warmPdfFonts(): Promise<void> {
   }
 }
 
-export type ThemeId = 'classic' | 'modern' | 'rustic' | 'elegant' | 'card';
+export type ThemeId = 'classic' | 'modern' | 'rustic' | 'elegant' | 'card' | 'heirloom';
 
 export interface CookbookPrintData {
   title: string;
@@ -165,6 +165,7 @@ const THEMES: Record<string, ThemeConfig> = {
     pageNum: '#a8a29e',
   },
   card: CARD_THEME,
+  heirloom: HEIRLOOM_THEME,
 };
 
 // --- Chromium path discovery ---

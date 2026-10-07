@@ -635,6 +635,13 @@ export const recipeLayoutSpecSchema = z.object({
   nutritionBox: z.boolean().default(true),
   tipsBox: z.boolean().default(true),
   cornerRadius: z.number().min(0).max(24).default(8),
+  /**
+   * The original handwritten card (recipes added from a photo):
+   * 'beside' = dish photo and card side by side under the title,
+   * 'inset' = card tucked over the corner of a full-width dish photo,
+   * 'none' = don't show it. Recipes without a card use the photo setting.
+   */
+  original: z.enum(['none', 'beside', 'inset']).default('none'),
 });
 
 export type RecipeLayoutSpec = z.infer<typeof recipeLayoutSpecSchema>;
@@ -747,8 +754,8 @@ export const cookbookPrintProjects = pgTable("cookbook_print_projects", {
   // Layout JSON structure
   layoutData: jsonb("layout_data").$type<PrintLayoutData>().notNull(),
   
-  // Template style: 'classic' | 'modern' | 'rustic' | 'elegant' | 'card'
-  templateStyle: varchar("template_style", { length: 50 }).$type<'classic' | 'modern' | 'rustic' | 'elegant' | 'card'>().notNull().default('classic'),
+  // Template style: 'classic' | 'modern' | 'rustic' | 'elegant' | 'card' | 'heirloom'
+  templateStyle: varchar("template_style", { length: 50 }).$type<'classic' | 'modern' | 'rustic' | 'elegant' | 'card' | 'heirloom'>().notNull().default('classic'),
 
   // Custom template (takes precedence over templateStyle when set)
   customTemplateId: integer("custom_template_id").references(() => customTemplates.id, { onDelete: 'set null' }),

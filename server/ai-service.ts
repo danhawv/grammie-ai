@@ -873,7 +873,7 @@ export async function enrichVariationRecipe(
     // Merge results (note: we DON'T include normalizedIngredients/normalizedInstructions)
     const merged: Partial<EnrichedRecipeData> = {
       ...dietaryResult.data,
-      ...nutritionResult.data,
+      ...nutritionPerServing(nutritionResult.data, Number(rawRecipe.servings) || 4),
       aiEnrichmentFields: [
         ...(dietaryResult.data.aiEnrichmentFields || []),
         ...(nutritionResult.data.aiEnrichmentFields || []),
@@ -1150,7 +1150,7 @@ async function enrichGroup2Nutrition(
 RECIPE DATA:
 ${JSON.stringify(rawRecipe, null, 2)}
 
-REQUIRED FIELDS (per serving):
+REQUIRED FIELDS 1-8 are for the WHOLE RECIPE (every ingredient as listed, all servings combined), not per serving:
 1. calories: number
 2. protein: number (grams)
 3. fat: number (grams)
@@ -1310,16 +1310,35 @@ async function callOpenAIForJSON(prompt: string): Promise<any> {
 }
 
 // Merge results from all 3 groups into a single EnrichedRecipeData
+const NUTRITION_FIELDS = ["calories", "protein", "fat", "carbohydrates", "fiber", "sugar", "sodium", "cholesterol"] as const;
+
+/**
+ * Group 2 returns nutrition for the whole recipe; divide by the serving count
+ * the recipe ends up with. (When each call guessed servings on its own, a
+ * card with no serving count got whole-recipe calories labeled "per serving".)
+ */
+export function nutritionPerServing<T extends Record<string, any>>(data: T, servings: number): T {
+  const n = servings > 0 ? servings : 4;
+  const out: Record<string, any> = { ...data };
+  for (const f of NUTRITION_FIELDS) {
+    const v = Number(out[f]);
+    // Whole numbers: several of these columns are integers
+    if (Number.isFinite(v) && v > 0) out[f] = Math.round(v / n);
+  }
+  return out as T;
+}
+
 function mergeEnrichmentResults(
   group1: Partial<EnrichedRecipeData>,
   group2: Partial<EnrichedRecipeData>,
   group3: Partial<EnrichedRecipeData>
 ): EnrichedRecipeData {
+  const servings = Number(group1.servings) > 0 ? Number(group1.servings) : 4;
   // Combine all results with defaults for any missing fields
   const merged: any = {
     ...getEnrichmentDefaults(),
     ...group1,
-    ...group2,
+    ...nutritionPerServing(group2, servings),
     ...group3,
   };
   

@@ -1,10 +1,11 @@
+import { attachOriginalCards, originalCardJpeg } from "../lib/original-card";
 import { Router } from "express";
 import { parseFiltersFromQuery } from "./filter-parser";
 import { z } from "zod";
 import { isAuthenticated, optionalAuth } from "../clerkAuth";
 import { storage } from "../storage";
 import { db } from "../db";
-import { eq, and, inArray, getTableColumns, sql } from "drizzle-orm";
+import { eq, and, inArray, isNotNull, getTableColumns, sql } from "drizzle-orm";
 import {
   insertCookbookSchema,
   printLayoutDataSchema,
@@ -366,10 +367,34 @@ router.get("/cookbooks/:id/recipes/print", optionalAuth, async (req: any, res) =
     }
 
     const fullRecipes = await storage.getCookbookRecipesForPrint(Number(id));
-    res.json({ recipes: fullRecipes });
+    // Which recipes have an original card (the preview loads small copies on demand)
+    const withCards = fullRecipes.length
+      ? new Set((await db.select({ id: recipes.id }).from(recipes).where(and(inArray(recipes.id, fullRecipes.map((r) => r.id)), isNotNull(recipes.handwrittenImage)))).map((r) => r.id))
+      : new Set<string>();
+    res.json({ recipes: fullRecipes.map((r) => ({ ...r, hasOriginalCard: withCards.has(r.id) })) });
   } catch (error) {
     console.error("Error fetching cookbook recipes for print:", error);
     res.status(500).json({ error: "Failed to fetch recipes for printing" });
+  }
+});
+
+// A small copy of a recipe's original handwritten card, for the print preview
+router.get("/cookbooks/:id/original-cards/:recipeId", optionalAuth, async (req: any, res) => {
+  try {
+    const userId = getUserId(req);
+    const cookbook = await storage.getCookbook(Number(req.params.id), userId);
+    if (!cookbook) return res.status(404).json({ error: "Cookbook not found or not accessible" });
+    const [link] = await db.select({ id: cookbookRecipes.recipeId }).from(cookbookRecipes)
+      .where(and(eq(cookbookRecipes.cookbookId, Number(req.params.id)), eq(cookbookRecipes.recipeId, req.params.recipeId)));
+    if (!link) return res.status(404).json({ error: "Recipe isn't in this cookbook" });
+    const jpeg = await originalCardJpeg(req.params.recipeId, 700);
+    if (!jpeg) return res.status(404).json({ error: "This recipe has no original card" });
+    res.setHeader("Content-Type", "image/jpeg");
+    res.setHeader("Cache-Control", "private, max-age=3600");
+    res.send(jpeg);
+  } catch (error) {
+    console.error("Error serving original card:", error);
+    res.status(500).json({ error: "Couldn't load the original card" });
   }
 });
 
@@ -596,7 +621,7 @@ router.delete("/cookbooks/:id/invitations/:invitationId", isAuthenticated, async
 // Everything about the book besides the layout: template and print specs.
 // The editor autosaves these with the layout so the order uses exactly what
 // the person chose (they used to live only in the page and were lost).
-const TEMPLATE_STYLES = ['classic', 'modern', 'rustic', 'elegant', 'card'] as const;
+const TEMPLATE_STYLES = ['classic', 'modern', 'rustic', 'elegant', 'card', 'heirloom'] as const;
 type TemplateStyle = typeof TEMPLATE_STYLES[number];
 
 async function parseBookSettings(body: any, userId: string): Promise<{ error: string } | { updates: Record<string, any> }> {
@@ -1136,6 +1161,7 @@ async function buildPrintDataFromLayout(
     };
 
     cookbookPrintData.familyPhotos = await loadFamilyPhotosForPrint(cookbookId, layout);
+    await attachOriginalCards(cookbookPrintData);
     return { data: cookbookPrintData };
 }
 
@@ -1427,6 +1453,7 @@ async function placePrintOrder(req: any, userId: string, cookbook: { id: number;
       familyPhotos: await loadFamilyPhotosForPrint(cookbookId, validatedLayout.data),
     };
 
+    await attachOriginalCards(cookbookPrintData);
     console.log(`[Print Order] Generating PDF for cookbook ${cookbookId} with ${cookbookPrintData.recipes.length} recipes`);
 
     // Generate interior PDF

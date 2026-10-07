@@ -22,6 +22,7 @@ export const CARD_LAYOUT_PRESET: RecipeLayoutSpec = {
   nutritionBox: true,
   tipsBox: true,
   cornerRadius: 10,
+  original: 'none',
 };
 
 /** Built-in "Recipe Card" theme: warm white page, golden accents, bold serif titles */
@@ -48,6 +49,57 @@ export const CARD_THEME: ThemeConfig = {
   textColor: '#2f2a24',
   recipeLayout: CARD_LAYOUT_PRESET,
 };
+
+/**
+ * Built-in "Heirloom" template: for family recipes added from photos. The
+ * dish photo and the original handwritten card sit side by side under the
+ * title; recipes without a card get the dish photo beside the title.
+ */
+export const HEIRLOOM_LAYOUT_PRESET: RecipeLayoutSpec = {
+  photo: 'right',
+  titleAlign: 'left',
+  titleCase: 'normal',
+  titleScale: 1.15,
+  badges: true,
+  badgeStyle: 'plain',
+  columns: 'auto',
+  ingredientMarker: 'dot',
+  stepMarker: 'number',
+  panels: 'plain',
+  headingRule: true,
+  nutritionBox: true,
+  tipsBox: true,
+  cornerRadius: 6,
+  original: 'beside',
+};
+
+/** Cream paper, deep cranberry accents, serif type, handwritten captions */
+export const HEIRLOOM_THEME: ThemeConfig = {
+  bg: '#fbf6ec',
+  bgCover: 'linear-gradient(135deg, #7a2631, #5a1a23, #7a2631)',
+  bgBack: 'linear-gradient(135deg, #7a2631, #5a1a23, #7a2631)',
+  titleFont: "'Playfair Display', Georgia, serif",
+  bodyFont: "'Lora', Georgia, serif",
+  accent: '#8c2f39',
+  accentLight: '#f6ece6',
+  accentBorder: '#e2c4bd',
+  divider: '#8c2f39',
+  stepNum: '#8c2f39',
+  badgeBg: '#f6e9e4',
+  badgeText: '#6e1f29',
+  tipsBg: '#fbf3ee',
+  tipsBorder: '#e2c4bd',
+  tipsTitle: '#3b1d18',
+  tipsText: '#4a3530',
+  coverDark: true,
+  pageNum: '#a88e86',
+  titleColor: '#2b1d18',
+  textColor: '#3a2c26',
+  recipeLayout: HEIRLOOM_LAYOUT_PRESET,
+};
+
+/** Handwriting-style face for captions; the PDF and preview both load it */
+const CAPTION_FONT = "'Caveat', 'Segoe Print', cursive";
 
 export interface CardGeometry {
   /** Full page size including bleed, inches */
@@ -152,7 +204,13 @@ export function buildRecipeCardHtml(
   const panelPad = boxed ? `${pt(9)} ${pt(11)}` : `${pt(2)} 0`;
 
   const hasPhoto = opts.includePhoto !== false && !!recipe.imageUrl && spec.photo !== 'none';
-  const photoMode: RecipeLayoutSpec['photo'] = !hasPhoto ? 'none'
+  // The original card replaces the photo layout when this recipe has one
+  const hasOriginal = opts.includePhoto !== false && !!recipe.originalImageUrl && (spec.original ?? 'none') !== 'none';
+  const originalMode: 'none' | 'beside' | 'inset' = !hasOriginal ? 'none'
+    : spec.original === 'inset' && hasPhoto ? 'inset' : 'beside';
+  const photoMode: RecipeLayoutSpec['photo'] = originalMode === 'beside' ? 'none'
+    : originalMode === 'inset' ? 'top'
+    : !hasPhoto ? 'none'
     : (spec.photo === 'right' || spec.photo === 'left') && !wide ? 'top' : spec.photo;
   const twoCol = spec.columns === 'two' || (spec.columns === 'auto' && wide);
 
@@ -168,8 +226,30 @@ export function buildRecipeCardHtml(
   const sidePhotoH = Math.min(geo.heightIn * 0.32, 3.4);
   const sidePhoto = `<div style="height:${sidePhotoH}in;border-radius:${radius};overflow:hidden;"><img src="${recipe.imageUrl}" style="width:100%;height:100%;object-fit:cover;display:block;" /></div>`;
 
+  // The original card on a white mat, slightly tilted, with a handwritten
+  // caption. Height is fixed by the page; width follows the card's shape.
+  // The mat hugs the card's shape: tall cards hit the height limit, wide ones the width limit
+  const originalCard = (heightIn: number, maxWidth: string, tilt: number) => `<figure style="margin:0;flex:0 1 auto;max-width:${maxWidth};display:flex;flex-direction:column;align-items:center;">
+      <div style="max-width:100%;background:#fff;padding:${pt(4)};border:1px solid #e6dccb;box-shadow:0 2px 7px rgba(60,40,20,0.22);transform:rotate(${tilt}deg);box-sizing:border-box;">
+        <img src="${recipe.originalImageUrl}" alt="" style="max-height:${heightIn.toFixed(2)}in;max-width:100%;width:auto;height:auto;display:block;" />
+      </div>
+      <figcaption style="font-family:${CAPTION_FONT};font-size:${pt(12.5)};line-height:1;color:${muted};margin-top:${pt(5)};">The original card</figcaption>
+    </figure>`;
+
   let headerHtml: string;
-  if (photoMode === 'right' || photoMode === 'left') {
+  if (originalMode === 'beside') {
+    // Title on top, then the dish photo and the original card side by side
+    const rowHIn = Math.min(geo.heightIn * (wide ? 0.3 : 0.26), 3.3);
+    const cardHIn = rowHIn - 0.3; // room for the caption
+    const dish = hasPhoto
+      ? `<div style="flex:1 1 0;min-width:28%;height:${cardHIn.toFixed(2)}in;border-radius:${radius};overflow:hidden;"><img src="${recipe.imageUrl}" alt="" style="width:100%;height:100%;object-fit:cover;display:block;" /></div>`
+      : '';
+    const row = `<div style="display:flex;gap:${pt(16)};align-items:flex-start;justify-content:${hasPhoto ? 'flex-start' : 'center'};margin-bottom:${pt(12)};">${dish}${originalCard(cardHIn, hasPhoto ? '62%' : '90%', 1.2)}</div>`;
+    headerHtml = `<div style="margin-bottom:${pt(10)};">${titleBlock}</div>${row}`;
+  } else if (originalMode === 'inset') {
+    // The card overlaps the photo's corner, so keep the title clear of it
+    headerHtml = `<div style="margin-bottom:${pt(10)};padding-right:40%;">${titleBlock}</div>`;
+  } else if (photoMode === 'right' || photoMode === 'left') {
     const cols = photoMode === 'right' ? '1.05fr 1fr' : '1fr 1.05fr';
     const cells = photoMode === 'right' ? titleBlock + sidePhoto : sidePhoto + titleBlock;
     headerHtml = `<div style="display:grid;grid-template-columns:${cols};gap:${pt(16)};align-items:center;margin-bottom:${pt(12)};">${cells}</div>`;
@@ -296,11 +376,19 @@ export function buildRecipeCardHtml(
   const topPhoto = photoMode === 'top'
     ? `<div style="position:absolute;top:0;left:0;right:0;height:${topPhotoH}in;overflow:hidden;"><img src="${recipe.imageUrl}" style="width:100%;height:100%;object-fit:cover;display:block;" /></div>`
     : '';
+  // The card hangs a fixed distance below the photo, whatever its shape,
+  // so it never reaches the ingredients; the title is kept clear of it
+  const insetCardHIn = topPhotoH * 0.8;
+  const insetOverhangIn = 0.85;
+  const insetCard = originalMode === 'inset'
+    ? `<div style="position:absolute;bottom:${(geo.heightIn - topPhotoH - insetOverhangIn).toFixed(2)}in;right:${geo.padRightIn}in;max-width:42%;display:flex;z-index:2;">${originalCard(insetCardHIn, '100%', -2)}</div>`
+    : '';
   const contentTopIn = photoMode === 'top' ? topPhotoH + 0.22 : geo.padTopIn;
   const availHIn = geo.heightIn - contentTopIn - geo.padBottomIn;
 
   return `<div class="recipe-card" style="position:relative;width:${geo.widthIn}in;height:${geo.heightIn}in;background:${theme.bg};overflow:hidden;font-family:${theme.bodyFont};color:${textColor};">
     ${topPhoto}
+    ${insetCard}
     <div class="recipe-content" data-avail-h="${(availHIn * 96).toFixed(1)}" data-avail-w="${(availWIn * 96).toFixed(1)}" style="position:absolute;top:${contentTopIn}in;left:${geo.padLeftIn}in;width:${availWIn}in;">
       ${headerHtml}
       ${badgesHtml}

@@ -12,7 +12,7 @@ import { buildThemeConfigFromTemplate, isColorDark, type ThemeConfig } from "@sh
 import { formatIngredientQuantity } from "@shared/print-format";
 import { convertAmount, type UnitSystem } from "@shared/units";
 import { BOOK_SIZES, type TrimSizeId } from "@/lib/print-constants";
-import { buildRecipeCardHtml, CARD_THEME } from "@shared/recipe-card";
+import { buildRecipeCardHtml, CARD_THEME, HEIRLOOM_THEME } from "@shared/recipe-card";
 import { transformRecipe } from "@shared/print-recipe-transform";
 import {
   buildAlbumPageHtml, chunkAlbum, familyPhotoSlotHtml, fitFamilyPhotoSlots,
@@ -56,7 +56,7 @@ interface CookbookPrintPreviewProps {
   open: boolean;
   onClose: () => void;
   layoutData: PrintLayoutData;
-  templateStyle: 'classic' | 'modern' | 'rustic' | 'elegant' | 'card';
+  templateStyle: 'classic' | 'modern' | 'rustic' | 'elegant' | 'card' | 'heirloom';
   cookbookId: number;
   trimSize?: string;
   customTemplateData?: CustomTemplateData | null;
@@ -150,6 +150,7 @@ const THEMES = {
     pageNum: '#a8a29e',
   },
   card: { name: 'Recipe Card', ...CARD_THEME },
+  heirloom: { name: 'Heirloom', ...HEIRLOOM_THEME },
 };
 
 
@@ -216,6 +217,8 @@ export function CookbookPrintPreview({
       if (fonts.body.source === 'google' && fonts.body.family !== fonts.heading.family) families.push(fonts.body.family);
     } else if (templateStyle === 'card') {
       families.push('Playfair Display', 'Inter');
+    } else if (templateStyle === 'heirloom') {
+      families.push('Playfair Display', 'Lora', 'Caveat');
     }
     if (families.length === 0) return;
 
@@ -551,6 +554,7 @@ export function CookbookPrintPreview({
                 )}
                 {page?.type === "recipe" && theme.recipeLayout && (
                   <CardRecipePage
+                    cookbookId={cookbookId}
                     recipe={page.recipe}
                     theme={theme}
                     unitSystem={(layoutData?.customizations?.unitSystem as UnitSystem) || "original"}
@@ -978,21 +982,25 @@ function AlbumPage({ photos, theme, w, h, pageNumber }: {
 
 // Card layout: the same HTML the PDF generator prints (shared/recipe-card.ts),
 // shrunk to fit with the same zoom search when a recipe runs long
-function CardRecipePage({ recipe, theme, w, h, includePhoto, unitSystem, pageNumber, familyPhotoSrc }: {
+function CardRecipePage({ recipe, theme, w, h, includePhoto, unitSystem, pageNumber, familyPhotoSrc, cookbookId }: {
   recipe: Recipe; theme: ThemeConfig; w: number; h: number;
-  includePhoto: boolean; unitSystem: UnitSystem; pageNumber?: number; familyPhotoSrc?: string;
+  includePhoto: boolean; unitSystem: UnitSystem; pageNumber?: number; familyPhotoSrc?: string; cookbookId: number;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const html = useMemo(() => {
     const n = transformRecipe(recipe as any, unitSystem);
     n.imageUrl = recipe.dishImageThumbnail || recipe.dishImage || n.imageUrl;
+    // Original handwritten card: a small copy, loaded only when the layout shows it
+    if ((recipe as any).hasOriginalCard && (theme.recipeLayout?.original ?? 'none') !== 'none') {
+      n.originalImageUrl = `/api/cookbooks/${cookbookId}/original-cards/${recipe.id}`;
+    }
     return buildRecipeCardHtml(n, theme.recipeLayout, theme, {
       widthIn: w / DPI, heightIn: h / DPI, bleedIn: 0,
       padTopIn: MARGIN_TOP, padBottomIn: MARGIN_BOTTOM,
       padLeftIn: MARGIN_INNER, padRightIn: MARGIN_OUTER,
       pageNumber,
     }, { includePhoto, beforePageNumber: familyPhotoSrc ? familyPhotoSlotHtml(familyPhotoSrc, theme) : '' });
-  }, [recipe, theme, unitSystem, w, h, pageNumber, includePhoto, familyPhotoSrc]);
+  }, [recipe, theme, unitSystem, w, h, pageNumber, includePhoto, familyPhotoSrc, cookbookId]);
 
   useLayoutEffect(() => {
     const root = ref.current;

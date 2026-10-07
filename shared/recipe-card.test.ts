@@ -57,3 +57,33 @@ describe('buildRecipeCardHtml', () => {
     expect(bare).not.toContain('<img');
   });
 });
+
+describe('Heirloom: the original handwritten card', () => {
+  const withCard: NormalizedRecipe = { ...recipe, originalImageUrl: 'data:image/jpeg;base64,CARD' };
+
+  it('puts the dish photo and the card side by side, with a caption', async () => {
+    const { HEIRLOOM_THEME } = await import('./recipe-card');
+    const html = buildRecipeCardHtml(withCard, HEIRLOOM_THEME.recipeLayout, HEIRLOOM_THEME, geo(6.25, 9.25));
+    expect(html).toContain('data:image/jpeg;base64,CARD');
+    expect(html).toContain('data:image/png;base64,AAAA');
+    expect(html).toContain('The original card');
+  });
+
+  it('tucks the card over the photo in inset mode', async () => {
+    const { HEIRLOOM_THEME } = await import('./recipe-card');
+    const html = buildRecipeCardHtml(withCard, { ...HEIRLOOM_THEME.recipeLayout, original: 'inset' }, HEIRLOOM_THEME, geo(8.75, 11.25));
+    expect(html).toMatch(/position:absolute;bottom:[\d.]+in;right:/);
+    expect(html).toContain('padding-right:40%');
+  });
+
+  it('falls back to the normal photo layout for recipes without a card', async () => {
+    const { HEIRLOOM_THEME } = await import('./recipe-card');
+    const html = buildRecipeCardHtml(recipe, HEIRLOOM_THEME.recipeLayout, HEIRLOOM_THEME, geo(8.75, 11.25));
+    expect(html).not.toContain('The original card');
+    expect(html).toContain('data:image/png;base64,AAAA');
+  });
+
+  it('leaves the card off for layouts that do not ask for it', () => {
+    expect(buildRecipeCardHtml(withCard, undefined, CARD_THEME, geo(8.75, 11.25))).not.toContain('CARD');
+  });
+});

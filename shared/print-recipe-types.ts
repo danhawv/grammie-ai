@@ -38,6 +38,8 @@ export interface NormalizedRecipe {
   notes?: string[];
   tags: string[];
   imageUrl?: string;
+  /** Photo of the original handwritten card, when the recipe was added from one */
+  originalImageUrl?: string;
   source?: string;
   nutritionInfo?: NutritionData;
   tips?: any[];

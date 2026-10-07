@@ -7,7 +7,7 @@ import type {
   CoverFinishId,
 } from "@/lib/print-constants";
 
-export type TemplateStyle = "classic" | "modern" | "rustic" | "elegant" | "card";
+export type TemplateStyle = "classic" | "modern" | "rustic" | "elegant" | "card" | "heirloom";
 
 /** Everything the print builder autosaves to the print project */
 export interface BookDraft {

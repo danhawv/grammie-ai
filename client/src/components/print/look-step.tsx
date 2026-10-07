@@ -44,6 +44,7 @@ const TEMPLATE_STYLES: { id: TemplateStyle; name: string; description: string }[
   { id: "rustic", name: "Rustic", description: "Warm and homey, with soft textures" },
   { id: "elegant", name: "Elegant", description: "Refined type and generous spacing" },
   { id: "card", name: "Recipe Card", description: "Photo beside the title, with nutrition and tips on every page" },
+  { id: "heirloom", name: "Heirloom", description: "For family recipes: the dish photo next to the original handwritten card" },
 ];
 
 interface LookStepProps {
@@ -64,7 +65,7 @@ export function LookStep({ cookbookId, draft, update, updateCustomization }: Loo
 
   const { templateStyle, customTemplateId, trimSize, bindingType, paperType, colorType, coverFinish } = draft;
   const selectedCustom = customTemplates.find((t) => t.id === customTemplateId);
-  const usesRecipeCardLayout = (templateStyle === "card" && !customTemplateId) || !!(selectedCustom?.templateData as any)?.layout;
+  const usesRecipeCardLayout = ((templateStyle === "card" || templateStyle === "heirloom") && !customTemplateId) || !!(selectedCustom?.templateData as any)?.layout;
   const compatiblePapers = BINDING_PAPER_COMPATIBILITY[bindingType] || [];
   const limits = BINDING_PAGE_LIMITS[bindingType];
   const c = draft.layoutData.customizations;

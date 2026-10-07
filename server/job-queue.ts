@@ -659,7 +659,7 @@ class JobQueue {
         cookTime: rawRecipe.cookTime,
         totalTime: rawRecipe.totalTime,
         coolingTime: rawRecipe.coolingTime,
-        servings: rawRecipe.servings || undefined, // Keep if extracted, otherwise let enrichment determine it
+        servings: rawRecipe.servings || 0, // 0 = not on the card: enrichment estimates it (the upload placeholder was 1, which stuck)
         servingUnit: rawRecipe.servingUnit,
         servingSize: rawRecipe.servingSize,
         yield: rawRecipe.yield,
@@ -753,7 +753,7 @@ class JobQueue {
         cookTime: rawRecipe.cookTime,
         totalTime: rawRecipe.totalTime,
         coolingTime: rawRecipe.coolingTime,
-        servings: rawRecipe.servings || undefined,
+        servings: rawRecipe.servings || 0, // 0 = not on the card: enrichment estimates it
         servingUnit: rawRecipe.servingUnit,
         servingSize: rawRecipe.servingSize,
         yield: rawRecipe.yield,
@@ -861,7 +861,7 @@ class JobQueue {
         cookTime: recipe.cookTime || undefined,
         totalTime: recipe.totalTime,
         coolingTime: recipe.coolingTime || undefined,
-        servings: recipe.servings,
+        servings: recipe.servings || undefined,
         servingUnit: recipe.servingUnit || undefined,
         yield: recipe.yield || undefined,
         ingredients: recipe.ingredients,
@@ -897,7 +897,11 @@ class JobQueue {
       
       // Update recipe with all enriched fields
       // If AI provided a corrected title, use it (fixes OCR/handwriting extraction errors)
-      const titleUpdate = enriched.correctedTitle ? { title: enriched.correctedTitle } : {};
+      // Only replace a title that wasn't really read (a placeholder or one with
+      // [?] marks). A readable title is the family's own name for the dish:
+      // "Whole Chicken!" must not become "Whole Chicken with Roasted Potatoes".
+      const titleUnreadable = !recipe.title || /\[\?\]/.test(recipe.title) || ["Your Recipe", "Untitled Recipe"].includes(recipe.title) || / Recipe$/.test(recipe.title) && recipe.title.split(" ").length <= 2;
+      const titleUpdate = enriched.correctedTitle && titleUnreadable ? { title: enriched.correctedTitle } : {};
       if (enriched.correctedTitle && enriched.correctedTitle !== recipe.title) {
         console.log(`[Job Queue] Title corrected: "${recipe.title}" → "${enriched.correctedTitle}"`);
       }
@@ -1074,7 +1078,7 @@ class JobQueue {
         cookTime: recipe.cookTime || undefined,
         totalTime: recipe.totalTime,
         coolingTime: recipe.coolingTime || undefined,
-        servings: recipe.servings,
+        servings: recipe.servings || undefined,
         servingUnit: recipe.servingUnit || undefined,
         yield: recipe.yield || undefined,
         ingredients: recipe.ingredients,
