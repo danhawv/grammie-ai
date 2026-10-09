@@ -283,7 +283,7 @@ export function PrintOrderPanel({
     </p>
   ) : null;
 
-  const lastOrder = existingOrder?.id && stage !== "placed" ? <OrderStatusCard orderId={existingOrder.id} status={existingOrder.status} heading="Your last order" /> : null;
+  const lastOrder = existingOrder?.id && stage !== "placed" ? <OrderStatusCard orderId={existingOrder.id} status={existingOrder.status} heading="Your earlier order" /> : null;
 
   // ---- 4. Confirmation ----
   if (stage === "placed" && placed) {
@@ -663,10 +663,20 @@ function OrderStatusCard({ orderId, status, heading }: { orderId: string; status
           {range ? ` · arrives about ${range}` : ""}
         </p>
         {current === "REJECTED" && (
-          <p className="mt-1 text-sm text-destructive" data-testid="order-rejected">
-            The printer couldn't use this book's files, so it wasn't printed and nothing was charged.
-            {live.data?.problem ? ` Their reason: ${live.data.problem}` : ""} You can order again once it's fixed.
-          </p>
+          // This is a past order: ordering again makes new files from the
+          // book as it is now, so it's a note, not an alarm
+          <div className="mt-1 space-y-1 text-sm text-muted-foreground" data-testid="order-rejected">
+            <p>
+              The printer couldn't use the files for that order, so it wasn't printed and nothing was charged.
+              Ordering again makes new files from your book as it is now.
+            </p>
+            {live.data?.problem && (
+              <details>
+                <summary className="inline-flex min-h-11 cursor-pointer items-center text-primary">The printer's reason</summary>
+                <p className="mt-1">{live.data.problem}</p>
+              </details>
+            )}
+          </div>
         )}
         {live.isError && <p className="text-sm text-destructive">Couldn't get the latest status. Try again in a moment.</p>}
       </div>
