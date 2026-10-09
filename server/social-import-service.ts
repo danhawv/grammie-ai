@@ -110,7 +110,7 @@ const IG_IDENTITIES: { name: string; ua: string }[] = [
 ];
 
 /** What Instagram sent back, for the admin diagnostic */
-export interface IgAttempt { route: string; identity: string; status: number | string; bytes: number; found: boolean; ms: number }
+export interface IgAttempt { route: string; identity: string; status: number | string; bytes: number; found: boolean; ms: number; sample?: string }
 
 async function instagramFromEmbed(code: string, kind: "p" | "reel", ua = UA, log?: IgAttempt[], identity = "grammie"): Promise<SocialPost | null> {
   const t = Date.now();
@@ -148,7 +148,8 @@ async function instagramFromPostPage(code: string, kind: "p" | "reel", ua = UA, 
   const description = $('meta[property="og:description"]').attr("content") || "";
   const m = description.match(/^[^"]*?-\s*([\w.]+) on [^:]+:\s*"([\s\S]*)"\.?\s*$/);
   const text = (m ? m[2] : "").trim();
-  log?.push({ route: "post page", identity, status: res.status, bytes: body.length, found: !!text, ms: Date.now() - t });
+  log?.push({ route: "post page", identity, status: res.status, bytes: body.length, found: !!text, ms: Date.now() - t,
+    sample: `${$("title").first().text().slice(0, 80)} | ${description.slice(0, 160)} | lang=${$("html").attr("lang") ?? ""}` });
   if (!res.ok) return null;
   if (!text) return null;
   return {
