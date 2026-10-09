@@ -1,3 +1,4 @@
+import { paginateToc, tocMetrics } from "./toc-layout";
 // "Ready to print?" — the plain-language check before ordering a book
 // (docs/DESIGN_PRINCIPLES.md §6 and §10). The server gathers facts about each
 // recipe; this turns them into a short list grouped as "Needs attention"
@@ -60,10 +61,62 @@ export function pagesPerRecipe(trimSize: string | undefined): number {
   return width && width < 7 ? 2.5 : 2;
 }
 
-export function estimateBookPages(recipeCount: number, chapterCount: number, trimSize?: string): number {
+/** What the book's page count depends on, when the editor knows it */
+export interface BookPageDetails {
+  /** Recipes per chapter, in order (chapters with no recipes left out) */
+  chapterSizes: number[];
+  /**
+   * Whether each recipe gets an extras page after it: on card-style
+   * templates (Recipe Card, Heirloom) only for variations; on the others
+   * for nutrition, tips or variations
+   */
+  extrasOn: boolean;
+  /** Recipes set to a two-page spread (photo page + recipe page) */
+  spreadCount?: number;
+  /** Photos in the Family Album (4 per page, after an album title page) */
+  albumPhotoCount?: number;
+  /** The binding's minimum; short books are padded with Notes pages */
+  minPages?: number;
+}
+
+/** Page size in inches from a Lulu trim code like "0600X0900" */
+function trimInches(trimSize?: string): { w: number; h: number } {
+  const m = String(trimSize ?? "0600X0900").match(/^(\d{4})X(\d{4})$/);
+  return m ? { w: Number(m[1]) / 100, h: Number(m[2]) / 100 } : { w: 6, h: 9 };
+}
+
+/**
+ * Pages in the printed book. With details it counts the pages the PDF
+ * generator lays out (title, dedication, contents, a page per chapter, the
+ * recipes, album, back page, padded to the minimum and an even total).
+ * Without details it's the old rough guess of 2-2.5 pages per recipe.
+ */
+export function estimateBookPages(recipeCount: number, chapterCount: number, trimSize?: string, details?: BookPageDetails): number {
   if (recipeCount === 0) return 0;
-  // Title page, dedication, contents, plus a title page per chapter
-  return Math.ceil(recipeCount * pagesPerRecipe(trimSize) + 4 + chapterCount);
+  if (!details) {
+    // Title page, dedication, contents, plus a title page per chapter
+    return Math.ceil(recipeCount * pagesPerRecipe(trimSize) + 4 + chapterCount);
+  }
+  const { w, h } = trimInches(trimSize);
+  // Same contents layout as the preview and PDF (0.5in margins, 24px top gap)
+  const entries: { isSection: boolean }[] = [];
+  details.chapterSizes.forEach((n) => {
+    entries.push({ isSection: true });
+    for (let i = 0; i < n; i++) entries.push({ isSection: false });
+  });
+  const album = details.albumPhotoCount ?? 0;
+  if (album) entries.push({ isSection: false });
+  const tocPages = Math.max(1, paginateToc(entries, tocMetrics((h - 1) * 96 - 24, w * 96)).length);
+
+  const perRecipe = details.extrasOn ? 2 : 1;
+  let pages = 1 /* title */ + 1 /* dedication or copyright */ + tocPages
+    + details.chapterSizes.length
+    + recipeCount * perRecipe + (details.spreadCount ?? 0)
+    + (album ? 1 + Math.ceil(album / 4) : 0);
+  // Notes pages up to the minimum, then the back page, and an even total
+  const target = Math.max(details.minPages ?? 0, pages + 1);
+  pages = Math.max(pages + 1, target);
+  return pages % 2 === 0 ? pages : pages + 1;
 }
 
 export function checkReadiness(input: {

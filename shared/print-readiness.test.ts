@@ -55,3 +55,21 @@ describe("checkReadiness", () => {
     expect(r.items.map((i) => i.code)).toEqual(["no_recipes"]);
   });
 });
+
+describe("estimateBookPages with book details", () => {
+  // Mom's cookbook: Heirloom, 8 chapters, 96 recipes, 45 album photos
+  const mom = { chapterSizes: [21, 14, 12, 11, 16, 13, 4, 5], extrasOn: false, albumPhotoCount: 45, minPages: 32 };
+
+  it("matches the preview's count for a one-page-per-recipe book", () => {
+    expect(estimateBookPages(96, 8, "0600X0900", mom)).toBe(124);
+  });
+
+  it("adds an extras page per recipe when extras print", () => {
+    expect(estimateBookPages(96, 8, "0600X0900", { ...mom, extrasOn: true })).toBe(220);
+  });
+
+  it("pads short books to the binding minimum and keeps the total even", () => {
+    const n = estimateBookPages(3, 1, "0600X0900", { chapterSizes: [3], extrasOn: false, minPages: 32 });
+    expect(n).toBe(32);
+  });
+});

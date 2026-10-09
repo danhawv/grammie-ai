@@ -25,6 +25,7 @@ import { SaveStatus, StepBar, StepList } from "@/components/print/step-nav";
 import { usePrintAutosave } from "@/components/print/use-print-autosave";
 import { STEPS, isStepId, type BookDraft, type RecipeSummary, type Section, type StepId } from "@/components/print/types";
 import { estimateBookPages } from "@shared/print-readiness";
+import { BINDING_PAGE_LIMITS } from "@/lib/print-constants";
 import type { CookbookPrintProject, CustomTemplate, PrintLayoutData } from "@shared/schema";
 import type { BindingTypeId, ColorTypeId, CoverFinishId, PaperTypeId, TrimSizeId } from "@/lib/print-constants";
 
@@ -294,8 +295,17 @@ function CookbookPrintEditorInner() {
   const layout = draft.layoutData;
   const hasRecipes = layout.sections.some((s) => s.recipeIds.length > 0);
   const recipeCount = layout.sections.reduce((n, s) => n + s.recipeIds.length, 0);
-  const estimatedPageCount = estimateBookPages(recipeCount, layout.sections.filter((s) => s.recipeIds.length).length, draft.trimSize);
   const selectedTemplate = draft.customTemplateId ? customTemplates.find((t) => t.id === draft.customTemplateId) : undefined;
+  // Count the pages the PDF will have (the price quote uses this)
+  const cardLayout = selectedTemplate ? !!(selectedTemplate.templateData as any)?.layout : draft.templateStyle === "card" || draft.templateStyle === "heirloom";
+  const extras = layout.customizations;
+  const estimatedPageCount = estimateBookPages(recipeCount, layout.sections.filter((s) => s.recipeIds.length).length, draft.trimSize, {
+    chapterSizes: layout.sections.map((s) => s.recipeIds.length).filter((n) => n > 0),
+    extrasOn: cardLayout ? !!extras?.showVariations : !!(extras?.showNutrition || extras?.showTips || extras?.showVariations),
+    spreadCount: Object.values(layout.recipePrintSettings ?? {}).filter((r) => r?.layoutOverride === "two-page-spread").length,
+    albumPhotoCount: (layout.familyPhotos ?? []).filter((p) => p.placement?.type === "album").length,
+    minPages: BINDING_PAGE_LIMITS[draft.bindingType]?.min,
+  });
   const stepInfo = STEPS.find((s) => s.id === step)!;
 
   return (
