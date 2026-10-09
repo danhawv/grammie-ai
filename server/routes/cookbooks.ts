@@ -14,6 +14,7 @@ import {
   cookbookRecipes,
   cookbookPhotos,
   type PrintLayoutData,
+  type PrintOrder,
 } from "@shared/schema";
 import { CHAPTERS, chapterForTags, buildCoursePlan } from "@shared/courses";
 import { normalizeUsState } from "@shared/us-states";
@@ -25,8 +26,10 @@ import { planFamilyPhotos } from "@shared/family-photos";
 import { transformRecipe } from "../lib/pdf/recipe-transformer";
 import { buildPodPackageId, BINDING_PAGE_LIMITS, BINDING_PAPER_COMPATIBILITY, unsupportedBookReason } from "../lib/lulu/pod-package";
 import { BOOK_SIZES as LULU_BOOK_SIZES } from "../lib/lulu/book-sizes";
-import { createPrintJob } from "../lib/lulu/client";
-import type { BookConfig, LuluPrintJobRequest, ShippingLevel } from "../lib/lulu/types";
+import {
+  createOrder, getOrder, ordersForCookbook, prepareOrder, publicOrder, refreshOrder,
+  setOrderPrintDataBuilder, paymentsEnabled, luluIsProduction,
+} from "../lib/print-orders";
 import { getUserId, upload, storePdf } from "./route-utils";
 import { toEmbeddableImage } from "../lib/media-storage";
 
@@ -1449,159 +1452,129 @@ async function placePrintOrder(req: any, userId: string, cookbook: { id: number;
     const coverFinishVal = printProject?.coverFinish || 'M';
     const unsupported = unsupportedBookReason({ bindingType, paperType, colorType } as any);
     if (unsupported) return reply(400, { error: unsupported });
-    const templateId = printProject?.templateStyle || 'classic';
-    const recipePrintSettings = validatedLayout.data.recipePrintSettings || {};
+    const title = validatedLayout.data.title || cookbook.name;
+    const contactEmail = shippingAddress.email?.trim() || (await storage.getUser(userId))?.email || '';
+    if (!contactEmail) return reply(400, { error: "Please enter an email address for order updates." });
+    if (!paymentsEnabled() && luluIsProduction()) {
+      return reply(503, { error: "Ordering printed books isn't open yet. Nothing was charged." });
+    }
 
-    // Resolve custom template if the print project uses one
-    let orderCustomTemplateData = undefined;
-    let orderCustomFonts = undefined;
-    let orderBackgroundImage = undefined;
+    // The order keeps its own copy of the book as ordered, so its files can
+    // be made again later and later edits don't change it
+    // Behind Railway's proxy the scheme arrives in X-Forwarded-Proto
+    const host = `${String(req.headers['x-forwarded-proto'] || req.protocol).split(',')[0]}://${req.get('host')}`;
+    const order = await createOrder({
+      ownerUserId: userId,
+      cookbookId,
+      printProjectId: printProject.id,
+      status: 'preparing',
+      snapshot: {
+        layoutData: validatedLayout.data,
+        templateStyle: printProject.templateStyle || 'classic',
+        customTemplateId: printProject.customTemplateId ?? null,
+        trimSize, bindingType, paperType, colorType, coverFinish: coverFinishVal,
+        baseUrl: process.env.PUBLIC_URL || host,
+        title,
+      },
+      quantity: copies,
+      shippingLevel: shippingLevel || 'MAIL',
+      shippingAddress,
+      contactEmail,
+    });
+    const returnUrl = `${process.env.PUBLIC_URL || host}/cookbook/${cookbookId}/print-editor?step=order`;
+    void prepareOrder(order.id, returnUrl);
+    return reply(202, { orderRef: order.id, paymentsEnabled: paymentsEnabled() });
+}
 
-    if (printProject?.customTemplateId) {
-      const customTemplate = await storage.getCustomTemplate(printProject.customTemplateId);
+/** Assembles an order's book from its saved copy (used to make its files) */
+async function buildOrderPrintData(order: PrintOrder): Promise<CookbookPrintData> {
+    const s = order.snapshot;
+    const layout = s.layoutData;
+    const allRecipeIds = layout.sections.flatMap((sec) => sec.recipeIds || []).filter((rid): rid is string => typeof rid === 'string' && rid.length > 0);
+    await storage.ensurePrintImagesForRecipes(allRecipeIds);
+    const recipesResult = await fetchPrintRecipesByIds(allRecipeIds);
+    const recipePrintSettings = layout.recipePrintSettings || {};
+
+    let customTemplateData = undefined;
+    let customFonts = undefined;
+    let backgroundImage = undefined;
+    if (s.customTemplateId) {
+      const customTemplate = await storage.getCustomTemplate(s.customTemplateId);
       if (customTemplate) {
-        orderCustomTemplateData = customTemplate.templateData as any;
-        orderCustomFonts = customTemplate.customFonts as any;
-        orderBackgroundImage = await embedTemplateMediaForPdf(orderCustomTemplateData, orderCustomFonts, customTemplate.backgroundImage || undefined);
+        customTemplateData = customTemplate.templateData as any;
+        customFonts = customTemplate.customFonts as any;
+        backgroundImage = await embedTemplateMediaForPdf(customTemplateData, customFonts, customTemplate.backgroundImage || undefined);
       }
     }
 
-    // Build cookbook print data
-    const cookbookPrintData: CookbookPrintData = {
-      title: validatedLayout.data.title || cookbook.name,
-      subtitle: validatedLayout.data.subtitle,
-      authorName: validatedLayout.data.authorName || 'Unknown',
-      dedication: validatedLayout.data.dedication,
-      minPages: (BINDING_PAGE_LIMITS[bindingType] || { min: 32 }).min,
-      templateId,
-      trimSize,
-      bindingType,
-      paperType,
-      colorType,
-      sections: validatedLayout.data.sections.map((s, i) => ({
-        id: s.id,
-        title: s.title,
-        sortOrder: i,
-      })),
-      recipes: validatedLayout.data.sections.flatMap((section, sIdx) =>
+    const data: CookbookPrintData = {
+      title: s.title,
+      subtitle: layout.subtitle,
+      authorName: layout.authorName || 'Unknown',
+      dedication: layout.dedication,
+      minPages: (BINDING_PAGE_LIMITS[s.bindingType] || { min: 32 }).min,
+      templateId: s.templateStyle,
+      trimSize: s.trimSize,
+      bindingType: s.bindingType,
+      paperType: s.paperType,
+      colorType: s.colorType,
+      sections: layout.sections.map((sec, i) => ({ id: sec.id, title: sec.title, sortOrder: i })),
+      recipes: layout.sections.flatMap((section) =>
         (section.recipeIds || []).map((recipeId, rIdx) => {
           const recipeData = recipesResult.find(r => r.id === recipeId);
           if (!recipeData) return null;
-          const settings = recipePrintSettings[recipeId];
           return {
             sectionId: section.id,
             sortOrder: rIdx,
-            layoutOverride: settings?.layoutOverride,
-            data: transformRecipe(recipeData, validatedLayout.data.customizations?.unitSystem || 'original'),
+            layoutOverride: recipePrintSettings[recipeId]?.layoutOverride,
+            data: transformRecipe(recipeData, layout.customizations?.unitSystem || 'original'),
           };
         }).filter(Boolean)
       ) as CookbookPrintData['recipes'],
-      coverData: validatedLayout.data.coverData,
-      customizations: validatedLayout.data.customizations ? {
-        showNutrition: validatedLayout.data.customizations.showNutrition,
-        showTips: validatedLayout.data.customizations.showTips,
-        showVariations: validatedLayout.data.customizations.showVariations,
+      coverData: layout.coverData,
+      customizations: layout.customizations ? {
+        showNutrition: layout.customizations.showNutrition,
+        showTips: layout.customizations.showTips,
+        showVariations: layout.customizations.showVariations,
       } : undefined,
-      customTemplateData: orderCustomTemplateData,
-      customFonts: orderCustomFonts,
-      backgroundImage: orderBackgroundImage,
-      familyPhotos: await loadFamilyPhotosForPrint(cookbookId, validatedLayout.data),
+      customTemplateData,
+      customFonts,
+      backgroundImage,
+      familyPhotos: await loadFamilyPhotosForPrint(order.cookbookId, layout),
     };
-
-    await attachOriginalCards(cookbookPrintData);
-    console.log(`[Print Order] Generating PDF for cookbook ${cookbookId} with ${cookbookPrintData.recipes.length} recipes`);
-
-    // Generate interior PDF
-    const pdfResult = await generateInteriorPdf(cookbookPrintData);
-
-    // Validate page count
-    const limits = BINDING_PAGE_LIMITS[bindingType] || { min: 32, max: 800 };
-    if (pdfResult.pageCount > limits.max) {
-      return reply(400, {
-        error: `Cookbook has ${pdfResult.pageCount} pages but maximum is ${limits.max} for this binding type. Please reduce the number of recipes.`
-      });
-    }
-
-    // The interior is padded to the binding minimum, so this is the true count
-    const pageCount = pdfResult.pageCount;
-    console.log(`[Print Order] Interior PDF generated with ${pageCount} pages`);
-
-    const safeTitle = (validatedLayout.data.title || 'cookbook').replace(/[^a-zA-Z0-9]/g, '_');
-    const interiorPdfId = storePdf(pdfResult.buffer, `${safeTitle}_interior.pdf`);
-
-    // Generate cover PDF
-    console.log(`[Print Order] Generating cover PDF for ${pageCount} pages`);
-    const coverBuffer = await generateCoverPdf(cookbookPrintData, pageCount);
-    const coverPdfId = storePdf(coverBuffer, `${safeTitle}_cover.pdf`);
-    console.log(`[Print Order] Cover PDF generated successfully`);
-
-    const baseUrl = process.env.PUBLIC_URL || `https://${req.get('host')}`;
-    const interiorUrl = `${baseUrl}/lulu/pdfs/${interiorPdfId}`;
-    const coverUrl = `${baseUrl}/lulu/pdfs/${coverPdfId}`;
-
-    console.log(`[Print Order] PDFs staged at: interior=${interiorUrl}, cover=${coverUrl}`);
-
-    // Build POD package ID from print project specs
-    const bookConfig: BookConfig = {
-      trimSize: trimSize as BookConfig['trimSize'],
-      colorType: colorType as BookConfig['colorType'],
-      printQuality: 'STD',
-      bindingType: bindingType as BookConfig['bindingType'],
-      paperType: paperType as BookConfig['paperType'],
-      coverFinish: coverFinishVal as BookConfig['coverFinish'],
-      linenColor: 'X',
-      foilType: 'X',
-    };
-    const podPackageId = buildPodPackageId(bookConfig);
-
-    const externalId = `cookbook-${cookbookId}-${Date.now()}`;
-
-    // Lulu requires a contact email; fall back to the account's email when the form field is blank
-    const contactEmail = shippingAddress.email?.trim() || (await storage.getUser(userId))?.email || '';
-    if (!contactEmail) {
-      return reply(400, { error: "Please enter an email address for order updates." });
-    }
-
-    const orderRequest: LuluPrintJobRequest = {
-      contact_email: contactEmail,
-      line_items: [{
-        title: cookbook.name,
-        cover: coverUrl,
-        interior: interiorUrl,
-        pod_package_id: podPackageId,
-        quantity: copies,
-      }],
-      shipping_address: shippingAddress,
-      shipping_level: (shippingLevel || 'GROUND_HD') as ShippingLevel,
-      external_id: externalId,
-    };
-
-    const order = await createPrintJob(orderRequest);
-
-    // Record it; if this fails the order still exists at Lulu, so report
-    // success with the number rather than inviting a duplicate order
-    try {
-      await storage.updatePrintProjectLuluOrder(printProject.id, String(order.id), order.status.name);
-    } catch (err) {
-      console.error(`[Print Order] Order ${order.id} placed but not recorded on project ${printProject.id}:`, err);
-    }
-
-    const arrival = order.estimated_shipping_dates?.arrival_min && order.estimated_shipping_dates?.arrival_max
-      ? { min: order.estimated_shipping_dates.arrival_min.slice(0, 10), max: order.estimated_shipping_dates.arrival_max.slice(0, 10) }
-      : estimateArrival(orderRequest.shipping_level);
-
-    return reply(200, {
-      success: true,
-      orderId: order.id,
-      status: order.status.name,
-      quantity: copies,
-      arrival,
-      total: order.costs?.total_cost_incl_tax ? parseFloat(order.costs.total_cost_incl_tax) : null,
-      projectId: printProject.id,
-      message: "Print order submitted successfully",
-      podPackageId,
-      pdfUrls: { interior: interiorUrl, cover: coverUrl },
-    });
+    await attachOriginalCards(data);
+    return data;
 }
+setOrderPrintDataBuilder(buildOrderPrintData);
+
+// ---- Orders: status, history, files for Lulu ----
+
+router.get("/cookbooks/:id/print-orders", isAuthenticated, async (req: any, res) => {
+  try {
+    const userId = getUserId(req);
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    const orders = await ordersForCookbook(Number(req.params.id), userId);
+    res.json({ orders: orders.map(publicOrder), paymentsEnabled: paymentsEnabled() });
+  } catch (error) {
+    console.error("Error listing print orders:", error);
+    res.status(500).json({ error: "Couldn't load your orders" });
+  }
+});
+
+router.get("/print-orders/:orderId", isAuthenticated, async (req: any, res) => {
+  try {
+    const userId = getUserId(req);
+    let order = await getOrder(req.params.orderId);
+    if (!order || order.ownerUserId !== userId) return res.status(404).json({ error: "Order not found" });
+    order = await refreshOrder(order).catch((err) => {
+      console.warn(`[Order ${order!.id}] Couldn't refresh:`, err?.message);
+      return order!;
+    });
+    res.json(publicOrder(order));
+  } catch (error) {
+    console.error("Error getting print order:", error);
+    res.status(500).json({ error: "Couldn't load this order" });
+  }
+});
 
 export default router;

@@ -83,14 +83,33 @@ interface Quote {
 interface LuluStatus {
   configured: boolean;
   testMode?: boolean;
+  paymentsEnabled?: boolean;
+  canOrder?: boolean;
 }
 
 interface OrderResult {
-  orderId: number;
-  status: string;
+  orderRef: string;
+  paymentsEnabled: boolean;
+}
+
+/** An order as the server shows it (server/lib/print-orders.ts publicOrder) */
+interface PrintOrderView {
+  id: string;
+  status: "preparing" | "awaiting_payment" | "paid" | "submitted" | "failed" | "refunded" | "canceled";
+  luluStatus: string | null;
+  luluOrderId: string | null;
+  checkoutUrl: string | null;
   quantity: number;
-  arrival: { min: string; max: string };
-  total: number | null;
+  pageCount: number | null;
+  priceCents: number | null;
+  shippingLevel: string;
+  arrival: { min: string; max: string } | null;
+  tracking: { carrier?: string; number?: string; url?: string }[] | null;
+  problem: string | null;
+  refunded: boolean;
+  title: string;
+  contactEmail: string;
+  createdAt: string;
 }
 
 const COUNTRIES = [
@@ -140,7 +159,9 @@ export function PrintOrderPanel({
   const [errors, setErrors] = useState<Partial<Record<AddressField, string>>>({});
   const [showApt, setShowApt] = useState(false);
   const [quote, setQuote] = useState<Quote | null>(null);
-  const [placed, setPlaced] = useState<OrderResult | null>(null);
+  // The order being placed or just paid for; Stripe sends people back with ?order=
+  const [orderRef, setOrderRef] = useState<string | null>(() => new URLSearchParams(window.location.search).get("order"));
+  const returnedFromCheckout = useRef(new URLSearchParams(window.location.search).has("canceled") ? "canceled" : null);
   const [orderError, setOrderError] = useState<string | null>(null);
   const idempotencyKey = useRef<string>("");
   const submitted = useRef(false);
@@ -188,7 +209,7 @@ export function PrintOrderPanel({
       return (await res.json()) as OrderResult;
     },
     onSuccess: (r) => {
-      setPlaced(r);
+      setOrderRef(r.orderRef);
       setStage("placed");
       queryClient.invalidateQueries({ queryKey: ["/api/cookbooks", cookbookId, "print-projects"] });
       queryClient.invalidateQueries({ queryKey: ["/api/print-projects"] });
@@ -282,7 +303,7 @@ export function PrintOrderPanel({
     return <div className="flex items-center gap-3 p-4" role="status"><Loader2 className="h-5 w-5 animate-spin" aria-hidden /> Getting prices…</div>;
   }
 
-  if (!luluStatus?.configured) {
+  if (!luluStatus?.configured || luluStatus.canOrder === false) {
     return (
       <ErrorState
         title="Ordering printed books isn't available right now"
@@ -300,9 +321,10 @@ export function PrintOrderPanel({
   // Only an earlier order that's still on its way is worth showing here. One
   // that was rejected or canceled has nothing to do with the new order (it
   // gets new files), and it read like this order had failed.
+  // Orders placed before order history existed only live on the project
   const earlierFailed = existingOrder?.status === "REJECTED" || existingOrder?.status === "CANCELED";
-  const lastOrder = !existingOrder?.id || stage === "placed" || earlierFailed ? null : (
-    <OrderStatusCard orderId={existingOrder.id} status={existingOrder.status} heading="Your earlier order" />
+  const lastOrder = stage === "placed" ? null : (
+    <OrderHistory cookbookId={cookbookId} legacy={existingOrder?.id && !earlierFailed ? existingOrder : null} />
   );
 
   // Everything that decides what gets printed, for the final check
@@ -319,21 +341,24 @@ export function PrintOrderPanel({
   ];
 
   // ---- 4. Confirmation ----
-  if (stage === "placed" && placed) {
+  if (orderRef) {
     return (
-      <div className="space-y-4" data-testid="order-confirmation">
-        <div className="flex items-start gap-3 rounded-lg border border-green-700/30 bg-green-50 p-4 dark:bg-green-950/30">
-          <CheckCircle2 className="mt-0.5 h-6 w-6 shrink-0 text-green-700 dark:text-green-400" aria-hidden />
-          <div>
-            <h2 className="text-xl font-semibold">Your book is ordered</h2>
-            <p className="mt-1">
-              Order #{placed.orderId} · {placed.quantity} {placed.quantity === 1 ? "copy" : "copies"}
-            </p>
-            <p className="mt-1">Arrives about {formatDateRange(placed.arrival.min, placed.arrival.max)}.</p>
-            {address.email && <p className="mt-1 text-sm text-muted-foreground">Updates go to {address.email}.</p>}
-          </div>
-        </div>
-        <OrderStatusCard orderId={String(placed.orderId)} status={placed.status} heading="Order status" />
+      <div className="space-y-4">
+        <OrderTracker
+          orderId={orderRef}
+          returnedCanceled={returnedFromCheckout.current === "canceled"}
+          email={address.email}
+          onStartOver={() => {
+            returnedFromCheckout.current = null;
+            setOrderRef(null);
+            submitted.current = false;
+            setStage("start");
+            const url = new URL(window.location.href);
+            url.searchParams.delete("order");
+            url.searchParams.delete("canceled");
+            window.history.replaceState(null, "", url);
+          }}
+        />
         {testBanner}
       </div>
     );
@@ -342,7 +367,7 @@ export function PrintOrderPanel({
   // ---- 3. Review (this is the confirmation) ----
   if (stage === "review" && quote) {
     const opt = quote.shippingOptions.find((o) => o.id === shippingLevel);
-    const label = `Place order · ${money(quote.totalCost)}`;
+    const label = luluStatus.paymentsEnabled ? `Continue to payment · ${money(quote.totalCost)}` : `Place order · ${money(quote.totalCost)}`;
     return (
       <div className="space-y-5" data-testid="order-review">
         <h2 className="text-xl font-semibold">Check your order</h2>
@@ -384,7 +409,11 @@ export function PrintOrderPanel({
           <Row label="Shipping" value={money(quote.shippingCost)} />
           <Row label={<span className="font-semibold">Total</span>} value={<span className="text-lg font-semibold">{money(quote.totalCost)} {quote.currency}</span>} />
         </dl>
-        <p className="text-sm text-muted-foreground">Includes tax. Printing takes a few business days before the book ships.</p>
+        <p className="text-sm text-muted-foreground">
+          Includes tax. Printing takes a few business days before the book ships.
+          {luluStatus.paymentsEnabled && " You'll pay on Stripe's secure checkout page next."}{" "}
+          <a href="/print-policy" target="_blank" rel="noreferrer" className="text-primary underline">Printing, refunds and returns</a>
+        </p>
 
         {quote.suggestedAddress && (
           <SuggestedAddress
@@ -754,5 +783,138 @@ function OrderStatusCard({ orderId, status, heading }: { orderId: string; status
         <RefreshCw className={live.isFetching ? "animate-spin" : ""} aria-hidden /> Check status
       </Button>
     </div>
+  );
+}
+
+// Follows one order from "Place order" to the door. Polls quickly while the
+// book is being prepared or paid for, then slowly while it's at the printer.
+function OrderTracker({ orderId, returnedCanceled, email, onStartOver }: {
+  orderId: string;
+  returnedCanceled: boolean;
+  email?: string;
+  onStartOver: () => void;
+}) {
+  const { data: order, isError, refetch } = useQuery<PrintOrderView>({
+    queryKey: ["/api/print-orders", orderId],
+    refetchInterval: (q) => {
+      const o = q.state.data as PrintOrderView | undefined;
+      if (!o || o.status === "preparing" || o.status === "paid") return 2000;
+      if (o.status === "awaiting_payment") return returnedCanceled ? false : 3000;
+      if (o.status === "submitted" && ["CREATED", "UNPAID", "PAYMENT_IN_PROGRESS", null].includes(o.luluStatus)) return 30_000;
+      return false;
+    },
+  });
+  // Off to Stripe's checkout as soon as it's ready (not after coming back from it)
+  const redirected = useRef(false);
+  useEffect(() => {
+    if (order?.status === "awaiting_payment" && order.checkoutUrl && !returnedCanceled && !redirected.current) {
+      redirected.current = true;
+      window.location.assign(order.checkoutUrl);
+    }
+  }, [order, returnedCanceled]);
+  useEffect(() => {
+    if (order?.status === "submitted") queryClient.invalidateQueries({ queryKey: ["/api/cookbooks"] });
+  }, [order?.status]);
+
+  if (isError) return <ErrorState title="Couldn't load your order" description="Check your connection and try again." onRetry={() => refetch()} />;
+  if (!order || order.status === "preparing") {
+    return (
+      <Notice icon="busy" title="Getting your book ready to print…">
+        This takes about a minute for a big book. Please keep this page open; you'll go to secure checkout next.
+      </Notice>
+    );
+  }
+  if (order.status === "awaiting_payment") {
+    return returnedCanceled ? (
+      <Notice icon="info" title="Payment wasn't finished" actions={<>
+        {order.checkoutUrl && <Button onClick={() => window.location.assign(order.checkoutUrl!)}>Go back to checkout</Button>}
+        <Button variant="outline" onClick={onStartOver}>Start over</Button>
+      </>}>
+        Nothing was charged and nothing was printed.
+      </Notice>
+    ) : (
+      <Notice icon="busy" title="Taking you to secure checkout…">
+        Payment is handled by Stripe.{" "}
+        {order.checkoutUrl && <a className="text-primary underline" href={order.checkoutUrl}>Continue to checkout</a>}
+      </Notice>
+    );
+  }
+  if (order.status === "paid") {
+    return <Notice icon="busy" title="Payment received. Sending your book to the printer…">This takes a few seconds.</Notice>;
+  }
+  if (order.status === "submitted") {
+    const shipped = order.luluStatus === "SHIPPED";
+    return (
+      <div className="space-y-3" data-testid="order-confirmation">
+        <Notice icon="done" title={shipped ? "Your book has shipped" : "Your book is ordered"}>
+          <span className="block">Order #{order.luluOrderId} · {order.quantity} {order.quantity === 1 ? "copy" : "copies"}{order.priceCents != null ? ` · ${money(order.priceCents / 100)}` : ""}</span>
+          <span className="block">{orderStatusLabel(order.luluStatus)}{order.arrival ? ` · arrives about ${formatDateRange(order.arrival.min, order.arrival.max)}` : ""}</span>
+          <span className="block text-sm text-muted-foreground">Your receipt goes to {order.contactEmail || email}.</span>
+        </Notice>
+        <Tracking tracking={order.tracking} />
+        <Button variant="outline" onClick={onStartOver}>Order more copies</Button>
+      </div>
+    );
+  }
+  // failed, refunded or canceled
+  return (
+    <Notice icon="problem" title={order.status === "canceled" ? "Checkout ended" : "This order didn't go through"} actions={<Button onClick={onStartOver}>Try again</Button>}>
+      {order.problem || (order.refunded ? "Your payment was refunded." : "Nothing was charged.")}
+    </Notice>
+  );
+}
+
+function Tracking({ tracking }: { tracking: PrintOrderView["tracking"] }) {
+  if (!tracking?.length) return null;
+  return (
+    <ul className="space-y-1 text-sm">
+      {tracking.map((t, i) => (
+        <li key={i}>
+          {t.carrier ? `${t.carrier} ` : ""}tracking{t.number ? ` ${t.number}` : ""}
+          {t.url && <> · <a className="text-primary underline" href={t.url} target="_blank" rel="noreferrer">Track the package</a></>}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function Notice({ icon, title, children, actions }: { icon: "busy" | "done" | "info" | "problem"; title: string; children?: React.ReactNode; actions?: React.ReactNode }) {
+  const tone = icon === "done" ? "border-green-700/30 bg-green-50 dark:bg-green-950/30" : icon === "problem" ? "border-destructive/50" : "";
+  return (
+    <div className={cn("flex items-start gap-3 rounded-lg border p-4", tone)} role="status">
+      {icon === "busy" ? <Loader2 className="mt-0.5 h-6 w-6 shrink-0 animate-spin text-primary" aria-hidden />
+        : icon === "done" ? <CheckCircle2 className="mt-0.5 h-6 w-6 shrink-0 text-green-700 dark:text-green-400" aria-hidden />
+        : icon === "problem" ? <AlertTriangle className="mt-0.5 h-6 w-6 shrink-0 text-destructive" aria-hidden />
+        : <Package className="mt-0.5 h-6 w-6 shrink-0 text-primary" aria-hidden />}
+      <div className="min-w-0 flex-1 space-y-1">
+        <h2 className="text-lg font-semibold">{title}</h2>
+        {children && <div className="text-base">{children}</div>}
+        {actions && <div className="flex flex-wrap gap-2 pt-2">{actions}</div>}
+      </div>
+    </div>
+  );
+}
+
+// Orders for this book that reached the printer (or were refunded), newest first
+function OrderHistory({ cookbookId, legacy }: { cookbookId: number; legacy: { id: string; status: string | null } | null }) {
+  const { data } = useQuery<{ orders: PrintOrderView[] }>({ queryKey: ["/api/cookbooks", cookbookId, "print-orders"] });
+  const orders = (data?.orders ?? []).filter((o) => o.status === "submitted" || o.status === "refunded");
+  if (!orders.length) {
+    return legacy ? <OrderStatusCard orderId={legacy.id} status={legacy.status} heading="Your earlier order" /> : null;
+  }
+  return (
+    <section aria-labelledby="your-orders" className="rounded-lg border">
+      <h2 id="your-orders" className="border-b p-3 font-semibold">Your orders</h2>
+      <ul className="divide-y">
+        {orders.slice(0, 5).map((o) => (
+          <li key={o.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 p-3 text-sm">
+            <span className="font-medium">{new Date(o.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</span>
+            <span>{o.quantity} {o.quantity === 1 ? "copy" : "copies"}{o.priceCents != null ? ` · ${money(o.priceCents / 100)}` : ""}</span>
+            <span className="text-muted-foreground">{o.status === "refunded" ? "Refunded" : orderStatusLabel(o.luluStatus)}</span>
+            {o.tracking?.[0]?.url && <a className="text-primary underline" href={o.tracking[0].url} target="_blank" rel="noreferrer">Track</a>}
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }

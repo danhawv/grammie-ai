@@ -5,6 +5,11 @@ import { storage } from "../storage";
 import { normalizeUsState } from "@shared/us-states";
 import { calculateCost, getPrintJob, getShippingOptions } from "../lib/lulu/client";
 import { startSizeCheck, sizeCheckStatus } from "../lib/lulu/size-check";
+import crypto from "crypto";
+import { listWebhooks, registerWebhook } from "../lib/lulu/client";
+import {
+  applyLuluJob, customerPriceCents, getOrder, markCheckoutEnded, markPaid, orderByLuluId, orderFiles, paymentsEnabled, verifyStripeEvent,
+} from "../lib/print-orders";
 import { SHIPPING_LEVELS, ESTIMATE_ADDRESS, estimateArrival, DEFAULT_SHIPPING_LEVEL } from "@shared/print-checkout";
 import { buildPodPackageId, BINDING_PAGE_LIMITS, BINDING_PAPER_COMPATIBILITY, unsupportedBookReason } from "../lib/lulu/pod-package";
 import { BOOK_SIZES, BINDING_TYPE_INFO, PAPER_TYPE_INFO, COLOR_TYPE_INFO } from "../lib/lulu/book-sizes";
@@ -35,13 +40,92 @@ router.get("/lulu/pdfs/:id", async (req: any, res) => {
   }
 });
 
+const withMarkup = (dollars: number) => customerPriceCents(Math.round(dollars * 100)) / 100;
+
+// An order's files, for Lulu to download. Made again from the order if the
+// server restarted since (that takes about a minute).
+router.get("/lulu/order-files/:orderId/:kind", async (req: any, res) => {
+  try {
+    const kind = req.params.kind === "interior.pdf" ? "interior" : req.params.kind === "cover.pdf" ? "cover" : null;
+    const order = kind ? await getOrder(req.params.orderId) : undefined;
+    if (!kind || !order || !["paid", "submitted"].includes(order.status)) return res.status(404).json({ error: "Not found" });
+    const f = await orderFiles(order);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Length", f[kind].length);
+    res.send(f[kind]);
+  } catch (error) {
+    console.error("Error serving order file:", error);
+    res.status(500).json({ error: "Couldn't make the file" });
+  }
+});
+
+// Stripe: a checkout was paid, expired or failed
+router.post("/api/stripe/webhook", async (req: any, res) => {
+  let event;
+  try {
+    event = verifyStripeEvent(req.rawBody, String(req.headers["stripe-signature"] || ""));
+  } catch (err: any) {
+    console.warn("[Stripe] Webhook rejected:", err?.message);
+    return res.status(400).json({ error: "Bad signature" });
+  }
+  res.json({ received: true }); // answer fast; the work runs after
+  const session: any = event.data.object;
+  const orderId = session?.metadata?.orderId || session?.client_reference_id;
+  if (!orderId) return;
+  try {
+    if ((event.type === "checkout.session.completed" && session.payment_status === "paid") || event.type === "checkout.session.async_payment_succeeded") {
+      await markPaid(orderId, typeof session.payment_intent === "string" ? session.payment_intent : null);
+    } else if (event.type === "checkout.session.expired" || event.type === "checkout.session.async_payment_failed") {
+      await markCheckoutEnded(orderId);
+    }
+  } catch (err) {
+    console.error(`[Stripe] Handling ${event.type} for order ${orderId} failed:`, err);
+  }
+});
+
+// Lulu: a print job's status changed (signed with our API secret)
+router.post("/api/lulu/webhook", async (req: any, res) => {
+  const secret = process.env.LULU_CLIENT_SECRET || "";
+  const given = String(req.headers["lulu-hmac-sha256"] || "");
+  const expected = crypto.createHmac("sha256", secret).update(req.rawBody || "").digest("hex");
+  if (!secret || given.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(given), Buffer.from(expected))) {
+    return res.status(401).json({ error: "Bad signature" });
+  }
+  res.json({ received: true });
+  try {
+    const job = req.body?.data;
+    const order = job?.id ? await orderByLuluId(String(job.id)) : undefined;
+    if (order) await applyLuluJob(order, job);
+  } catch (err) {
+    console.error("[Lulu] Webhook handling failed:", err);
+  }
+});
+
+// Admin: have Lulu send status changes to this server
+router.post("/api/print/lulu/webhook", isAuthenticated, async (req: any, res) => {
+  if (!(await requireAdmin(req, res))) return;
+  try {
+    const url = `${process.env.PUBLIC_URL || `https://${req.get('host')}`}/api/lulu/webhook`;
+    const existing = await listWebhooks().catch(() => null);
+    const list = Array.isArray(existing) ? existing : existing?.results ?? [];
+    if (list.some((w: any) => w.url === url)) return res.json({ ok: true, already: true, url });
+    res.json({ ok: true, url, webhook: await registerWebhook(url) });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || "Couldn't register the webhook" });
+  }
+});
+
 // Check if Lulu API is configured + return available options
 router.get("/api/print/lulu/status", isAuthenticated, async (req: any, res) => {
   const configured = Boolean(process.env.LULU_CLIENT_ID && process.env.LULU_CLIENT_SECRET);
   res.json({
     configured,
     // Sandbox orders are never printed or charged; the checkout says so
-    testMode: (process.env.LULU_ENVIRONMENT || 'sandbox') !== 'production',
+    // Nothing real happens while either Lulu or Stripe is in test mode
+    testMode: (process.env.LULU_ENVIRONMENT || 'sandbox') !== 'production' || (process.env.STRIPE_SECRET_KEY || '').startsWith('sk_test_'),
+    paymentsEnabled: paymentsEnabled(),
+    // Ordering is closed in production until payments are set up
+    canOrder: paymentsEnabled() || (process.env.LULU_ENVIRONMENT || 'sandbox') !== 'production',
     shippingOptions: SHIPPING_OPTIONS,
     bookSizes: BOOK_SIZES,
     bindingTypes: BINDING_TYPE_INFO,
@@ -198,8 +282,9 @@ router.post("/api/print/lulu/calculate-price", isAuthenticated, async (req: any,
       pageCount,
       quantity,
       isEstimate,
-      totalCost: parseFloat(result.total_cost_incl_tax),
-      printCost: parseFloat(result.total_cost_incl_tax) - parseFloat(result.shipping_cost.total_cost_incl_tax),
+      // Customer prices: Lulu's plus any markup, which goes on the printing line
+      totalCost: withMarkup(parseFloat(result.total_cost_incl_tax)),
+      printCost: withMarkup(parseFloat(result.total_cost_incl_tax)) - parseFloat(result.shipping_cost.total_cost_incl_tax),
       shippingCost: parseFloat(result.shipping_cost.total_cost_incl_tax),
       currency: result.currency,
       shippingLevel: shippingLevel || DEFAULT_SHIPPING_LEVEL,

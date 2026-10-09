@@ -37,6 +37,7 @@ const Processing = lazy(() => import("@/pages/processing"));
 const MealPlans = lazy(() => import("@/pages/meal-plans"));
 const MealPlanDetail = lazy(() => import("@/pages/meal-plan-detail"));
 const RecipeCreator = lazy(() => import("@/pages/recipe-creator"));
+const PrintPolicy = lazy(() => import("@/pages/print-policy"));
 const NotFound = lazy(() => import("@/pages/not-found"));
 
 const CLERK_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string | undefined;
@@ -61,6 +62,7 @@ function Router() {
         <Route path="/login" component={Login} />
         <Route path="/kitchen" component={Kitchen} />
         <Route path="/cookbooks" component={Cookbooks} />
+        <Route path="/print-policy" component={PrintPolicy} />
         <Route path="/grocery-list" component={GroceryList} />
         <Route path="/grocery-list/shared/:token" component={SharedGroceryList} />
         <Route path="/pantry" component={Pantry} />

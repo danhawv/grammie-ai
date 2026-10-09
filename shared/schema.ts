@@ -803,6 +803,61 @@ export const insertCookbookPrintProjectSchema = createInsertSchema(cookbookPrint
 export type InsertCookbookPrintProject = z.infer<typeof insertCookbookPrintProjectSchema>;
 export type CookbookPrintProject = typeof cookbookPrintProjects.$inferSelect;
 
+// Printed-book orders: one row per order, from checkout to delivery.
+// status: preparing -> awaiting_payment -> paid -> submitted -> (Lulu's
+// statuses live in luluStatus) | failed | refunded | canceled
+export type PrintOrderStatus = 'preparing' | 'awaiting_payment' | 'paid' | 'submitted' | 'failed' | 'refunded' | 'canceled';
+
+export interface PrintOrderSnapshot {
+  layoutData: PrintLayoutData;
+  templateStyle: string;
+  customTemplateId: number | null;
+  trimSize: string;
+  bindingType: string;
+  paperType: string;
+  colorType: string;
+  coverFinish: string;
+  /** Where Lulu downloads the files from */
+  baseUrl: string;
+  title: string;
+}
+
+export const printOrders = pgTable("print_orders", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  ownerUserId: varchar("owner_user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  cookbookId: integer("cookbook_id").notNull().references(() => cookbooks.id, { onDelete: 'cascade' }),
+  printProjectId: integer("print_project_id"),
+  status: varchar("status", { length: 30 }).$type<PrintOrderStatus>().notNull().default('preparing'),
+  snapshot: jsonb("snapshot").$type<PrintOrderSnapshot>().notNull(),
+  quantity: integer("quantity").notNull(),
+  shippingLevel: varchar("shipping_level", { length: 30 }).notNull(),
+  shippingAddress: jsonb("shipping_address").notNull(),
+  contactEmail: text("contact_email").notNull(),
+  pageCount: integer("page_count"),
+  /** What Lulu charges us, and what the customer pays (cents) */
+  luluCostCents: integer("lulu_cost_cents"),
+  priceCents: integer("price_cents"),
+  currency: varchar("currency", { length: 3 }).default('USD'),
+  stripeSessionId: text("stripe_session_id"),
+  stripePaymentIntent: text("stripe_payment_intent"),
+  checkoutUrl: text("checkout_url"),
+  luluOrderId: varchar("lulu_order_id", { length: 100 }),
+  luluStatus: varchar("lulu_status", { length: 50 }),
+  problem: text("problem"),
+  tracking: jsonb("tracking").$type<{ carrier?: string; number?: string; url?: string }[]>(),
+  arrival: jsonb("arrival").$type<{ min: string; max: string }>(),
+  refundedAt: timestamp("refunded_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  ownerIdx: index("print_orders_owner_idx").on(table.ownerUserId, table.createdAt),
+  cookbookIdx: index("print_orders_cookbook_idx").on(table.cookbookId),
+  luluIdx: index("print_orders_lulu_idx").on(table.luluOrderId),
+  stripeIdx: index("print_orders_stripe_idx").on(table.stripeSessionId),
+}));
+
+export type PrintOrder = typeof printOrders.$inferSelect;
+
 // ============================================================================
 // COOKBOOK_RECIPES JOIN TABLE (many-to-many)
 // ============================================================================

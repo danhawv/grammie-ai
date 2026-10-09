@@ -158,6 +158,18 @@ export async function getCoverValidation(id: number): Promise<LuluFileValidation
   return luluFetch(`/validate-cover/${id}/`);
 }
 
+/** Asks Lulu to POST print-job status changes to url */
+export async function registerWebhook(url: string): Promise<unknown> {
+  return luluFetch('/webhooks/', {
+    method: 'POST',
+    body: JSON.stringify({ topics: ['PRINT_JOB_STATUS_CHANGED'], url }),
+  });
+}
+
+export async function listWebhooks(): Promise<any> {
+  return luluFetch('/webhooks/');
+}
+
 export async function getCoverDimensions(
   podPackageId: string,
   pageCount: number
