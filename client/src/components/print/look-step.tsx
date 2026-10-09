@@ -38,7 +38,7 @@ import type { BookDraft, TemplateStyle } from "./types";
 // or designed), then the physical book (size, binding, paper) and recipe
 // page extras behind "Change".
 
-const TEMPLATE_STYLES: { id: TemplateStyle; name: string; description: string }[] = [
+export const TEMPLATE_STYLES: { id: TemplateStyle; name: string; description: string }[] = [
   { id: "classic", name: "Classic", description: "Traditional cookbook pages with elegant type" },
   { id: "modern", name: "Modern", description: "Clean and simple, with bold photos" },
   { id: "rustic", name: "Rustic", description: "Warm and homey, with soft textures" },

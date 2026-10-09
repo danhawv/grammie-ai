@@ -417,6 +417,8 @@ function CookbookPrintEditorInner() {
           flushSave={autosave.flush}
           attentionCount={attentionCount}
           onGoToReview={() => setStep("review")}
+          onGoToLook={() => setStep("look")}
+          customTemplateName={selectedTemplate?.name}
           existingOrder={currentProject?.luluOrderId ? { id: currentProject.luluOrderId, status: currentProject.luluOrderStatus } : null}
         />
       )}

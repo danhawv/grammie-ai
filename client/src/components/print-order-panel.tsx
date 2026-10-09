@@ -20,6 +20,8 @@ import {
   type ShippingAddressInput,
 } from "@shared/print-checkout";
 import type { PrintLayoutData } from "@shared/schema";
+import { BOOK_SIZES, BINDING_TYPES, PAPER_TYPES, COLOR_TYPES, COVER_FINISHES } from "@/lib/print-constants";
+import { TEMPLATE_STYLES } from "@/components/print/look-step";
 
 // Checkout (docs/DESIGN_PRINCIPLES.md §5 and §8):
 //   1. Copies, with "about $X including shipping" and an arrival range before any form
@@ -49,6 +51,10 @@ interface PrintOrderPanelProps {
   /** "Needs attention" items from Ready to print (shown as a warning) */
   attentionCount?: number;
   onGoToReview?: () => void;
+  /** Back to the Look step, where size, binding and paper are chosen */
+  onGoToLook?: () => void;
+  /** Name of the custom design, when the book uses one */
+  customTemplateName?: string;
   existingOrder?: { id: string; status: string | null } | null;
 }
 
@@ -111,6 +117,8 @@ export function PrintOrderPanel({
   flushSave,
   attentionCount = 0,
   onGoToReview,
+  onGoToLook,
+  customTemplateName,
   existingOrder,
 }: PrintOrderPanelProps) {
   const { user } = useAuth();
@@ -283,7 +291,29 @@ export function PrintOrderPanel({
     </p>
   ) : null;
 
-  const lastOrder = existingOrder?.id && stage !== "placed" ? <OrderStatusCard orderId={existingOrder.id} status={existingOrder.status} heading="Your earlier order" /> : null;
+  // An earlier order that went nowhere is a quiet line, not a status card:
+  // the new order makes new files, so it isn't a problem with this one
+  const earlierFailed = existingOrder?.status === "REJECTED" || existingOrder?.status === "CANCELED";
+  const lastOrder = !existingOrder?.id || stage === "placed" ? null : earlierFailed ? (
+    <p className="text-sm text-muted-foreground" data-testid="earlier-order-note">
+      Your earlier order #{existingOrder.id} wasn't printed, and nothing was charged.
+    </p>
+  ) : (
+    <OrderStatusCard orderId={existingOrder.id} status={existingOrder.status} heading="Your earlier order" />
+  );
+
+  // Everything that decides what gets printed, for the final check
+  const size = BOOK_SIZES[book.trimSize as keyof typeof BOOK_SIZES];
+  const inches = (n: number) => `${n}″`;
+  const bookDetails: { label: string; value: string }[] = [
+    { label: "Size", value: size ? `${size.name}, ${inches(size.width)} × ${inches(size.height)}` : book.trimSize },
+    { label: "Binding", value: BINDING_TYPES[book.bindingType as keyof typeof BINDING_TYPES]?.name ?? book.bindingType },
+    { label: "Cover", value: COVER_FINISHES[book.coverFinish as keyof typeof COVER_FINISHES]?.name ?? book.coverFinish },
+    { label: "Pages", value: `${Math.max(estimatedPageCount, quote?.pageCount ?? 0)}` },
+    { label: "Printing", value: COLOR_TYPES[book.colorType as keyof typeof COLOR_TYPES]?.name ?? book.colorType },
+    { label: "Paper", value: PAPER_TYPES[book.paperType as keyof typeof PAPER_TYPES]?.name ?? book.paperType },
+    { label: "Design", value: book.customTemplateId ? customTemplateName ?? "Your own design" : TEMPLATE_STYLES.find((t) => t.id === book.templateStyle)?.name ?? book.templateStyle },
+  ];
 
   // ---- 4. Confirmation ----
   if (stage === "placed" && placed) {
@@ -314,6 +344,20 @@ export function PrintOrderPanel({
       <div className="space-y-5" data-testid="order-review">
         <h2 className="text-xl font-semibold">Check your order</h2>
         {bookSummary}
+        <section aria-labelledby="book-details-heading" className="rounded-lg border">
+          <div className="flex items-center justify-between gap-3 border-b p-3">
+            <h3 id="book-details-heading" className="font-semibold">Your book</h3>
+            {onGoToLook && <Button variant="ghost" onClick={onGoToLook}>Change</Button>}
+          </div>
+          <dl className="grid grid-cols-1 gap-x-6 sm:grid-cols-2">
+            {bookDetails.map((d) => (
+              <div key={d.label} className="flex items-start gap-3 px-3 py-2">
+                <dt className="w-20 shrink-0 text-sm text-muted-foreground">{d.label}</dt>
+                <dd className="min-w-0 flex-1">{d.value}</dd>
+              </div>
+            ))}
+          </dl>
+        </section>
         <dl className="divide-y rounded-lg border">
           <Row label="Copies" value={`${quantity}`} />
           <Row
