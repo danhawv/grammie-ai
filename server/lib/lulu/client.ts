@@ -119,32 +119,43 @@ export async function getPrintJob(id: number): Promise<LuluPrintJob> {
   return luluFetch<LuluPrintJob>(`/print-jobs/${id}/`);
 }
 
+export interface LuluFileValidation {
+  id: number;
+  status: string | null;
+  errors?: unknown;
+  page_count?: number | null;
+  valid_pod_package_ids?: string[] | null;
+}
+
+// Lulu's own file checks: the same tests a print job runs, without placing
+// one. Both start as a job; poll with getInteriorValidation/getCoverValidation.
 export async function validateInterior(
   interiorUrl: string,
   podPackageId: string
-): Promise<{ id: string; status: string; messages?: string[] }> {
-  return luluFetch('/interior-file-validations/', {
+): Promise<LuluFileValidation> {
+  return luluFetch('/validate-interior/', {
     method: 'POST',
-    body: JSON.stringify({
-      file_url: interiorUrl,
-      pod_package_id: podPackageId,
-    }),
+    body: JSON.stringify({ source_url: interiorUrl, pod_package_id: podPackageId }),
   });
+}
+
+export async function getInteriorValidation(id: number): Promise<LuluFileValidation> {
+  return luluFetch(`/validate-interior/${id}/`);
 }
 
 export async function validateCover(
   coverUrl: string,
   podPackageId: string,
   pageCount: number
-): Promise<{ id: string; status: string; messages?: string[] }> {
-  return luluFetch('/cover-file-validations/', {
+): Promise<LuluFileValidation> {
+  return luluFetch('/validate-cover/', {
     method: 'POST',
-    body: JSON.stringify({
-      file_url: coverUrl,
-      pod_package_id: podPackageId,
-      page_count: pageCount,
-    }),
+    body: JSON.stringify({ source_url: coverUrl, pod_package_id: podPackageId, interior_page_count: pageCount }),
   });
+}
+
+export async function getCoverValidation(id: number): Promise<LuluFileValidation> {
+  return luluFetch(`/validate-cover/${id}/`);
 }
 
 export async function getCoverDimensions(

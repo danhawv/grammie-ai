@@ -21,7 +21,7 @@ export const BINDING_TYPES = {
   CW: { name: 'Hardcover', description: 'Case wrap hardcover with printed cover.' },
   LW: { name: 'Linen Wrap', description: 'Hardcover with linen material and optional foil stamping.' },
   CO: { name: 'Coil Bound', description: 'Spiral coil binding. Lays flat when open — great for cookbooks.' },
-  SS: { name: 'Saddle Stitch', description: 'Staple-bound booklet. Best for shorter cookbooks (up to 80 pages).' },
+  SS: { name: 'Saddle Stitch', description: 'Staple-bound booklet. Best for short cookbooks (up to 48 pages).' },
 } as const;
 
 export type BindingTypeId = keyof typeof BINDING_TYPES;
@@ -66,7 +66,7 @@ export const BINDING_PAGE_LIMITS: Record<BindingTypeId, { min: number; max: numb
   CW: { min: 32, max: 800 },
   LW: { min: 32, max: 800 },
   CO: { min: 24, max: 300 },
-  SS: { min: 4, max: 80 },
+  SS: { min: 4, max: 48 },
 };
 
 // Theme options

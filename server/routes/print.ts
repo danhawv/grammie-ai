@@ -4,6 +4,7 @@ import { getPdf, getUserId } from "./route-utils";
 import { storage } from "../storage";
 import { normalizeUsState } from "@shared/us-states";
 import { calculateCost, getPrintJob, getShippingOptions } from "../lib/lulu/client";
+import { startSizeCheck, sizeCheckStatus } from "../lib/lulu/size-check";
 import { SHIPPING_LEVELS, ESTIMATE_ADDRESS, estimateArrival, DEFAULT_SHIPPING_LEVEL } from "@shared/print-checkout";
 import { buildPodPackageId, BINDING_PAGE_LIMITS, BINDING_PAPER_COMPATIBILITY } from "../lib/lulu/pod-package";
 import { BOOK_SIZES, BINDING_TYPE_INFO, PAPER_TYPE_INFO, COLOR_TYPE_INFO } from "../lib/lulu/book-sizes";
@@ -207,6 +208,33 @@ router.post("/api/print/lulu/calculate-price", isAuthenticated, async (req: any,
     console.error("Error calculating price:", error);
     res.status(500).json({ error: error.message || "Failed to calculate price" });
   }
+});
+
+// Size check: a sample book in every size and binding, run through Lulu's
+// file checks (admin only; takes several minutes, so it runs in the background)
+async function requireAdmin(req: any, res: any): Promise<boolean> {
+  const userId = getUserId(req);
+  const user = userId ? await storage.getUser(userId) : undefined;
+  if (!user?.isAdmin) {
+    res.status(403).json({ error: "Admins only" });
+    return false;
+  }
+  return true;
+}
+
+router.post("/api/print/lulu/size-check", isAuthenticated, async (req: any, res) => {
+  if (!(await requireAdmin(req, res))) return;
+  if (!process.env.LULU_CLIENT_ID || !process.env.LULU_CLIENT_SECRET) {
+    return res.status(503).json({ error: "Lulu Print API not configured" });
+  }
+  const baseUrl = process.env.PUBLIC_URL || `https://${req.get('host')}`;
+  const run = startSizeCheck(baseUrl);
+  res.status(202).json({ startedAt: run.startedAt, total: run.total });
+});
+
+router.get("/api/print/lulu/size-check", isAuthenticated, async (req: any, res) => {
+  if (!(await requireAdmin(req, res))) return;
+  res.json(sizeCheckStatus() ?? { error: "No size check has run since the server started" });
 });
 
 // Get print order status

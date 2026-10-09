@@ -1433,6 +1433,7 @@ async function placePrintOrder(req: any, userId: string, cookbook: { id: number;
       trimSize,
       bindingType,
       paperType,
+      colorType,
       sections: validatedLayout.data.sections.map((s, i) => ({
         id: s.id,
         title: s.title,

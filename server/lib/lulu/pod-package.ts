@@ -10,12 +10,14 @@ export function buildPodPackageId(config: BookConfig): string {
   return [
     config.trimSize,        // 9 chars: e.g., 0600X0900
     config.colorType,       // 2 chars: BW or FC
-    config.printQuality,    // 3 chars: STD or PRE
+    // Lulu only makes full-color saddle stitch in premium color
+    config.bindingType === 'SS' && config.colorType === 'FC' ? 'PRE' : config.printQuality,
     config.bindingType,     // 2 chars: PB, CW, LW, CO, SS
     config.paperType,       // 8 chars: e.g., 060UW444
     config.coverFinish,     // 1 char:  M or G
-    config.linenColor,      // 1 char:  N, G, K, R, T, E, or X
-    config.foilType,        // 1 char:  G, B, W, S, or X
+    // Linen wrap has no product without a cloth color and foil
+    config.bindingType === 'LW' && config.linenColor === 'X' ? 'N' : config.linenColor, // 1 char: N, G, K, R, T, E, or X
+    config.bindingType === 'LW' && config.foilType === 'X' ? 'G' : config.foilType,     // 1 char: G, B, W, S, or X
   ].join('');
 }
 
@@ -51,5 +53,20 @@ export const BINDING_PAGE_LIMITS: Record<string, { min: number; max: number }> =
   CW: { min: 32, max: 800 },
   LW: { min: 32, max: 800 },
   CO: { min: 24, max: 300 },
-  SS: { min: 4, max: 80 },
+  SS: { min: 4, max: 48 },
 };
+
+/**
+ * Why Lulu has no product for this combination, or null. Checked against
+ * Lulu's catalog (October 2026): every size and paper below exists except
+ * cream paper in color.
+ */
+export function unsupportedBookReason(config: Pick<BookConfig, 'colorType' | 'paperType' | 'bindingType'>): string | null {
+  if (!(BINDING_PAPER_COMPATIBILITY[config.bindingType] || []).includes(config.paperType)) {
+    return "That paper doesn't work with this binding.";
+  }
+  if (config.colorType === 'FC' && config.paperType === '060UC444') {
+    return 'Cream paper only prints in black and white. Choose white paper for a color book.';
+  }
+  return null;
+}

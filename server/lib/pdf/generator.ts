@@ -42,6 +42,8 @@ export interface CookbookPrintData {
   trimSize: string;
   bindingType: string;
   paperType: string;
+  /** BW or FC; only the cover-size lookup needs it */
+  colorType?: string;
   sections: {
     id: string;
     title: string;
@@ -469,7 +471,9 @@ async function generateCoverPdfInner(
   let coverHeight = (bleed * 2) + (wrap * 2) + config.trimHeightIn;
   try {
     const pod = buildPodPackageId({
-      trimSize, colorType: 'FC', printQuality: 'STD', bindingType, paperType,
+      // Cream paper only exists in black and white, so the color matters here
+      trimSize, colorType: cookbookData.colorType || (paperType === '060UC444' ? 'BW' : 'FC'),
+      printQuality: 'STD', bindingType, paperType,
       coverFinish: 'M', linenColor: 'X', foilType: 'X',
     } as any);
     const dims = await getCoverDimensions(pod, pageCount);
