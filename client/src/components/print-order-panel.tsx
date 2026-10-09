@@ -255,6 +255,12 @@ export function PrintOrderPanel({
 
   const levelChoices = quote?.shippingOptions ?? estimate.data?.shippingOptions ?? [];
   const selectedOption = levelChoices.find((o) => o.id === shippingLevel);
+  const pickedLevel = useRef(false);
+  useEffect(() => {
+    if (pickedLevel.current || !levelChoices.length || levelChoices.some((o) => o.id === shippingLevel)) return;
+    const cheapest = levelChoices.reduce((best, o) => ((o.shippingCost ?? Infinity) < (best.shippingCost ?? Infinity) ? o : best));
+    setShippingLevel(cheapest.id);
+  }, [levelChoices, shippingLevel]);
 
   const cover = (
     <div className="flex h-28 w-20 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-primary/10 shadow-sm">
@@ -518,7 +524,7 @@ export function PrintOrderPanel({
                 key={o.id}
                 className={cn("flex min-h-11 cursor-pointer items-center gap-3 rounded-md border p-3", shippingLevel === o.id ? "border-primary bg-primary/5" : "hover:bg-accent/50")}
               >
-                <input type="radio" name="shipping" value={o.id} checked={shippingLevel === o.id} onChange={() => setShippingLevel(o.id)} className="h-5 w-5 accent-[hsl(26_85%_38%)]" />
+                <input type="radio" name="shipping" value={o.id} checked={shippingLevel === o.id} onChange={() => { pickedLevel.current = true; setShippingLevel(o.id); }} className="h-5 w-5 accent-[hsl(26_85%_38%)]" />
                 <span className="flex-1">
                   <span className="block font-medium">{o.name}</span>
                   {o.arrivalMin && <span className="block text-sm text-muted-foreground">Arrives about {formatDateRange(o.arrivalMin, o.arrivalMax)}</span>}
@@ -549,9 +555,9 @@ export function PrintOrderPanel({
   // ---- 1. Start: copies and an early estimate ----
   const est = estimate.data;
   const estOpt = est?.shippingOptions.find((o) => o.id === DEFAULT_SHIPPING_LEVEL) ?? est?.shippingOptions[0];
-  // Lulu's shipping prices are before tax, so this total is a close estimate
-  const cheapest = est?.shippingOptions
-    .filter((o) => o.shippingCost != null)
+  // The next-cheapest option, to say faster shipping exists and what it starts at
+  const fastest = est?.shippingOptions
+    .filter((o) => o.shippingCost != null && o.id !== estOpt?.id && o.shippingCost > (est.shippingOptions.find((x) => x.id === estOpt?.id)?.shippingCost ?? 0))
     .reduce<ShippingOptionQuote | undefined>((best, o) => (!best || o.shippingCost! < best.shippingCost! ? o : best), undefined);
   return (
     <div className="space-y-5">
@@ -618,7 +624,7 @@ export function PrintOrderPanel({
                 <dd>{money(est.printCost)}</dd>
               </div>
               <div className="flex justify-between gap-4">
-                <dt>Shipping, {shippingLevelName(DEFAULT_SHIPPING_LEVEL).toLowerCase()}</dt>
+                <dt>Shipping, {shippingLevelName(estOpt?.id ?? DEFAULT_SHIPPING_LEVEL).toLowerCase()}</dt>
                 <dd>{money(est.shippingCost)}</dd>
               </div>
               <div className="flex justify-between gap-4 border-t pt-1 font-medium">
@@ -630,11 +636,9 @@ export function PrintOrderPanel({
               {estOpt ? `Arrives about ${formatDateRange(estOpt.arrivalMin, estOpt.arrivalMax)}. ` : ""}
               Includes estimated tax. The exact price depends on your address.
             </p>
-            {cheapest && cheapest.id !== (estOpt?.id ?? DEFAULT_SHIPPING_LEVEL) && (
-              <p className="mt-2 text-sm" data-testid="estimate-cheapest">
-                Cheapest shipping: {shippingLevelName(cheapest.id).toLowerCase()}, about {money(cheapest.shippingCost!)}
-                {` (total about ${money(est.printCost + cheapest.shippingCost!)})`}, arriving about {formatDateRange(cheapest.arrivalMin, cheapest.arrivalMax)}.
-                You can choose it with your address.
+            {fastest && (
+              <p className="mt-2 text-sm" data-testid="estimate-faster">
+                Faster shipping is available when you add your address, from {money(fastest.shippingCost!)}.
               </p>
             )}
           </>

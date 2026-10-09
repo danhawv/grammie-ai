@@ -19,7 +19,8 @@ export const SHIPPING_LEVELS: { id: ShippingLevelId; name: string; transitDays: 
   { id: "EXPRESS", name: "Overnight", transitDays: [1, 2] },
 ];
 
-export const DEFAULT_SHIPPING_LEVEL: ShippingLevelId = "GROUND_HD";
+/** Cheapest first: faster shipping is offered with the address */
+export const DEFAULT_SHIPPING_LEVEL: ShippingLevelId = "MAIL";
 
 /** Printing usually takes 3–5 business days before the book ships */
 export const PRODUCTION_BUSINESS_DAYS: [number, number] = [3, 5];
