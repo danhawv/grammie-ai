@@ -22,7 +22,7 @@ import {
 import { buildScaledRecipeResponse } from "../scaling";
 import { jobQueue } from "../job-queue";
 import { generateThumbnail } from "../thumbnail";
-import { detectPlatform, isValidSocialUrl, scrapePost, PLATFORM_NAMES, type SocialPlatform } from "../social-import-service";
+import { detectPlatform, diagnoseInstagram, isValidSocialUrl, scrapePost, PLATFORM_NAMES, type SocialPlatform } from "../social-import-service";
 import { extractRecipeFromSocialPostUnified } from "../ai-service";
 import { getUserId, upload } from "./route-utils";
 import { findPantryMatch } from "../../shared/pantry-matching";
@@ -1202,6 +1202,15 @@ async function importSocialLink(url: string, userId: string): Promise<{ status: 
     },
   };
 }
+
+// Admin: what each Instagram route returns from this server (Instagram
+// treats data-center addresses differently from home connections)
+router.get("/admin/instagram-check", isAuthenticated, async (req: any, res) => {
+  const user = await storage.getUser(getUserId(req) ?? "");
+  if (!user?.isAdmin) return res.status(403).json({ error: "Admins only" });
+  if (typeof req.query.url !== "string") return res.status(400).json({ error: "Add ?url=" });
+  res.json(await diagnoseInstagram(req.query.url));
+});
 
 router.post("/recipes/import-social", isAuthenticated, async (req: any, res) => {
   try {

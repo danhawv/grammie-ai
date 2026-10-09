@@ -100,10 +100,26 @@ export function captionLinks(caption: string): string[] {
 
 // ============ Instagram ============
 
-async function instagramFromEmbed(code: string, kind: "p" | "reel"): Promise<SocialPost | null> {
-  const res = await timedFetch(`https://www.instagram.com/${kind}/${code}/embed/captioned/`);
+// Instagram answers some servers (data-center addresses like Railway's) with
+// a login page. It still serves link previews to the crawlers chat apps use
+// and to ordinary browsers, so each free route is tried as each of these.
+const IG_IDENTITIES: { name: string; ua: string }[] = [
+  { name: "grammie", ua: UA },
+  { name: "link-preview", ua: "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)" },
+  { name: "browser", ua: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Mobile/15E148 Safari/604.1" },
+];
+
+/** What Instagram sent back, for the admin diagnostic */
+export interface IgAttempt { route: string; identity: string; status: number | string; bytes: number; found: boolean; ms: number }
+
+async function instagramFromEmbed(code: string, kind: "p" | "reel", ua = UA, log?: IgAttempt[], identity = "grammie"): Promise<SocialPost | null> {
+  const t = Date.now();
+  const res = await timedFetch(`https://www.instagram.com/${kind}/${code}/embed/captioned/`, { headers: { "User-Agent": ua } });
+  const body = res.ok ? await res.text() : "";
+  const found = /class="Caption"/.test(body);
+  log?.push({ route: "embed", identity, status: res.status, bytes: body.length, found, ms: Date.now() - t });
   if (!res.ok) return null;
-  const $ = cheerio.load(await res.text());
+  const $ = cheerio.load(body);
   const caption = $(".Caption").first();
   if (!caption.length) return null;
   caption.find(".CaptionUsername, .CaptionComments").remove();
@@ -124,13 +140,16 @@ async function instagramFromEmbed(code: string, kind: "p" | "reel"): Promise<Soc
 // Second free route, for posts whose creator turned off embedding: the post
 // page's link-preview description holds the caption, after a
 // '105K likes, 325 comments - user on July 29, 2026: "' prefix
-async function instagramFromPostPage(code: string, kind: "p" | "reel"): Promise<SocialPost | null> {
-  const res = await timedFetch(`https://www.instagram.com/${kind}/${code}/`);
-  if (!res.ok) return null;
-  const $ = cheerio.load(await res.text());
+async function instagramFromPostPage(code: string, kind: "p" | "reel", ua = UA, log?: IgAttempt[], identity = "grammie"): Promise<SocialPost | null> {
+  const t = Date.now();
+  const res = await timedFetch(`https://www.instagram.com/${kind}/${code}/`, { headers: { "User-Agent": ua } });
+  const body = res.ok ? await res.text() : "";
+  const $ = cheerio.load(body);
   const description = $('meta[property="og:description"]').attr("content") || "";
   const m = description.match(/^[^"]*?-\s*([\w.]+) on [^:]+:\s*"([\s\S]*)"\.?\s*$/);
   const text = (m ? m[2] : "").trim();
+  log?.push({ route: "post page", identity, status: res.status, bytes: body.length, found: !!text, ms: Date.now() - t });
+  if (!res.ok) return null;
   if (!text) return null;
   return {
     platform: "instagram",
@@ -163,6 +182,45 @@ async function instagramFromApify(url: string): Promise<SocialPost | null> {
   };
 }
 
+/**
+ * The free routes, each as every identity: the first identity's embed and
+ * post page run together (the usual case answers in under a second), then
+ * the others in turn.
+ */
+async function instagramFree(code: string, kind: "p" | "reel"): Promise<{ post: SocialPost | null; attempts: IgAttempt[] }> {
+  const attempts: IgAttempt[] = [];
+  const quiet = (p: Promise<SocialPost | null>, route: string, identity: string) =>
+    p.catch((err) => {
+      attempts.push({ route, identity, status: err?.name === "AbortError" ? "timeout" : String(err?.message || err).slice(0, 60), bytes: 0, found: false, ms: 0 });
+      return null;
+    });
+  for (const id of IG_IDENTITIES) {
+    const [embed, page] = await Promise.all([
+      quiet(instagramFromEmbed(code, kind, id.ua, attempts, id.name), "embed", id.name),
+      quiet(instagramFromPostPage(code, kind, id.ua, attempts, id.name), "post page", id.name),
+    ]);
+    // The embed keeps line breaks; the page preview is the fallback
+    const post = embed || page;
+    if (post) {
+      if (id.name !== "grammie") console.log(`[Instagram] Read ${code} as ${id.name}`);
+      return { post, attempts };
+    }
+  }
+  return { post: null, attempts };
+}
+
+/** Admin diagnostic: what every Instagram route returns from this server */
+export async function diagnoseInstagram(url: string): Promise<{ code?: string; attempts: IgAttempt[]; apifyConfigured: boolean; ok: boolean }> {
+  const ref = instagramShortcode(url) ?? instagramShortcode(await resolveRedirect(url));
+  if (!ref) return { attempts: [], apifyConfigured: !!APIFY_API_KEY, ok: false };
+  const attempts: IgAttempt[] = [];
+  for (const id of IG_IDENTITIES) {
+    await instagramFromEmbed(ref.code, ref.kind, id.ua, attempts, id.name).catch((e) => attempts.push({ route: "embed", identity: id.name, status: String(e?.message).slice(0, 60), bytes: 0, found: false, ms: 0 }));
+    await instagramFromPostPage(ref.code, ref.kind, id.ua, attempts, id.name).catch((e) => attempts.push({ route: "post page", identity: id.name, status: String(e?.message).slice(0, 60), bytes: 0, found: false, ms: 0 }));
+  }
+  return { code: ref.code, attempts, apifyConfigured: !!APIFY_API_KEY, ok: attempts.some((a) => a.found) };
+}
+
 async function scrapeInstagram(url: string): Promise<ScrapeResult> {
   let ref = instagramShortcode(url);
   // instagram.com/share/... links redirect to the post
@@ -172,20 +230,9 @@ async function scrapeInstagram(url: string): Promise<ScrapeResult> {
   }
   const canonical = `https://www.instagram.com/${ref.kind}/${ref.code}/`;
 
-  const embedded = await instagramFromEmbed(ref.code, ref.kind).catch((err) => {
-    console.warn(`[Instagram] Embed read failed: ${err?.message}`);
-    return null;
-  });
-  if (embedded) return { success: true, post: embedded };
-
-  const fromPage = await instagramFromPostPage(ref.code, ref.kind).catch((err) => {
-    console.warn(`[Instagram] Post page read failed: ${err?.message}`);
-    return null;
-  });
-  if (fromPage) {
-    console.log(`[Instagram] Embed had no caption (embedding off?); used the post page`);
-    return { success: true, post: fromPage };
-  }
+  const free = await instagramFree(ref.code, ref.kind);
+  if (free.post) return { success: true, post: free.post };
+  console.warn(`[Instagram] Free routes failed for ${ref.code}: ${free.attempts.map((a) => `${a.route}/${a.identity}=${a.status}${a.found ? "" : " no caption"}`).join(", ")}`);
 
   const viaApify = APIFY_API_KEY ? await instagramFromApify(canonical).catch(() => null) : null;
   if (viaApify) return { success: true, post: viaApify };
