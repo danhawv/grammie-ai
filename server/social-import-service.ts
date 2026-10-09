@@ -166,6 +166,7 @@ async function instagramFromPostPage(code: string, kind: "p" | "reel", ua = UA, 
 // ScrapeCreators: a paid reader (1 credit per post, about 4-5s) that gets
 // through when Instagram shows our server its login page instead of posts
 const SCRAPECREATORS_API_KEY = process.env.SCRAPECREATORS_API_KEY;
+const FREE_READER_ON = process.env.INSTAGRAM_FREE_READER === "on";
 
 async function instagramFromScrapeCreators(url: string): Promise<SocialPost | null> {
   if (!SCRAPECREATORS_API_KEY) return null;
@@ -263,12 +264,13 @@ async function scrapeInstagram(url: string): Promise<ScrapeResult> {
   }
   const canonical = `https://www.instagram.com/${ref.kind}/${ref.code}/`;
 
-  // Our own reader first (under a second when Instagram lets it in), then
-  // the paid readers. Once the first identity is turned away the others
-  // almost always are too, so the paid reader goes next instead of last.
-  const free = await instagramFree(ref.code, ref.kind, 1);
-  if (free.post) return { success: true, post: free.post };
-  console.warn(`[Instagram] Free route failed for ${ref.code}: ${free.attempts.map((a) => `${a.route}/${a.identity}=${a.status}${a.found ? "" : " no caption"}`).join(", ")}`);
+  // Our own reader is off: Instagram shows the live server its login page,
+  // so it only added a wasted second. INSTAGRAM_FREE_READER=on brings it back.
+  if (FREE_READER_ON) {
+    const free = await instagramFree(ref.code, ref.kind, 1);
+    if (free.post) return { success: true, post: free.post };
+    console.warn(`[Instagram] Free route failed for ${ref.code}: ${free.attempts.map((a) => `${a.route}/${a.identity}=${a.status}${a.found ? "" : " no caption"}`).join(", ")}`);
+  }
 
   const viaScrapeCreators = await instagramFromScrapeCreators(canonical).catch((err) => {
     console.warn(`[Instagram] ScrapeCreators failed: ${err?.message}`);
@@ -279,8 +281,10 @@ async function scrapeInstagram(url: string): Promise<ScrapeResult> {
     return { success: true, post: viaScrapeCreators };
   }
 
-  const rest = await instagramFree(ref.code, ref.kind, IG_IDENTITIES.length, 1);
-  if (rest.post) return { success: true, post: rest.post };
+  if (FREE_READER_ON) {
+    const rest = await instagramFree(ref.code, ref.kind, IG_IDENTITIES.length, 1);
+    if (rest.post) return { success: true, post: rest.post };
+  }
 
   const viaApify = APIFY_API_KEY ? await instagramFromApify(canonical).catch(() => null) : null;
   if (viaApify) return { success: true, post: viaApify };
