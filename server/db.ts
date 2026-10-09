@@ -1,6 +1,10 @@
-import { drizzle } from "drizzle-orm/neon-http";
-import { neon } from "@neondatabase/serverless";
+import { drizzle } from "drizzle-orm/node-postgres";
 import * as schema from "@shared/schema";
+import { getSharedPool } from "./pg-pool";
+
+// Standard Postgres connection (a pool), so the app runs on any Postgres:
+// Railway's, Neon's, or local. (It used Neon's HTTP driver until the move to
+// Railway's database in October 2026.)
 
 if (!process.env.DATABASE_URL) {
   throw new Error(
@@ -8,5 +12,4 @@ if (!process.env.DATABASE_URL) {
   );
 }
 
-const sql = neon(process.env.DATABASE_URL);
-export const db = drizzle(sql, { schema });
+export const db = drizzle(getSharedPool(), { schema });

@@ -1714,17 +1714,17 @@ export class PostgresStorage implements IStorage {
 
   async reorderCookbookRecipes(cookbookId: number, recipePositions: { recipeId: string; position: number }[]): Promise<void> {
     if (recipePositions.length === 0) return;
-    // neon-http has no interactive transactions; db.batch applies all
-    // position updates atomically in one round trip
-    const statements = recipePositions.map(({ recipeId, position }) =>
-      db.update(cookbookRecipes)
-        .set({ position })
-        .where(and(
-          eq(cookbookRecipes.cookbookId, cookbookId),
-          eq(cookbookRecipes.recipeId, recipeId)
-        ))
-    );
-    await db.batch(statements as [any, ...any[]]);
+    // All position updates apply together or not at all
+    await db.transaction(async (tx) => {
+      for (const { recipeId, position } of recipePositions) {
+        await tx.update(cookbookRecipes)
+          .set({ position })
+          .where(and(
+            eq(cookbookRecipes.cookbookId, cookbookId),
+            eq(cookbookRecipes.recipeId, recipeId)
+          ));
+      }
+    });
   }
 
   // ========== BULK OPERATIONS ==========
@@ -3700,8 +3700,8 @@ export class PostgresStorage implements IStorage {
       throw new Error('Recipes not found or not owned by user');
     }
 
-    // The neon-http driver has no interactive transactions; db.batch runs the
-    // statements atomically in a single round trip instead.
+    // One transaction: every repoint and delete happens, or none does
+    await db.transaction(async (db) => {
     const statements = removeIds.flatMap((rm) => [
       // Repoint cookbook memberships, skipping cookbooks that already have the keeper
       db.update(cookbookRecipes)
@@ -3728,7 +3728,9 @@ export class PostgresStorage implements IStorage {
       // Remaining references cascade away with the delete
       db.delete(recipes).where(and(eq(recipes.id, rm), eq(recipes.ownerUserId, userId))),
     ]);
-    await db.batch(statements as [any, ...any[]]);
+    // In order: each query starts when awaited
+    for (const st of statements) await st;
+    });
     return { merged: removeIds.length };
   }
 

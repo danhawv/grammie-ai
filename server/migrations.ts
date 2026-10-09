@@ -1,8 +1,8 @@
-import { neon } from "@neondatabase/serverless";
+import { getSharedPool } from "./pg-pool";
 
 /**
  * Run startup migrations (idempotent CREATE INDEX IF NOT EXISTS statements).
- * Uses a raw neon() connection to execute SQL that Drizzle ORM doesn't support
+ * Uses the raw pool to execute SQL that Drizzle ORM doesn't support
  * natively (e.g., GIN indexes).
  */
 export async function runMigrations() {
@@ -12,7 +12,7 @@ export async function runMigrations() {
     return;
   }
 
-  const sql = neon(connectionString);
+  const pool = getSharedPool();
 
   const ginIndexes = [
     `CREATE INDEX IF NOT EXISTS recipes_cuisines_gin ON recipes USING gin (cuisines)`,
@@ -26,7 +26,7 @@ export async function runMigrations() {
   console.log("[Migrations] Running GIN index migrations...");
   for (const statement of ginIndexes) {
     try {
-      await sql(statement);
+      await pool.query(statement);
     } catch (err: any) {
       // Log but don't fail startup - indexes are performance optimizations
       console.warn(`[Migrations] Warning creating index: ${err.message}`);
