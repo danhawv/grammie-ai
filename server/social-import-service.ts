@@ -163,6 +163,38 @@ async function instagramFromPostPage(code: string, kind: "p" | "reel", ua = UA, 
   };
 }
 
+// ScrapeCreators: a paid reader (1 credit per post, about 4-5s) that gets
+// through when Instagram shows our server its login page instead of posts
+const SCRAPECREATORS_API_KEY = process.env.SCRAPECREATORS_API_KEY;
+
+async function instagramFromScrapeCreators(url: string): Promise<SocialPost | null> {
+  if (!SCRAPECREATORS_API_KEY) return null;
+  const res = await timedFetch(
+    `https://api.scrapecreators.com/v1/instagram/post?url=${encodeURIComponent(url)}`,
+    { headers: { "x-api-key": SCRAPECREATORS_API_KEY } },
+    20_000,
+  );
+  if (!res.ok) {
+    console.warn(`[Instagram] ScrapeCreators answered ${res.status}`);
+    return null;
+  }
+  const body: any = await res.json();
+  const media = body?.data?.xdt_shortcode_media;
+  const caption: string | undefined = media?.edge_media_to_caption?.edges?.[0]?.node?.text;
+  if (!caption?.trim()) return null;
+  return {
+    platform: "instagram",
+    id: media.shortcode,
+    caption,
+    creatorUsername: media.owner?.username,
+    creatorAvatarUrl: media.owner?.profile_pic_url,
+    url: `https://www.instagram.com/${media.__typename === "XDTGraphVideo" ? "reel" : "p"}/${media.shortcode}/`,
+    coverImageUrl: media.display_url,
+    postDate: media.taken_at_timestamp ? new Date(media.taken_at_timestamp * 1000) : undefined,
+    links: captionLinks(caption),
+  };
+}
+
 async function instagramFromApify(url: string): Promise<SocialPost | null> {
   const items = await runApify("apify~instagram-scraper", {
     directUrls: [url],
@@ -188,14 +220,14 @@ async function instagramFromApify(url: string): Promise<SocialPost | null> {
  * post page run together (the usual case answers in under a second), then
  * the others in turn.
  */
-async function instagramFree(code: string, kind: "p" | "reel"): Promise<{ post: SocialPost | null; attempts: IgAttempt[] }> {
+async function instagramFree(code: string, kind: "p" | "reel", upTo = IG_IDENTITIES.length, from = 0): Promise<{ post: SocialPost | null; attempts: IgAttempt[] }> {
   const attempts: IgAttempt[] = [];
   const quiet = (p: Promise<SocialPost | null>, route: string, identity: string) =>
     p.catch((err) => {
       attempts.push({ route, identity, status: err?.name === "AbortError" ? "timeout" : String(err?.message || err).slice(0, 60), bytes: 0, found: false, ms: 0 });
       return null;
     });
-  for (const id of IG_IDENTITIES) {
+  for (const id of IG_IDENTITIES.slice(from, upTo)) {
     const [embed, page] = await Promise.all([
       quiet(instagramFromEmbed(code, kind, id.ua, attempts, id.name), "embed", id.name),
       quiet(instagramFromPostPage(code, kind, id.ua, attempts, id.name), "post page", id.name),
@@ -211,7 +243,7 @@ async function instagramFree(code: string, kind: "p" | "reel"): Promise<{ post: 
 }
 
 /** Admin diagnostic: what every Instagram route returns from this server */
-export async function diagnoseInstagram(url: string): Promise<{ code?: string; attempts: IgAttempt[]; apifyConfigured: boolean; ok: boolean }> {
+export async function diagnoseInstagram(url: string): Promise<{ code?: string; attempts: IgAttempt[]; apifyConfigured: boolean; scrapeCreatorsConfigured?: boolean; ok: boolean }> {
   const ref = instagramShortcode(url) ?? instagramShortcode(await resolveRedirect(url));
   if (!ref) return { attempts: [], apifyConfigured: !!APIFY_API_KEY, ok: false };
   const attempts: IgAttempt[] = [];
@@ -219,7 +251,7 @@ export async function diagnoseInstagram(url: string): Promise<{ code?: string; a
     await instagramFromEmbed(ref.code, ref.kind, id.ua, attempts, id.name).catch((e) => attempts.push({ route: "embed", identity: id.name, status: String(e?.message).slice(0, 60), bytes: 0, found: false, ms: 0 }));
     await instagramFromPostPage(ref.code, ref.kind, id.ua, attempts, id.name).catch((e) => attempts.push({ route: "post page", identity: id.name, status: String(e?.message).slice(0, 60), bytes: 0, found: false, ms: 0 }));
   }
-  return { code: ref.code, attempts, apifyConfigured: !!APIFY_API_KEY, ok: attempts.some((a) => a.found) };
+  return { code: ref.code, attempts, apifyConfigured: !!APIFY_API_KEY, scrapeCreatorsConfigured: !!SCRAPECREATORS_API_KEY, ok: attempts.some((a) => a.found) };
 }
 
 async function scrapeInstagram(url: string): Promise<ScrapeResult> {
@@ -231,9 +263,24 @@ async function scrapeInstagram(url: string): Promise<ScrapeResult> {
   }
   const canonical = `https://www.instagram.com/${ref.kind}/${ref.code}/`;
 
-  const free = await instagramFree(ref.code, ref.kind);
+  // Our own reader first (under a second when Instagram lets it in), then
+  // the paid readers. Once the first identity is turned away the others
+  // almost always are too, so the paid reader goes next instead of last.
+  const free = await instagramFree(ref.code, ref.kind, 1);
   if (free.post) return { success: true, post: free.post };
-  console.warn(`[Instagram] Free routes failed for ${ref.code}: ${free.attempts.map((a) => `${a.route}/${a.identity}=${a.status}${a.found ? "" : " no caption"}`).join(", ")}`);
+  console.warn(`[Instagram] Free route failed for ${ref.code}: ${free.attempts.map((a) => `${a.route}/${a.identity}=${a.status}${a.found ? "" : " no caption"}`).join(", ")}`);
+
+  const viaScrapeCreators = await instagramFromScrapeCreators(canonical).catch((err) => {
+    console.warn(`[Instagram] ScrapeCreators failed: ${err?.message}`);
+    return null;
+  });
+  if (viaScrapeCreators) {
+    console.log(`[Instagram] Read ${ref.code} via ScrapeCreators`);
+    return { success: true, post: viaScrapeCreators };
+  }
+
+  const rest = await instagramFree(ref.code, ref.kind, IG_IDENTITIES.length, 1);
+  if (rest.post) return { success: true, post: rest.post };
 
   const viaApify = APIFY_API_KEY ? await instagramFromApify(canonical).catch(() => null) : null;
   if (viaApify) return { success: true, post: viaApify };
