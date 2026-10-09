@@ -33,8 +33,10 @@ export async function addToCookbook(cookbookId: string | undefined, recipeId: st
 const nameFor = (blob: Blob, fallback: string) => (blob instanceof File && blob.name ? blob.name : fallback);
 
 /** 1–5 photos combined into one recipe */
-export async function uploadRecipePhotos(pages: Blob[]): Promise<string> {
+/** sourceUrl: the post these are screenshots of, when its link couldn't be read */
+export async function uploadRecipePhotos(pages: Blob[], sourceUrl?: string): Promise<string> {
   const form = new FormData();
+  if (sourceUrl) form.append("sourceUrl", sourceUrl);
   if (pages.length === 1) {
     form.append("image", pages[0], nameFor(pages[0], "page-1.jpg"));
     const res = await apiRequest("POST", "/api/recipes/upload", form);

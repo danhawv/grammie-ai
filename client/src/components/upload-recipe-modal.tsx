@@ -191,8 +191,8 @@ export function UploadRecipeModal({ open, onOpenChange, initialMode }: UploadRec
     }
     setBusy(photos.length === 1 ? "Sending your photo…" : `Sending ${photos.length} photos…`);
     try {
-      const recipeId = await uploadRecipePhotos(await finalBlobs());
-      addRecipe(recipeId, "Your Recipe", { kind: "photo", thumbnail: photos[0].thumbnail });
+      const recipeId = await uploadRecipePhotos(await finalBlobs(), captionFor?.url);
+      addRecipe(recipeId, "Your Recipe", { kind: captionFor ? "social" : "photo", thumbnail: photos[0].thumbnail });
       await addToCookbook(cookbookId, recipeId);
       done(recipePageAfterImport(recipeId));
     } catch (err) {
@@ -220,10 +220,11 @@ export function UploadRecipeModal({ open, onOpenChange, initialMode }: UploadRec
     } catch (err) {
       setBusy(null);
       if (platform === "instagram" || platform === "tiktok") {
-        // Instagram sometimes won't show posts to our server; the caption
-        // still has the recipe, so go straight to pasting it
+        // Instagram sometimes won't show posts to our server; a screenshot
+        // of the caption has the recipe, so ask for one
         setCaptionFor({ url: link, platform: platform === "instagram" ? "Instagram" : "TikTok" });
-        setView("text");
+        setBatch(false);
+        setView("photo");
         return;
       }
       setError(apiErrorMessage(err, "Grammie couldn't read that link. Check it opens in your browser, or paste the recipe text instead."));
@@ -293,6 +294,18 @@ export function UploadRecipeModal({ open, onOpenChange, initialMode }: UploadRec
     </div>
   ) : view === "photo" ? (
     <div className="space-y-4">
+      {captionFor && (
+        <div className="space-y-2 rounded-md border bg-muted/50 p-3 text-base" role="status" data-testid="screenshot-fallback">
+          <p className="font-medium">{captionFor.platform} didn't let us open that post.</p>
+          <p>
+            Take a screenshot of the post with the caption showing (tap “more” to open all of it), and add it here.
+            If the recipe is long, add a screenshot of each part. We'll keep the link with the recipe.
+          </p>
+          <button type="button" className="inline-flex min-h-11 items-center text-primary underline-offset-4 hover:underline" onClick={() => { setError(null); setView("text"); }}>
+            Or paste the caption instead
+          </button>
+        </div>
+      )}
       {photos.length < limit && (
         <PhotoPicker onPick={addPhotos} multiple disabled={!!busy} libraryLabel={photos.length ? "Add more photos" : "Choose photos"} variant={photos.length ? "buttons" : "zone"}>
           <ImageIcon className="h-10 w-10 text-muted-foreground" aria-hidden />

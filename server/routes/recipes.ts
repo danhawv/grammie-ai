@@ -701,6 +701,9 @@ router.post(
       const imageBase64 = imageBuffer.toString("base64");
       const handwrittenImageDataUrl = `data:${mimetype};base64,${imageBase64}`;
 
+      // Screenshots of a post whose link couldn't be read keep its link
+      const shotOf = socialLinkFrom(req.body.sourceUrl);
+
       // Get optional session metadata for multi-image uploads
       const sessionId = req.body.sessionId;
       const sourceImageIndex = req.body.sourceImageIndex;
@@ -740,6 +743,7 @@ router.post(
         dishImages: initialDishImages, // Store source image in dishImages array
         enrichmentStatus: 'extracting' as const,
         enrichmentRetryCount: 0,
+        ...(shotOf ? { socialSourcePlatform: shotOf.platform, socialSourceUrl: shotOf.url } : {}),
       };
 
       // Add session metadata if this is part of a multi-image upload
@@ -755,12 +759,12 @@ router.post(
       const validatedData = insertRecipeSchema.parse(recipeData);
       const recipe = await storage.createRecipe(validatedData);
       // The original photo stays in handwrittenImage; this row tracks the review step
-      await recordImport({ recipeId: recipe.id, ownerUserId: userId, sourceType: 'photo' });
+      await recordImport({ recipeId: recipe.id, ownerUserId: userId, sourceType: shotOf ? 'social' : 'photo', ...(shotOf ? { sourceUrl: shotOf.url } : {}) });
       console.log(`Recipe ${recipe.id} created${sessionId ? ` for session ${sessionId}` : ''}, queuing extraction...`);
 
       // Queue Vision extraction for background processing
       jobQueue.addExtractionJob(recipe.id, imageBase64);
-      straightenNewCard(recipe.id);
+      if (!shotOf) straightenNewCard(recipe.id);
 
       // Return immediately so the progress banner appears
       res.status(201).json({ recipeId: recipe.id });
@@ -789,6 +793,7 @@ router.post(
       }
 
       const files = req.files as Express.Multer.File[];
+      const shotOf = socialLinkFrom(req.body.sourceUrl);
       if (!files || files.length === 0) {
         return res.status(400).json({ error: "No image files provided" });
       }
@@ -869,6 +874,7 @@ router.post(
         dishImages: initialDishImages, // Store source image in dishImages array
         enrichmentStatus: 'extracting' as const,
         enrichmentRetryCount: 0,
+        ...(shotOf ? { socialSourcePlatform: shotOf.platform, socialSourceUrl: shotOf.url } : {}),
       };
 
       const validatedData = insertRecipeSchema.parse(recipeData);
@@ -877,14 +883,15 @@ router.post(
       await recordImport({
         recipeId: recipe.id,
         ownerUserId: userId,
-        sourceType: 'photo',
+        sourceType: shotOf ? 'social' : 'photo',
+        ...(shotOf ? { sourceUrl: shotOf.url } : {}),
         extraPageImages: handwrittenImages.slice(1),
       });
       console.log(`Recipe ${recipe.id} created, queuing multi-image extraction with ${files.length} images...`);
 
       // Queue multi-image extraction
       jobQueue.addMultiImageExtractionJob(recipe.id, imagesBase64);
-      straightenNewCard(recipe.id);
+      if (!shotOf) straightenNewCard(recipe.id);
 
       res.status(201).json({ recipeId: recipe.id });
     } catch (error) {
@@ -895,6 +902,14 @@ router.post(
     }
   }
 );
+
+/** A social post link sent with screenshots or a pasted caption */
+function socialLinkFrom(raw: unknown): { url: string; platform: "instagram" | "tiktok" | "youtube" } | null {
+  if (typeof raw !== "string") return null;
+  const url = normalizeUrl(raw);
+  const platform = url ? detectLinkPlatform(url) : null;
+  return url && (platform === "instagram" || platform === "tiktok" || platform === "youtube") ? { url, platform } : null;
+}
 
 // Turn the original card photo (sideways or upside-down uploads)
 router.post("/recipes/:id/original-card/rotate", isAuthenticated, async (req: any, res) => {
