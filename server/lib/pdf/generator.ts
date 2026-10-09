@@ -1,7 +1,7 @@
 import { paginateToc, tocMetrics, type TocMetrics } from "@shared/toc-layout";
 import { buildRecipeCardHtml, CARD_THEME, HEIRLOOM_THEME } from "@shared/recipe-card";
 import {
-  buildAlbumPageHtml, chunkAlbum, familyPhotoSlotHtml, fitFamilyPhotoSlots,
+  buildAlbumPageHtml, buildSectionPhotosPageHtml, buildDedicationPhotoPageHtml, chunkAlbum, familyPhotoSlotHtml, fitFamilyPhotoSlots,
   FAMILY_ALBUM_TITLE, type AlbumPhoto, type RecipeGap,
 } from "@shared/family-photos";
 import type { BookSizeConfig, BindingType, PaperType, TrimSize } from '../lulu/types';
@@ -62,6 +62,10 @@ export interface CookbookPrintData {
   familyPhotos?: {
     byRecipe: Record<string, AlbumPhoto>;
     album: AlbumPhoto[];
+    /** Photos on each section's opening page */
+    bySection?: Record<string, AlbumPhoto[]>;
+    /** Photo beside the dedication */
+    dedication?: AlbumPhoto;
   };
   // Custom template support
   customTemplateData?: CustomTemplateData;
@@ -536,7 +540,21 @@ export function buildInteriorHtml(
   currentPage++;
 
   // 2. Dedication, or a copyright page — mirrors the preview's page order
-  if (cookbook.dedication?.trim()) {
+  const photoPageGeo = (pageNumber?: number) => {
+    const recto = (pageNumber ?? 1) % 2 === 1;
+    return {
+      widthIn: config.pageWidthWithBleed,
+      heightIn: config.pageHeightWithBleed,
+      padTopIn: config.bleed + config.safetyMargin,
+      padBottomIn: config.bleed + config.safetyMargin,
+      padLeftIn: config.bleed + (recto ? config.gutterMargin + config.safetyMargin : config.safetyMargin),
+      padRightIn: config.bleed + (recto ? config.safetyMargin : config.gutterMargin + config.safetyMargin),
+    };
+  };
+  const dedicationPhoto = cookbook.familyPhotos?.dedication;
+  if (cookbook.dedication?.trim() && dedicationPhoto) {
+    pages.push(`<div class="page" style="width:${config.pageWidthWithBleed}in;height:${config.pageHeightWithBleed}in;overflow:hidden;page-break-after:always;">${buildDedicationPhotoPageHtml(cookbook.dedication.trim(), dedicationPhoto, theme, photoPageGeo(currentPage), escapeHtml)}</div>`);
+  } else if (cookbook.dedication?.trim()) {
     pages.push(buildDedicationPageHtml(config, cookbook.dedication.trim(), theme, pageWPx));
   } else {
     pages.push(buildColophonPageHtml(config, cookbook, theme, pageWPx));
@@ -589,7 +607,10 @@ export function buildInteriorHtml(
     if (sectionRecipes.length === 0) continue;
 
     tocEntries.push({ title: section.title, pageNumber: currentPage, isSection: true });
-    pages.push(buildSectionDividerHtml(config, section.title, section.description, theme, pageWPx, pageHPx));
+    const sectionPhotos = cookbook.familyPhotos?.bySection?.[section.id];
+    pages.push(sectionPhotos?.length
+      ? `<div class="page section-divider" style="width:${config.pageWidthWithBleed}in;height:${config.pageHeightWithBleed}in;overflow:hidden;position:relative;page-break-after:always;">${buildSectionPhotosPageHtml(section.title, sectionPhotos, theme, photoPageGeo(currentPage), escapeHtml)}</div>`
+      : buildSectionDividerHtml(config, section.title, section.description, theme, pageWPx, pageHPx));
     currentPage++;
 
     for (const recipe of sectionRecipes) {
@@ -1053,7 +1074,7 @@ function buildDedicationPageHtml(
   const textSize = Math.min(15, pageWPx * 0.024);
   return `<div class="page" style="width:${config.pageWidthWithBleed}in;height:${config.pageHeightWithBleed}in;background:${theme.bg};display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:${config.bleed + config.safetyMargin + 0.5}in;page-break-after:always;">
     <div style="width:28px;height:1px;background:${theme.divider};margin-bottom:22px;"></div>
-    <p style="font-family:${theme.titleFont};font-style:italic;font-size:${textSize}px;line-height:1.7;color:${theme.textColor || '#57534e'};max-width:34em;">${escapeHtml(dedication)}</p>
+    <p style="font-family:${theme.titleFont};font-style:italic;font-size:${textSize}px;line-height:1.7;color:${theme.textColor || '#57534e'};max-width:34em;white-space:pre-line;">${escapeHtml(dedication)}</p>
     <div style="width:28px;height:1px;background:${theme.divider};margin-top:22px;"></div>
   </div>`;
 }

@@ -85,3 +85,28 @@ describe('buildAlbumPageHtml', () => {
     expect(html.match(/<img /g)).toHaveLength(4);
   });
 });
+
+describe('section opening pages', () => {
+  const full = (id: string) => ({ recipeId: id, title: id, freeHIn: 0.2, widthIn: 4.5 });
+  const sections = [{ id: 's1', recipeIds: ['r1', 'r2'] }, { id: 's2', recipeIds: ['r3'] }];
+  const photo = (id: string, extra: object = {}) => ({ id, width: 1200, height: 900, ...extra });
+
+  it('puts a pinned photo that does not fit on its own recipe\'s section page', () => {
+    const out = planFamilyPhotos([photo('p', { pinnedRecipeId: 'r3' })], [full('r1'), full('r2'), full('r3')], sections);
+    expect(out[0].placement).toEqual({ type: 'section', sectionId: 's2' });
+  });
+
+  it('spreads the rest across sections, at most three each, then leaves them unplaced', () => {
+    const photos = Array.from({ length: 8 }, (_, i) => photo(`p${i}`));
+    const out = planFamilyPhotos(photos, [full('r1'), full('r2'), full('r3')], sections);
+    const per = (s: string) => out.filter((p) => p.placement?.type === 'section' && p.placement.sectionId === s).length;
+    expect(per('s1')).toBe(3);
+    expect(per('s2')).toBe(3);
+    expect(out.filter((p) => p.placement?.type === 'unplaced')).toHaveLength(2);
+  });
+
+  it('keeps the dedication photo where it was put', () => {
+    const out = planFamilyPhotos([photo('d', { placement: { type: 'dedication' } })], [full('r1')], sections);
+    expect(out[0].placement).toEqual({ type: 'dedication' });
+  });
+});

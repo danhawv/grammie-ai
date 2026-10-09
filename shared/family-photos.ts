@@ -45,7 +45,7 @@ export function fitPhotoInGap(aspect: number, gap: RecipeGap): { hIn: number; wI
  * gaps, portrait for tall ones). Photos with nowhere to go come back
  * 'unplaced' with a reason.
  */
-export function planFamilyPhotos(photos: FamilyPhotoEntry[], gaps: RecipeGap[]): FamilyPhotoEntry[] {
+export function planFamilyPhotos(photos: FamilyPhotoEntry[], gaps: RecipeGap[], sections?: { id: string; recipeIds: string[] }[]): FamilyPhotoEntry[] {
   const result = photos.map((p) => ({ ...p }));
   const taken = new Set<string>();
   const byId = new Map(gaps.map((g) => [g.recipeId, g]));
@@ -81,7 +81,7 @@ export function planFamilyPhotos(photos: FamilyPhotoEntry[], gaps: RecipeGap[]):
     }
   }
 
-  const pool = result.filter((p) => p.placement?.type !== 'album' && p.placement?.type !== 'recipe' && !p.pinnedRecipeId);
+  const pool = result.filter((p) => !['album', 'recipe', 'dedication'].includes(p.placement?.type ?? '') && !p.pinnedRecipeId);
   const eligible = gaps.filter((g) => !taken.has(g.recipeId) && pool.some((p) => fitPhotoInGap(p.width / p.height, g)));
 
   // Spread photos evenly when there are more gaps than photos
@@ -111,7 +111,74 @@ export function planFamilyPhotos(photos: FamilyPhotoEntry[], gaps: RecipeGap[]):
     p.placement = { type: 'unplaced', reason: 'No recipe page has enough room left' };
   });
 
+  if (sections?.length) placeOnSectionPages(result, sections);
   return result;
+}
+
+/** Photos on each section's opening page (title above, photos below) */
+export const SECTION_PAGE_PHOTOS = 3;
+
+/**
+ * Section opening pages are nearly empty, so photos that didn't fit under a
+ * recipe go there before the album: a pinned photo onto its own recipe's
+ * section, then the rest spread through the book in order.
+ */
+function placeOnSectionPages(result: FamilyPhotoEntry[], sections: { id: string; recipeIds: string[] }[]): void {
+  const count = new Map<string, number>();
+  result.forEach((p) => {
+    if (p.placement?.type === 'section' && p.placement.sectionId) count.set(p.placement.sectionId, (count.get(p.placement.sectionId) ?? 0) + 1);
+  });
+  const room = (id: string) => (count.get(id) ?? 0) < SECTION_PAGE_PHOTOS;
+  const put = (p: FamilyPhotoEntry, id: string) => {
+    p.placement = { type: 'section', sectionId: id };
+    count.set(id, (count.get(id) ?? 0) + 1);
+  };
+  const waiting = result.filter((p) => p.placement?.type === 'unplaced');
+
+  for (const p of waiting) {
+    if (!p.pinnedRecipeId) continue;
+    const home = sections.find((s) => s.recipeIds.includes(p.pinnedRecipeId!));
+    if (home && room(home.id)) put(p, home.id);
+  }
+  let next = 0;
+  for (const p of waiting) {
+    if (p.placement?.type !== 'unplaced') continue;
+    for (let tries = 0; tries < sections.length; tries++) {
+      const s = sections[next++ % sections.length];
+      if (room(s.id)) { put(p, s.id); break; }
+    }
+  }
+}
+
+/** Page geometry shared by the section and dedication pages below */
+export interface PhotoPageGeometry extends AlbumGeometry {}
+
+/** A section's opening page with photos: title at the top, a photo grid below */
+export function buildSectionPhotosPageHtml(title: string, photos: AlbumPhoto[], theme: ThemeConfig, geo: PhotoPageGeometry, esc: (s: string) => string): string {
+  const titleSize = theme.fontSizes?.sectionTitle ?? Math.min(30, geo.widthIn * 96 * 0.05);
+  const headIn = Math.min(1.9, geo.heightIn * 0.24);
+  const grid = buildAlbumPageHtml(photos, theme, { ...geo, padTopIn: geo.padTopIn + headIn, pageNumber: undefined });
+  return `<div style="position:relative;width:${geo.widthIn}in;height:${geo.heightIn}in;background:${theme.bg};">
+    ${grid}
+    <div style="position:absolute;top:${geo.padTopIn}in;left:0;right:0;height:${headIn}in;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;">
+      <div style="width:60px;height:2px;background:${theme.divider};margin-bottom:14px;"></div>
+      <h2 style="font-family:${theme.titleFont};font-weight:700;font-size:${titleSize}px;color:${theme.titleColor || '#292524'};margin:0;">${esc(title)}</h2>
+      <div style="width:60px;height:2px;background:${theme.divider};margin-top:14px;"></div>
+    </div>
+  </div>`;
+}
+
+/** The dedication with a photo above it */
+export function buildDedicationPhotoPageHtml(text: string, photo: AlbumPhoto, theme: ThemeConfig, geo: PhotoPageGeometry, esc: (s: string) => string): string {
+  const radius = theme.recipeLayout ? `${Math.min(theme.recipeLayout.cornerRadius, 10)}px` : (theme.imageRadius || '3px');
+  const textSize = Math.min(14, geo.widthIn * 96 * 0.022);
+  const photoHIn = Math.min(geo.heightIn * 0.4, 3.6);
+  return `<div style="width:${geo.widthIn}in;height:${geo.heightIn}in;background:${theme.bg};box-sizing:border-box;padding:${geo.padTopIn}in ${geo.padRightIn}in ${geo.padBottomIn}in ${geo.padLeftIn}in;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:18px;">
+    <div style="height:${photoHIn.toFixed(2)}in;max-width:100%;aspect-ratio:${photo.aspect.toFixed(4)};box-sizing:border-box;padding:7px;background:#fff;border:1px solid ${theme.accentBorder};border-radius:${radius};box-shadow:0 1px 4px rgba(0,0,0,0.12);flex-shrink:0;">
+      <img src="${photo.src}" style="display:block;width:100%;height:100%;object-fit:cover;object-position:center 30%;border-radius:${radius};" />
+    </div>
+    <p style="font-family:${theme.titleFont};font-style:italic;font-size:${textSize}px;line-height:1.6;color:${theme.textColor || '#57534e'};max-width:34em;margin:0;white-space:pre-line;">${esc(text)}</p>
+  </div>`;
 }
 
 /** Photo frame inserted (hidden) into a recipe's content; sized at render time */

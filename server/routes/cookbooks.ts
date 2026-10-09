@@ -1172,8 +1172,11 @@ async function buildPrintDataFromLayout(
 async function loadFamilyPhotosForPrint(cookbookId: number, layout: PrintLayoutData): Promise<CookbookPrintData["familyPhotos"]> {
   const entries = layout.familyPhotos ?? [];
   const inBook = new Set(layout.sections.flatMap((s) => s.recipeIds));
+  const sectionIds = new Set(layout.sections.map((s) => s.id));
   const wanted = entries.filter((e) =>
-    e.placement?.type === "album" || (e.placement?.type === "recipe" && e.placement.recipeId && inBook.has(e.placement.recipeId)));
+    e.placement?.type === "album" || e.placement?.type === "dedication" ||
+    (e.placement?.type === "section" && e.placement.sectionId && sectionIds.has(e.placement.sectionId)) ||
+    (e.placement?.type === "recipe" && e.placement.recipeId && inBook.has(e.placement.recipeId)));
   if (wanted.length === 0) return undefined;
 
   const images = new Map<string, string>();
@@ -1187,14 +1190,18 @@ async function loadFamilyPhotosForPrint(cookbookId: number, layout: PrintLayoutD
 
   const byRecipe: Record<string, { src: string; aspect: number }> = {};
   const album: { src: string; aspect: number }[] = [];
+  const bySection: Record<string, { src: string; aspect: number }[]> = {};
+  let dedication: { src: string; aspect: number } | undefined;
   for (const e of wanted) {
     const src = images.get(e.id);
     if (!src) continue;
     const photo = { src, aspect: e.width / e.height };
     if (e.placement?.type === "album") album.push(photo);
+    else if (e.placement?.type === "dedication") dedication ??= photo;
+    else if (e.placement?.type === "section" && e.placement.sectionId) (bySection[e.placement.sectionId] ??= []).push(photo);
     else if (e.placement?.recipeId && !byRecipe[e.placement.recipeId]) byRecipe[e.placement.recipeId] = photo;
   }
-  return { byRecipe, album };
+  return { byRecipe, album, bySection, dedication };
 }
 
 router.post("/cookbooks/:id/generate-pdf", isAuthenticated, async (req: any, res) => {
@@ -1261,10 +1268,10 @@ router.post("/cookbooks/:id/photos/place", isAuthenticated, async (req: any, res
     if ("error" in built) return res.status(400).json({ error: built.error });
 
     const gaps = await measureRecipeGaps(built.data);
-    const familyPhotos = planFamilyPhotos(photos, gaps);
+    const familyPhotos = planFamilyPhotos(photos, gaps, parsed.data.sections);
     res.json({
       familyPhotos,
-      placed: familyPhotos.filter((p) => p.placement?.type === "recipe").length,
+      placed: familyPhotos.filter((p) => p.placement?.type === "recipe" || p.placement?.type === "section").length,
       unplaced: familyPhotos.filter((p) => p.placement?.type === "unplaced").length,
     });
   } catch (error) {

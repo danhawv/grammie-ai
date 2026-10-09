@@ -64,6 +64,7 @@ export function FamilyPhotosPanel({ cookbookId, layoutData, onChange, templateSt
   const inBook = useMemo(() => new Set(layoutData.sections.flatMap((s) => s.recipeIds)), [layoutData.sections]);
   const placed = photos.filter((p) => p.placement?.type === "recipe" && p.placement.recipeId && inBook.has(p.placement.recipeId));
   const album = photos.filter((p) => p.placement?.type === "album");
+  const onPages = photos.filter((p) => p.placement?.type === "section" || p.placement?.type === "dedication");
   const unplaced = photos.filter((p) => p.placement?.type === "unplaced");
   const notYet = photos.filter((p) => !p.placement);
 
@@ -145,6 +146,11 @@ export function FamilyPhotosPanel({ cookbookId, layoutData, onChange, templateSt
     if (p.placement?.type === "recipe" && p.placement.recipeId)
       return { text: recipeTitles.get(p.placement.recipeId) ?? "Recipe", tone: "text-foreground" };
     if (p.placement?.type === "album") return { text: "Family Album", tone: "text-foreground" };
+    if (p.placement?.type === "section") {
+      const title = layoutData.sections.find((s) => s.id === p.placement?.sectionId)?.title;
+      return { text: title ? `${title} opening page` : "Section opening page", tone: "text-foreground" };
+    }
+    if (p.placement?.type === "dedication") return { text: "Dedication page", tone: "text-foreground" };
     if (p.placement?.type === "unplaced") return { text: "Doesn't fit", tone: "text-destructive" };
     return { text: "Not placed yet", tone: "text-muted-foreground" };
   };
@@ -178,7 +184,7 @@ export function FamilyPhotosPanel({ cookbookId, layoutData, onChange, templateSt
 
         {photos.length > 0 && (
           <p className="text-sm text-muted-foreground">
-            {placed.length} under recipes · {album.length} in album
+            {placed.length} under recipes{onPages.length ? ` · ${onPages.length} on section and dedication pages` : ""} · {album.length} in album
             {unplaced.length ? ` · ${unplaced.length} don't fit` : ""}
             {notYet.length ? ` · ${notYet.length} not placed yet` : ""}
           </p>

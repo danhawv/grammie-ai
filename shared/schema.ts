@@ -543,8 +543,13 @@ export const familyPhotoEntrySchema = z.object({
   height: z.number().positive(),
   /** Set by "Place photos" or by the user; absent = not placed yet */
   placement: z.object({
-    type: z.enum(['recipe', 'album', 'unplaced']),
+    /**
+     * 'recipe' = under a recipe; 'section' = on a section's opening page;
+     * 'dedication' = beside the dedication; 'album' = Family Album pages
+     */
+    type: z.enum(['recipe', 'section', 'dedication', 'album', 'unplaced']),
     recipeId: z.string().optional(),
+    sectionId: z.string().optional(),
     /** Why an unplaced photo couldn't go anywhere */
     reason: z.string().optional(),
   }).optional(),

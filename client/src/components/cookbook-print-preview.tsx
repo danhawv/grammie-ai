@@ -15,7 +15,7 @@ import { BOOK_SIZES, type TrimSizeId } from "@/lib/print-constants";
 import { buildRecipeCardHtml, CARD_THEME, HEIRLOOM_THEME } from "@shared/recipe-card";
 import { transformRecipe } from "@shared/print-recipe-transform";
 import {
-  buildAlbumPageHtml, chunkAlbum, familyPhotoSlotHtml, fitFamilyPhotoSlots,
+  buildAlbumPageHtml, buildSectionPhotosPageHtml, buildDedicationPhotoPageHtml, chunkAlbum, familyPhotoSlotHtml, fitFamilyPhotoSlots,
   FAMILY_ALBUM_TITLE, type AlbumPhoto,
 } from "@shared/family-photos";
 
@@ -178,7 +178,7 @@ type PageContent =
   | { type: "dedication" }
   | { type: "colophon" }
   | { type: "toc"; entries: TocEntry[]; first: boolean }
-  | { type: "section-divider"; title: string; album?: boolean }
+  | { type: "section-divider"; title: string; album?: boolean; sectionId?: string }
   | { type: "album"; photos: AlbumPhoto[] }
   | { type: "recipe"; recipe: Recipe; index: number }
   | { type: "recipe-extras"; recipe: Recipe; index: number }
@@ -307,17 +307,22 @@ export function CookbookPrintPreview({
   }, [showNutrition, showTips, showVariations, theme.recipeLayout]);
 
   // Family photos: one under each recipe that has room, the rest in the album
-  const { photoByRecipe, albumPhotos } = useMemo(() => {
+  const { photoByRecipe, albumPhotos, photosBySection, dedicationPhoto } = useMemo(() => {
     const inBook = new Set((layoutData?.sections ?? []).flatMap((s) => s.recipeIds));
     const byRecipe = new Map<string, string>();
     const album: AlbumPhoto[] = [];
+    const bySection = new Map<string, AlbumPhoto[]>();
+    let dedication: AlbumPhoto | undefined;
     for (const p of layoutData?.familyPhotos ?? []) {
-      if (p.placement?.type === 'album') album.push({ src: photoUrl(p.id), aspect: p.width / p.height });
+      const photo = { src: photoUrl(p.id), aspect: p.width / p.height };
+      if (p.placement?.type === 'dedication') dedication ??= photo;
+      else if (p.placement?.type === 'section' && p.placement.sectionId) bySection.set(p.placement.sectionId, [...(bySection.get(p.placement.sectionId) ?? []), photo]);
+      else if (p.placement?.type === 'album') album.push(photo);
       else if (p.placement?.type === 'recipe' && p.placement.recipeId && inBook.has(p.placement.recipeId) && !byRecipe.has(p.placement.recipeId)) {
         byRecipe.set(p.placement.recipeId, photoUrl(p.id));
       }
     }
-    return { photoByRecipe: byRecipe, albumPhotos: album };
+    return { photoByRecipe: byRecipe, albumPhotos: album, photosBySection: bySection, dedicationPhoto: dedication };
   }, [layoutData?.familyPhotos, layoutData?.sections]);
 
   // Build pages
@@ -351,7 +356,7 @@ export function CookbookPrintPreview({
         let recipeIndex = 0;
         for (const section of layoutData.sections) {
           if (section.title) {
-            p.push({ type: "section-divider", title: section.title });
+            p.push({ type: "section-divider", title: section.title, sectionId: section.id });
           }
           for (const rid of section.recipeIds) {
             const recipe = orderedRecipes.find(r => String(r.id) === String(rid));
@@ -531,9 +536,11 @@ export function CookbookPrintPreview({
                 {page?.type === "colophon" && (
                   <ColophonPage layoutData={layoutData} theme={theme} recipeCount={orderedRecipes.length} w={pageW} h={pageH} />
                 )}
-                {page?.type === "dedication" && (
+                {page?.type === "dedication" && (dedicationPhoto ? (
+                  <PhotoHtmlPage w={pageW} h={pageH} html={buildDedicationPhotoPageHtml(layoutData.dedication || '', dedicationPhoto, theme, photoPageGeo(pageW, pageH), escapeText)} />
+                ) : (
                   <DedicationPage dedication={layoutData.dedication || ''} theme={theme} w={pageW} h={pageH} />
-                )}
+                ))}
                 {page?.type === "toc" && (
                   <TocPage
                     entries={page.entries}
@@ -549,9 +556,11 @@ export function CookbookPrintPreview({
                     w={pageW} h={pageH}
                   />
                 )}
-                {page?.type === "section-divider" && (
+                {page?.type === "section-divider" && (page.sectionId && photosBySection.get(page.sectionId)?.length ? (
+                  <PhotoHtmlPage w={pageW} h={pageH} html={buildSectionPhotosPageHtml(page.title, photosBySection.get(page.sectionId)!, theme, photoPageGeo(pageW, pageH), escapeText)} />
+                ) : (
                   <SectionDividerPage title={page.title} theme={theme} w={pageW} h={pageH} />
-                )}
+                ))}
                 {page?.type === "recipe" && theme.recipeLayout && (
                   <CardRecipePage
                     cookbookId={cookbookId}
@@ -873,7 +882,7 @@ function DedicationPage({ dedication, theme, w, h }: {
       <p style={{
         fontFamily: theme.titleFont, fontStyle: 'italic',
         fontSize: Math.min(18, w * 0.03), color: '#57534e',
-        lineHeight: 1.6, maxWidth: '80%',
+        lineHeight: 1.6, maxWidth: '80%', whiteSpace: 'pre-line',
       }}>
         &ldquo;{dedication}&rdquo;
       </p>
@@ -978,6 +987,18 @@ function AlbumPage({ photos, theme, w, h, pageNumber }: {
     pageNumber,
   }), [photos, theme, w, h, pageNumber]);
   return <div style={{ width: w, height: h }} dangerouslySetInnerHTML={{ __html: html }} />;
+}
+
+// Section opening and dedication pages with family photos: the same HTML
+// builders the PDF uses (shared/family-photos.ts)
+const escapeText = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const photoPageGeo = (w: number, h: number) => ({
+  widthIn: w / DPI, heightIn: h / DPI,
+  padTopIn: MARGIN_TOP, padBottomIn: MARGIN_BOTTOM,
+  padLeftIn: MARGIN_INNER, padRightIn: MARGIN_OUTER,
+});
+function PhotoHtmlPage({ w, h, html }: { w: number; h: number; html: string }) {
+  return <div style={{ width: w, height: h, overflow: 'hidden' }} dangerouslySetInnerHTML={{ __html: html }} />;
 }
 
 // Card layout: the same HTML the PDF generator prints (shared/recipe-card.ts),
