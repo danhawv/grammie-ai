@@ -67,8 +67,8 @@ export const HEIRLOOM_LAYOUT_PRESET: RecipeLayoutSpec = {
   stepMarker: 'number',
   panels: 'plain',
   headingRule: true,
-  nutritionBox: true,
-  tipsBox: true,
+  nutritionBox: false, // a keepsake page: the space goes to family photos
+  tipsBox: false,
   cornerRadius: 6,
   original: 'beside',
 };
