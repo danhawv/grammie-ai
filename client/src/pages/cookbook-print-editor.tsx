@@ -25,6 +25,7 @@ import { SaveStatus, StepBar, StepList } from "@/components/print/step-nav";
 import { usePrintAutosave } from "@/components/print/use-print-autosave";
 import { STEPS, isStepId, type BookDraft, type RecipeSummary, type Section, type StepId } from "@/components/print/types";
 import { estimateBookPages } from "@shared/print-readiness";
+import { replacePhotosForBook } from "@/lib/place-photos";
 import { BINDING_PAGE_LIMITS } from "@/lib/print-constants";
 import type { CookbookPrintProject, CustomTemplate, PrintLayoutData } from "@shared/schema";
 import type { BindingTypeId, ColorTypeId, CoverFinishId, PaperTypeId, TrimSizeId } from "@/lib/print-constants";
@@ -178,6 +179,37 @@ function CookbookPrintEditorInner() {
   );
 
   const update = useCallback((c: Partial<BookDraft>) => apply((d) => ({ ...d, ...c })), [apply]);
+
+  // A new size or template changes how much room each page has, so the
+  // family photos are placed again for it (hand-placed ones stay put)
+  const specKey = draft ? `${draft.trimSize}|${draft.bindingType}|${draft.templateStyle}|${draft.customTemplateId ?? ""}` : "";
+  const lastSpecKey = useRef<string | null>(null);
+  const replaceRun = useRef(0);
+  useEffect(() => {
+    if (!draft || !specKey) return;
+    if (lastSpecKey.current === null || lastSpecKey.current === specKey) {
+      lastSpecKey.current = specKey;
+      return;
+    }
+    lastSpecKey.current = specKey;
+    if (!(draft.layoutData.familyPhotos ?? []).length || !draft.layoutData.sections.some((s) => s.recipeIds.length)) return;
+    const run = ++replaceRun.current;
+    replacePhotosForBook(cookbookId, draft.layoutData, {
+      templateStyle: draft.templateStyle, customTemplateId: draft.customTemplateId, trimSize: draft.trimSize, bindingType: draft.bindingType,
+    })
+      .then((r) => {
+        if (run !== replaceRun.current) return; // a newer change is on its way
+        apply((d) => ({ ...d, layoutData: { ...d.layoutData, familyPhotos: r.familyPhotos } }));
+        toast({
+          title: "Family photos placed for the new layout",
+          description: `${r.besideRecipes} beside recipes · ${r.onSectionPages} on chapter pages · ${r.inAlbum} in the album`,
+        });
+      })
+      .catch(() => {
+        if (run === replaceRun.current) toast({ title: "Couldn't re-place the family photos", description: "Open Personalize and press Place photos.", variant: "destructive" });
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [specKey]);
   const updateLayout = useCallback(
     (c: Partial<PrintLayoutData>, undoMessage?: string) => apply((d) => ({ ...d, layoutData: { ...d.layoutData, ...c } }), undoMessage),
     [apply],

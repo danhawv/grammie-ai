@@ -550,6 +550,8 @@ export const familyPhotoEntrySchema = z.object({
     type: z.enum(['recipe', 'section', 'dedication', 'album', 'unplaced']),
     recipeId: z.string().optional(),
     sectionId: z.string().optional(),
+    /** Chosen by hand in the editor; kept when photos are re-placed for a new size */
+    byUser: z.boolean().optional(),
     /** Why an unplaced photo couldn't go anywhere */
     reason: z.string().optional(),
   }).optional(),

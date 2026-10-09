@@ -1074,6 +1074,8 @@ async function buildPrintDataFromLayout(
   layout: PrintLayoutData,
   templateStyle?: string,
   customTemplateId?: number | null,
+  /** The editor's unsaved book size, when it differs from the saved project */
+  specs?: { trimSize?: string; bindingType?: string; paperType?: string },
 ): Promise<{ data: CookbookPrintData } | { error: string }> {
     const allRecipeIds = layout.sections
       .flatMap(s => Array.isArray(s.recipeIds) ? s.recipeIds : [])
@@ -1098,9 +1100,9 @@ async function buildPrintDataFromLayout(
     const printProjects = await storage.getPrintProjectsByCookbook(cookbookId, userId);
     const printProject = printProjects[0];
 
-    const trimSize = printProject?.trimSize || '0600X0900';
-    const bindingType = printProject?.bindingType || 'PB';
-    const paperType = printProject?.paperType || '080CW444';
+    const trimSize = specs?.trimSize || printProject?.trimSize || '0600X0900';
+    const bindingType = specs?.bindingType || printProject?.bindingType || 'PB';
+    const paperType = specs?.paperType || printProject?.paperType || '080CW444';
     // The editor sends what's on screen (possibly unsaved); it wins over the saved project
     const templateId = templateStyle || printProject?.templateStyle || 'classic';
     const recipePrintSettings = layout.recipePrintSettings || {};
@@ -1256,7 +1258,7 @@ router.post("/cookbooks/:id/photos/place", isAuthenticated, async (req: any, res
     if (!cookbook) return res.status(404).json({ error: "Cookbook not found" });
     if (cookbook.ownerUserId !== userId) return res.status(403).json({ error: "Not authorized" });
 
-    const { layoutData, templateStyle, customTemplateId } = req.body;
+    const { layoutData, templateStyle, customTemplateId, trimSize, bindingType } = req.body;
     const parsed = printLayoutDataSchema.safeParse(layoutData);
     if (!parsed.success) return res.status(400).json({ error: "Invalid layout data" });
     const photos = parsed.data.familyPhotos ?? [];
@@ -1264,6 +1266,7 @@ router.post("/cookbooks/:id/photos/place", isAuthenticated, async (req: any, res
 
     const built = await buildPrintDataFromLayout(
       cookbookId, cookbook.name, userId, { ...parsed.data, familyPhotos: undefined }, templateStyle, customTemplateId,
+      { trimSize: typeof trimSize === "string" ? trimSize : undefined, bindingType: typeof bindingType === "string" ? bindingType : undefined },
     );
     if ("error" in built) return res.status(400).json({ error: built.error });
 

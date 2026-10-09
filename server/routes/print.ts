@@ -228,10 +228,23 @@ router.get("/api/print/orders/:orderId/status", isAuthenticated, async (req: any
     if (job.status?.name && job.status.name !== project.luluOrderStatus) {
       await storage.updatePrintProjectLuluOrder(project.id, String(job.id), job.status.name);
     }
+    // Why Lulu rejected it, in its words (file problems are on the line items)
+    const problems: string[] = [];
+    const collect = (m: any) => {
+      if (!m) return;
+      if (typeof m === "string") problems.push(m);
+      else if (Array.isArray(m)) m.forEach(collect);
+      else if (typeof m === "object") Object.values(m).forEach(collect);
+    };
+    if (job.status?.name === "REJECTED") {
+      (job.line_items || []).forEach((li: any) => collect(li.status?.messages));
+      if (!problems.length) collect((job.status as any)?.message ?? job.status?.messages);
+    }
     res.json({
       orderId: job.id,
       status: job.status.name,
       statusMessages: job.status.messages,
+      problem: problems.join(" ").replace(/\s+/g, " ").trim() || null,
       lineItems: job.line_items,
       costs: job.costs,
       estimatedShipping: job.estimated_shipping_dates,

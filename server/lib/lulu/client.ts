@@ -150,12 +150,13 @@ export async function validateCover(
 export async function getCoverDimensions(
   podPackageId: string,
   pageCount: number
-): Promise<{ width: number; height: number; spine_width: number }> {
+): Promise<{ width: string | number; height: string | number; unit?: string }> {
   return luluFetch('/cover-dimensions/', {
     method: 'POST',
     body: JSON.stringify({
       pod_package_id: podPackageId,
-      page_count: pageCount,
+      interior_page_count: pageCount,
+      unit: 'inch',
     }),
   });
 }

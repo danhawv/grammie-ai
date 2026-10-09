@@ -56,6 +56,8 @@ export function PersonalizeStep({ cookbookId, draft, updateLayout, recipeTitles 
         onChange={(familyPhotos: FamilyPhotoEntry[]) => updateLayout({ familyPhotos })}
         templateStyle={draft.templateStyle}
         customTemplateId={draft.customTemplateId}
+        trimSize={draft.trimSize}
+        bindingType={draft.bindingType}
         recipeTitles={recipeTitles}
       />
     </div>

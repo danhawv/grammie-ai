@@ -641,9 +641,11 @@ function SuggestedAddress({
 }
 
 function OrderStatusCard({ orderId, status, heading }: { orderId: string; status: string | null; heading: string }) {
-  const live = useQuery<{ status: string; estimatedShipping?: { arrival_min: string; arrival_max: string } }>({
+  // Lulu checks the files within a minute or so of an order, so look on
+  // load and keep looking while it's still new
+  const live = useQuery<{ status: string; problem?: string | null; estimatedShipping?: { arrival_min: string; arrival_max: string } }>({
     queryKey: ["/api/print/orders", orderId, "status"],
-    enabled: false,
+    refetchInterval: (q) => (["CREATED", "UNPAID", "PAYMENT_IN_PROGRESS", undefined].includes((q.state.data as any)?.status ?? undefined) ? 30_000 : false),
   });
   const current = live.data?.status ?? status;
   const arrival = live.data?.estimatedShipping;
@@ -660,6 +662,12 @@ function OrderStatusCard({ orderId, status, heading }: { orderId: string; status
           {orderStatusLabel(current)}
           {range ? ` · arrives about ${range}` : ""}
         </p>
+        {current === "REJECTED" && (
+          <p className="mt-1 text-sm text-destructive" data-testid="order-rejected">
+            The printer couldn't use this book's files, so it wasn't printed and nothing was charged.
+            {live.data?.problem ? ` Their reason: ${live.data.problem}` : ""} You can order again once it's fixed.
+          </p>
+        )}
         {live.isError && <p className="text-sm text-destructive">Couldn't get the latest status. Try again in a moment.</p>}
       </div>
       <Button variant="outline" onClick={() => live.refetch()} disabled={live.isFetching}>

@@ -7,6 +7,7 @@ import {
   DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { AlertTriangle, BookImage, ImagePlus, Loader2, MoreVertical, Wand2 } from "lucide-react";
+import { placePhotos } from "@/lib/place-photos";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { FamilyPhotoEntry, PrintLayoutData } from "@shared/schema";
@@ -38,11 +39,13 @@ interface Props {
   layoutData: PrintLayoutData;
   onChange: (photos: FamilyPhotoEntry[]) => void;
   templateStyle: string;
+  trimSize?: string;
+  bindingType?: string;
   customTemplateId: number | null;
   recipeTitles: Map<string, string>;
 }
 
-export function FamilyPhotosPanel({ cookbookId, layoutData, onChange, templateStyle, customTemplateId, recipeTitles }: Props) {
+export function FamilyPhotosPanel({ cookbookId, layoutData, onChange, templateStyle, customTemplateId, trimSize, bindingType, recipeTitles }: Props) {
   const { toast } = useToast();
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState<{ done: number; total: number } | null>(null);
@@ -106,12 +109,7 @@ export function FamilyPhotosPanel({ cookbookId, layoutData, onChange, templateSt
 
   const place = useMutation({
     mutationFn: async (current: FamilyPhotoEntry[]) => {
-      const res = await apiRequest("POST", `/api/cookbooks/${cookbookId}/photos/place`, {
-        layoutData: { ...layoutData, familyPhotos: current },
-        templateStyle,
-        customTemplateId,
-      });
-      return res.json() as Promise<{ familyPhotos: FamilyPhotoEntry[]; placed: number; unplaced: number }>;
+      return placePhotos(cookbookId, layoutData, current, { templateStyle, customTemplateId, trimSize, bindingType });
     },
     onSuccess: (r) => {
       onChange(r.familyPhotos);
@@ -231,7 +229,7 @@ export function FamilyPhotosPanel({ cookbookId, layoutData, onChange, templateSt
                         )}
                         <DropdownMenuSeparator />
                         {p.placement?.type !== "album" ? (
-                          <DropdownMenuItem onClick={() => update(p.id, { pinnedRecipeId: undefined, placement: { type: "album" } })}>
+                          <DropdownMenuItem onClick={() => update(p.id, { pinnedRecipeId: undefined, placement: { type: "album", byUser: true } })}>
                             Move to Family Album
                           </DropdownMenuItem>
                         ) : (

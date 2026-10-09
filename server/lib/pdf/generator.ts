@@ -10,6 +10,8 @@ import type { CustomTemplateData } from '@shared/schema';
 import { buildThemeConfigFromTemplate, isColorDark, type ThemeConfig } from '@shared/template-theme';
 import { getBookSizeConfig } from '../lulu/book-sizes';
 import { calculateSpineWidth } from '../lulu/spine-calculator';
+import { getCoverDimensions } from '../lulu/client';
+import { buildPodPackageId } from '../lulu/pod-package';
 import { inlineGoogleFonts, buildEmbeddedFontCss } from './font-cache';
 import { execSync } from 'child_process';
 import fs from 'fs';
@@ -454,13 +456,32 @@ async function generateCoverPdfInner(
   const paperType = cookbookData.paperType as PaperType;
 
   const config = getBookSizeConfig(trimSize, bindingType);
-  const spineWidth = calculateSpineWidth(pageCount, paperType, bindingType);
   const bleed = 0.125;
   const isHardcover = bindingType === 'CW' || bindingType === 'LW';
   const wrap = isHardcover ? 0.75 : 0;
 
-  const coverWidth = (bleed * 2) + (wrap * 2) + (config.trimWidthIn * 2) + spineWidth;
-  const coverHeight = (bleed * 2) + (wrap * 2) + config.trimHeightIn;
+  // Lulu rejects a cover more than ~0.06in off. Its hardcover spines come
+  // from a lookup table our formula doesn't match (a 124-page 6x9 hardcover
+  // came out 0.28in too wide and the order was rejected), so ask Lulu for
+  // the exact size and keep the formula only as a fallback.
+  let spineWidth = calculateSpineWidth(pageCount, paperType, bindingType);
+  let coverWidth = (bleed * 2) + (wrap * 2) + (config.trimWidthIn * 2) + spineWidth;
+  let coverHeight = (bleed * 2) + (wrap * 2) + config.trimHeightIn;
+  try {
+    const pod = buildPodPackageId({
+      trimSize, colorType: 'FC', printQuality: 'STD', bindingType, paperType,
+      coverFinish: 'M', linenColor: 'X', foilType: 'X',
+    } as any);
+    const dims = await getCoverDimensions(pod, pageCount);
+    const w = Number(dims.width), h = Number(dims.height);
+    if (w > 0 && h > 0) {
+      coverWidth = w;
+      coverHeight = h;
+      spineWidth = Math.max(0, w - (bleed * 2) - (wrap * 2) - (config.trimWidthIn * 2));
+    }
+  } catch (err: any) {
+    console.warn(`[Cover] Lulu cover size unavailable, using our formula: ${err?.message}`);
+  }
 
   const coverData: CoverData = cookbookData.coverData || {};
 
