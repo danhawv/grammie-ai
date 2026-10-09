@@ -1,4 +1,4 @@
-import { attachOriginalCards, originalCardJpeg } from "../lib/original-card";
+import { attachOriginalCards, findSidewaysCards, originalCardJpeg } from "../lib/original-card";
 import { Router } from "express";
 import { parseFiltersFromQuery } from "./filter-parser";
 import { z } from "zod";
@@ -18,7 +18,7 @@ import {
 import { CHAPTERS, chapterForTags, buildCoursePlan } from "@shared/courses";
 import { normalizeUsState } from "@shared/us-states";
 import { validateAddress, estimateArrival } from "@shared/print-checkout";
-import { checkReadiness, type RecipePrintFacts } from "@shared/print-readiness";
+import { checkReadiness, type BookPageDetails, type RecipePrintFacts } from "@shared/print-readiness";
 import { isGeminiAvailable, parseQueryWithGemini } from "../gemini";
 import { generateInteriorPdf, generateCoverPdf, measureRecipeGaps, type CookbookPrintData } from "../lib/pdf/generator";
 import { planFamilyPhotos } from "@shared/family-photos";
@@ -390,11 +390,39 @@ router.get("/cookbooks/:id/original-cards/:recipeId", optionalAuth, async (req: 
     const jpeg = await originalCardJpeg(req.params.recipeId, 700);
     if (!jpeg) return res.status(404).json({ error: "This recipe has no original card" });
     res.setHeader("Content-Type", "image/jpeg");
-    res.setHeader("Cache-Control", "private, max-age=3600");
+    // Revalidated each time (Express answers 304 from the ETag), so a card
+    // that was just turned shows the new way round
+    res.setHeader("Cache-Control", "private, no-cache");
     res.send(jpeg);
   } catch (error) {
     console.error("Error serving original card:", error);
     res.status(500).json({ error: "Couldn't load the original card" });
+  }
+});
+
+// Which original cards in the book look sideways or upside down (checked
+// before printing; each check is about 2s, cached per card image)
+router.post("/cookbooks/:id/original-cards/check", isAuthenticated, async (req: any, res) => {
+  try {
+    const userId = getUserId(req);
+    const cookbookId = Number(req.params.id);
+    const cookbook = await storage.getCookbook(cookbookId, userId);
+    if (!cookbook) return res.status(404).json({ error: "Cookbook not found or not accessible" });
+    const wanted: string[] = Array.isArray(req.body?.recipeIds) ? req.body.recipeIds.filter((x: unknown) => typeof x === "string").slice(0, 1000) : [];
+    if (!wanted.length) return res.json({ checked: 0, sideways: [] });
+    const rows = await db.select({ id: recipes.id, title: recipes.title, owner: recipes.ownerUserId })
+      .from(recipes)
+      .innerJoin(cookbookRecipes, eq(cookbookRecipes.recipeId, recipes.id))
+      .where(and(eq(cookbookRecipes.cookbookId, cookbookId), inArray(recipes.id, wanted), isNotNull(recipes.handwrittenImage)));
+    const found = await findSidewaysCards(rows.map((r) => r.id));
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    res.json({
+      checked: rows.length,
+      sideways: found.map((f) => ({ ...f, title: byId.get(f.recipeId)?.title ?? "Recipe", canFix: byId.get(f.recipeId)?.owner === userId })),
+    });
+  } catch (error) {
+    console.error("Error checking original cards:", error);
+    res.status(500).json({ error: "Couldn't check the card photos" });
   }
 });
 
@@ -873,6 +901,7 @@ router.post("/cookbooks/:id/preflight", isAuthenticated, async (req: any, res) =
       authorName: layoutData.authorName,
       trimSize,
       pageLimits: BINDING_PAGE_LIMITS[bindingType] || { min: 32, max: 800 },
+      pageDetails: parsePageDetails(req.body.pageDetails),
     });
     res.json(result);
   } catch (error) {
@@ -880,6 +909,19 @@ router.post("/cookbooks/:id/preflight", isAuthenticated, async (req: any, res) =
     res.status(500).json({ error: "Failed to run preflight check" });
   }
 });
+
+/** The editor's page-count details, if well formed (they only affect the estimate) */
+function parsePageDetails(raw: any): BookPageDetails | undefined {
+  if (!raw || !Array.isArray(raw.chapterSizes)) return undefined;
+  const n = (v: unknown) => (Number.isFinite(Number(v)) ? Math.max(0, Math.min(10000, Math.floor(Number(v)))) : 0);
+  return {
+    chapterSizes: raw.chapterSizes.slice(0, 500).map(n),
+    extrasOn: !!raw.extrasOn,
+    spreadCount: n(raw.spreadCount),
+    albumPhotoCount: n(raw.albumPhotoCount),
+    minPages: raw.minPages === undefined ? undefined : n(raw.minPages),
+  };
+}
 
 // Generate PDF for cookbook print project
 // Propose book chapters by course. Recipes with no recognizable course tag

@@ -1,15 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
-import { AlertTriangle, CheckCircle2, Eye, Info, Loader2, RefreshCw } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Eye, Info, Loader2, RefreshCw, RotateCcw, RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ErrorState } from "@/components/page-states";
 import { apiRequest } from "@/lib/queryClient";
 import { downscaleImage } from "@/lib/images";
 import { useToast } from "@/hooks/use-toast";
 import { lintIngredients, type NormalizedIngredientLike } from "@shared/ingredient-lint";
-import type { ReadinessItem, ReadinessResult } from "@shared/print-readiness";
-import type { FamilyPhotoEntry, PrintLayoutData } from "@shared/schema";
+import type { BookPageDetails, ReadinessItem, ReadinessResult } from "@shared/print-readiness";
+import type { CustomTemplate, FamilyPhotoEntry, PrintLayoutData } from "@shared/schema";
 import type { BookDraft, StepId } from "./types";
 
 // "Ready to print?" (replaces the old Review and Preflight panels): one
@@ -24,7 +24,9 @@ interface Finding {
   level: "attention" | "look";
   text: string;
   names?: { label: string; href?: string }[];
-  actions: { label: string; onClick: () => void; primary?: boolean; busy?: boolean }[];
+  /** Shown under the text, e.g. the card photo being asked about */
+  media?: React.ReactNode;
+  actions: { label: string; onClick: () => void; primary?: boolean; busy?: boolean; icon?: "left" | "right" }[];
 }
 
 interface ReadyToPrintProps {
@@ -35,6 +37,8 @@ interface ReadyToPrintProps {
   onOpenPreview: () => void;
   onReviewIngredients: () => void;
   onResult?: (attentionCount: number) => void;
+  /** Lets the check count pages exactly, like the order step */
+  pageDetails?: BookPageDetails;
 }
 
 const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
@@ -57,7 +61,7 @@ function useDismissed(cookbookId: number) {
   return { dismissed, dismiss };
 }
 
-export function ReadyToPrint({ cookbookId, draft, updateLayout, goToStep, onOpenPreview, onReviewIngredients, onResult }: ReadyToPrintProps) {
+export function ReadyToPrint({ cookbookId, draft, updateLayout, goToStep, onOpenPreview, onReviewIngredients, onResult, pageDetails }: ReadyToPrintProps) {
   const { toast } = useToast();
   const layout = draft.layoutData;
   const { dismissed, dismiss } = useDismissed(cookbookId);
@@ -70,23 +74,60 @@ export function ReadyToPrint({ cookbookId, draft, updateLayout, goToStep, onOpen
         layoutData: layout,
         trimSize: draft.trimSize,
         bindingType: draft.bindingType,
+        pageDetails,
       });
       return (await res.json()) as ReadinessResult;
     },
   });
 
   // Check on arrival, and again when the recipes, chapters or book change
-  const signature = JSON.stringify([layout.sections, layout.title, layout.authorName, draft.trimSize, draft.bindingType]);
+  const signature = JSON.stringify([layout.sections, layout.title, layout.authorName, draft.trimSize, draft.bindingType, pageDetails]);
   useEffect(() => {
     check.mutate();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signature]);
 
   // Ingredient lines that would print oddly (AI clean-up leftovers)
-  const { data: printRecipes } = useQuery<{ recipes: { id: string; title: string; normalizedIngredients: NormalizedIngredientLike[] | null }[] }>({
+  const { data: printRecipes } = useQuery<{ recipes: { id: string; title: string; normalizedIngredients: NormalizedIngredientLike[] | null; hasOriginalCard?: boolean }[] }>({
     queryKey: ["/api/cookbooks", cookbookId, "recipes", "print"],
   });
   const inBook = useMemo(() => new Set(layout.sections.flatMap((s) => s.recipeIds)), [layout.sections]);
+
+  // Original card photos that are sideways or upside down (only when the
+  // template prints the cards). Phones often save card photos turned.
+  const { data: customTemplates } = useQuery<CustomTemplate[]>({ queryKey: ["/api/templates"], enabled: !!draft.customTemplateId });
+  const showsCards = draft.customTemplateId
+    ? ((customTemplates?.find((t) => t.id === draft.customTemplateId)?.templateData as any)?.layout?.original ?? "none") !== "none"
+    : draft.templateStyle === "heirloom";
+  const cardIds = useMemo(
+    () => (printRecipes?.recipes ?? []).filter((r) => r.hasOriginalCard && inBook.has(r.id)).map((r) => r.id).sort(),
+    [printRecipes, inBook],
+  );
+  const queryClient = useQueryClient();
+  const cardCheckKey = ["/api/cookbooks", cookbookId, "original-cards", "check", cardIds.join(",")];
+  const cardCheck = useQuery<{ checked: number; sideways: { recipeId: string; title: string; rotate: 90 | 180 | 270; canFix: boolean }[] }>({
+    queryKey: cardCheckKey,
+    enabled: showsCards && cardIds.length > 0,
+    staleTime: 10 * 60_000,
+    queryFn: async () => (await apiRequest("POST", `/api/cookbooks/${cookbookId}/original-cards/check`, { recipeIds: cardIds })).json(),
+  });
+  // Bumped after a turn so the thumbnail reloads
+  const [cardVersion, setCardVersion] = useState<Record<string, number>>({});
+  const [turning, setTurning] = useState<string | null>(null);
+  const turnCard = async (recipeId: string, degrees: 90 | 180 | 270, title: string) => {
+    setTurning(recipeId);
+    try {
+      await apiRequest("POST", `/api/recipes/${recipeId}/original-card/rotate`, { degrees });
+      setCardVersion((v) => ({ ...v, [recipeId]: (v[recipeId] ?? 0) + 1 }));
+      // Drop it from the list now; the next check looks at the new photo
+      queryClient.setQueryData(cardCheckKey, (old: any) => old && { ...old, sideways: old.sideways.filter((c: any) => c.recipeId !== recipeId) });
+      toast({ title: `Turned the ${title} card`, description: "Look at it in the preview to make sure it reads right." });
+    } catch {
+      toast({ title: "Couldn't turn the card", description: "Check your connection and try again.", variant: "destructive" });
+    } finally {
+      setTurning(null);
+    }
+  };
   const ingredientIssueCount = useMemo(
     () => (printRecipes?.recipes ?? []).filter((r) => inBook.has(r.id)).reduce((n, r) => n + lintIngredients(r.normalizedIngredients).length, 0),
     [printRecipes, inBook],
@@ -170,6 +211,36 @@ export function ReadyToPrint({ cookbookId, draft, updateLayout, goToStep, onOpen
         actions: [
           { label: "Replace", primary: true, busy: replacing?.id === p.id, onClick: () => { setReplacing(p); replaceRef.current?.click(); } },
           { label: "Use anyway", onClick: () => dismiss(`photo:${p.id}`) },
+        ],
+      });
+    }
+
+    for (const c of showsCards ? cardCheck.data?.sideways ?? [] : []) {
+      const key = `card:${c.recipeId}`;
+      if (dismissed.has(key)) continue;
+      const how = c.rotate === 180 ? "upside down" : "sideways";
+      out.push({
+        key,
+        level: "attention",
+        text: c.canFix
+          ? `The original card for ${c.title} looks ${how}, so it would print that way.`
+          : `The original card for ${c.title} looks ${how}. Only the person who added the recipe can turn it.`,
+        names: [{ label: c.title, href: `/recipe/${c.recipeId}` }],
+        media: (
+          <img
+            src={`/api/cookbooks/${cookbookId}/original-cards/${c.recipeId}?v=${cardVersion[c.recipeId] ?? 0}`}
+            alt={`Original card for ${c.title}, as it would print`}
+            className="mt-3 max-h-48 w-auto rounded border bg-muted"
+            loading="lazy"
+          />
+        ),
+        actions: [
+          ...(c.canFix ? [
+            { label: "Turn it upright", primary: true, busy: turning === c.recipeId, onClick: () => void turnCard(c.recipeId, c.rotate, c.title) },
+            { label: "Turn left", icon: "left" as const, busy: turning === c.recipeId, onClick: () => void turnCard(c.recipeId, 270, c.title) },
+            { label: "Turn right", icon: "right" as const, busy: turning === c.recipeId, onClick: () => void turnCard(c.recipeId, 90, c.title) },
+          ] : []),
+          { label: "It's right as is", onClick: () => dismiss(key) },
         ],
       });
     }
@@ -260,7 +331,7 @@ export function ReadyToPrint({ cookbookId, draft, updateLayout, goToStep, onOpen
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [check.data, layout, dismissed, ingredientIssueCount, replacing]);
+  }, [check.data, layout, dismissed, ingredientIssueCount, replacing, cardCheck.data, showsCards, cardVersion, turning]);
 
   const attention = findings.filter((f) => f.level === "attention");
   const look = findings.filter((f) => f.level === "look");
@@ -313,12 +384,19 @@ export function ReadyToPrint({ cookbookId, draft, updateLayout, goToStep, onOpen
             <Button variant="outline" onClick={onOpenPreview}>
               <Eye aria-hidden /> Preview
             </Button>
-            <Button variant="ghost" onClick={() => check.mutate()} disabled={check.isPending}>
+            <Button variant="ghost" onClick={() => { check.mutate(); if (showsCards && cardIds.length) void cardCheck.refetch(); }} disabled={check.isPending}>
               <RefreshCw className={check.isPending ? "animate-spin" : ""} aria-hidden /> Check again
             </Button>
           </div>
         </div>
       ) : null}
+
+      {showsCards && cardCheck.isFetching && (
+        <p className="flex items-center gap-2 text-sm text-muted-foreground" role="status">
+          <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+          Checking that {cardIds.length} card {plural(cardIds.length, "photo is", "photos are")} right side up…
+        </p>
+      )}
 
       {attention.length > 0 && <FindingList title="Needs attention" icon="attention" findings={attention} />}
       {look.length > 0 && <FindingList title="Worth a look" icon="look" findings={look} />}
@@ -337,6 +415,7 @@ function FindingList({ title, icon, findings }: { title: string; icon: "attentio
         {findings.map((f) => (
           <li key={f.key} className={`rounded-lg border p-4 ${f.level === "attention" ? "border-destructive/50" : ""}`}>
             <p className="text-base">{f.text}</p>
+            {f.media}
             {f.names && f.names.length > 0 && (
               <ul className="mt-2 space-y-1 text-sm">
                 {f.names.slice(0, 8).map((n, i) => (
@@ -356,7 +435,7 @@ function FindingList({ title, icon, findings }: { title: string; icon: "attentio
             <div className="mt-3 flex flex-wrap gap-2">
               {f.actions.map((a) => (
                 <Button key={a.label} variant={a.primary ? "secondary" : "outline"} onClick={a.onClick} disabled={a.busy}>
-                  {a.busy && <Loader2 className="animate-spin" aria-hidden />}
+                  {a.busy ? <Loader2 className="animate-spin" aria-hidden /> : a.icon === "left" ? <RotateCcw aria-hidden /> : a.icon === "right" ? <RotateCw aria-hidden /> : null}
                   {a.label}
                 </Button>
               ))}

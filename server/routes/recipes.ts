@@ -29,6 +29,7 @@ import { findPantryMatch } from "../../shared/pantry-matching";
 import { getFoodProfile, ingredientMatchesAvoid } from "@shared/food-profile";
 import { convertToBaseUnit } from "../unit-conversion";
 import { recordImport } from "../recipe-imports";
+import { straightenNewCard, rotateOriginalCard } from "../lib/original-card";
 import { rankRecipesByPantry, recipeIngredients, normalizeIngredient, namesMatch } from "../../shared/pantry-match";
 
 const router = Router();
@@ -758,6 +759,7 @@ router.post(
 
       // Queue Vision extraction for background processing
       jobQueue.addExtractionJob(recipe.id, imageBase64);
+      straightenNewCard(recipe.id);
 
       // Return immediately so the progress banner appears
       res.status(201).json({ recipeId: recipe.id });
@@ -881,6 +883,7 @@ router.post(
 
       // Queue multi-image extraction
       jobQueue.addMultiImageExtractionJob(recipe.id, imagesBase64);
+      straightenNewCard(recipe.id);
 
       res.status(201).json({ recipeId: recipe.id });
     } catch (error) {
@@ -891,6 +894,25 @@ router.post(
     }
   }
 );
+
+// Turn the original card photo (sideways or upside-down uploads)
+router.post("/recipes/:id/original-card/rotate", isAuthenticated, async (req: any, res) => {
+  try {
+    const userId = getUserId(req);
+    const degrees = Number(req.body?.degrees);
+    if (![90, 180, 270].includes(degrees)) return res.status(400).json({ error: "Turn by 90, 180 or 270 degrees" });
+    const recipe = await storage.getRecipe(req.params.id);
+    if (!recipe) return res.status(404).json({ error: "Recipe not found" });
+    if (recipe.ownerUserId !== userId) return res.status(403).json({ error: "Only the recipe's owner can change its card" });
+    if (!(await rotateOriginalCard(recipe.id, degrees as 90 | 180 | 270))) {
+      return res.status(404).json({ error: "This recipe has no original card" });
+    }
+    res.json({ ok: true });
+  } catch (error) {
+    console.error("Error rotating original card:", error);
+    res.status(500).json({ error: "Couldn't turn the card" });
+  }
+});
 
 // Gray placeholder shown until the dish photo is generated. The title is
 // escaped: an "&" in "Mac & Cheese" would otherwise break the SVG.

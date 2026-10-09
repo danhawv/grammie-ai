@@ -24,7 +24,7 @@ import { ReadyToPrint } from "@/components/print/ready-to-print";
 import { SaveStatus, StepBar, StepList } from "@/components/print/step-nav";
 import { usePrintAutosave } from "@/components/print/use-print-autosave";
 import { STEPS, isStepId, type BookDraft, type RecipeSummary, type Section, type StepId } from "@/components/print/types";
-import { estimateBookPages } from "@shared/print-readiness";
+import { estimateBookPages, type BookPageDetails } from "@shared/print-readiness";
 import { replacePhotosForBook } from "@/lib/place-photos";
 import { BINDING_PAGE_LIMITS } from "@/lib/print-constants";
 import type { CookbookPrintProject, CustomTemplate, PrintLayoutData } from "@shared/schema";
@@ -331,13 +331,14 @@ function CookbookPrintEditorInner() {
   // Count the pages the PDF will have (the price quote uses this)
   const cardLayout = selectedTemplate ? !!(selectedTemplate.templateData as any)?.layout : draft.templateStyle === "card" || draft.templateStyle === "heirloom";
   const extras = layout.customizations;
-  const estimatedPageCount = estimateBookPages(recipeCount, layout.sections.filter((s) => s.recipeIds.length).length, draft.trimSize, {
+  const pageDetails: BookPageDetails = {
     chapterSizes: layout.sections.map((s) => s.recipeIds.length).filter((n) => n > 0),
     extrasOn: cardLayout ? !!extras?.showVariations : !!(extras?.showNutrition || extras?.showTips || extras?.showVariations),
     spreadCount: Object.values(layout.recipePrintSettings ?? {}).filter((r) => r?.layoutOverride === "two-page-spread").length,
     albumPhotoCount: (layout.familyPhotos ?? []).filter((p) => p.placement?.type === "album").length,
     minPages: BINDING_PAGE_LIMITS[draft.bindingType]?.min,
-  });
+  };
+  const estimatedPageCount = estimateBookPages(recipeCount, layout.sections.filter((s) => s.recipeIds.length).length, draft.trimSize, pageDetails);
   const stepInfo = STEPS.find((s) => s.id === step)!;
 
   return (
@@ -394,6 +395,7 @@ function CookbookPrintEditorInner() {
             onOpenPreview={() => setShowPreview(true)}
             onReviewIngredients={() => setShowIngredientReview(true)}
             onResult={setAttentionCount}
+            pageDetails={pageDetails}
           />
           <div className="flex flex-col gap-3 rounded-lg border p-4 sm:flex-row sm:items-center">
             <p className="flex-1 text-sm text-muted-foreground">Want to print it yourself? Download the pages as a PDF.</p>

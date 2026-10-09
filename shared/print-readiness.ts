@@ -126,6 +126,8 @@ export function checkReadiness(input: {
   authorName?: string;
   trimSize?: string;
   pageLimits: { min: number; max: number };
+  /** From the editor: makes the page count exact instead of a rough guess */
+  pageDetails?: BookPageDetails;
 }): ReadinessResult {
   const items: ReadinessItem[] = [];
   const { recipes, sections, pageLimits } = input;
@@ -156,7 +158,7 @@ export function checkReadiness(input: {
     items.push({ code: "empty_chapter", level: "attention", ids: empty.map((s) => s.id), names: empty.map((s) => s.title), count: empty.length });
   }
 
-  const estimatedPages = estimateBookPages(found.length, sections.filter((s) => s.recipeIds.length > 0).length, input.trimSize);
+  const estimatedPages = estimateBookPages(found.length, sections.filter((s) => s.recipeIds.length > 0).length, input.trimSize, input.pageDetails);
   if (estimatedPages > pageLimits.max) {
     items.push({ code: "too_many_pages", level: "attention", count: estimatedPages });
   }
