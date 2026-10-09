@@ -23,6 +23,7 @@ import { buildScaledRecipeResponse } from "../scaling";
 import { jobQueue } from "../job-queue";
 import { generateThumbnail } from "../thumbnail";
 import { detectPlatform, diagnoseInstagram, isValidSocialUrl, scrapePost, PLATFORM_NAMES, type SocialPlatform } from "../social-import-service";
+import { detectLinkPlatform, normalizeUrl } from "@shared/link-platform";
 import { extractRecipeFromSocialPostUnified } from "../ai-service";
 import { getUserId, upload } from "./route-utils";
 import { findPantryMatch } from "../../shared/pantry-matching";
@@ -1030,6 +1031,10 @@ router.post("/recipes/extract-text", isAuthenticated, async (req: any, res) => {
     }
 
     const { text } = req.body;
+    // A caption pasted after a post couldn't be read keeps its link
+    const link = typeof req.body.sourceUrl === "string" ? normalizeUrl(req.body.sourceUrl) : null;
+    const linkPlatform = link ? detectLinkPlatform(link) : null;
+    const social = linkPlatform === "instagram" || linkPlatform === "tiktok" || linkPlatform === "youtube" ? linkPlatform : null;
 
     if (!text || typeof text !== "string" || text.trim().length < 20) {
       return res.status(400).json({ error: "Please provide complete recipe text" });
@@ -1037,7 +1042,7 @@ router.post("/recipes/extract-text", isAuthenticated, async (req: any, res) => {
 
     console.log(`Extracting recipe from pasted text (${text.length} chars)`);
 
-    const rawRecipe = await extractRecipeFromText(text, "pasted");
+    const rawRecipe = await extractRecipeFromText(text, social ? "caption" : "pasted");
 
     if (!rawRecipe.title || !rawRecipe.ingredients?.length || !rawRecipe.instructions?.length) {
       return res.status(400).json({
@@ -1087,6 +1092,7 @@ router.post("/recipes/extract-text", isAuthenticated, async (req: any, res) => {
       cholesterol: rawRecipe.cholesterol,
 
       dishImage: placeholderDataUrl,
+      ...(social ? { socialSourcePlatform: social, socialSourceUrl: link } : link ? { sourceUrl: link } : {}),
 
       enrichmentStatus: 'enriching' as const,
       enrichmentRetryCount: 0,
@@ -1094,7 +1100,7 @@ router.post("/recipes/extract-text", isAuthenticated, async (req: any, res) => {
 
     const validatedData = insertRecipeSchema.parse(recipeData);
     const recipe = await storage.createRecipe(validatedData);
-    await recordImport({ recipeId: recipe.id, ownerUserId: userId, sourceType: 'text', sourceText: text });
+    await recordImport({ recipeId: recipe.id, ownerUserId: userId, sourceType: social ? 'social' : 'text', sourceText: text, ...(link ? { sourceUrl: link } : {}) });
     console.log(`Recipe ${recipe.id} saved from pasted text, queuing enrichment...`);
 
     // Queue Phase 2 enrichment

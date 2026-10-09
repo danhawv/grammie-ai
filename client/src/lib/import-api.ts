@@ -74,8 +74,9 @@ export async function importLink(input: string): Promise<{ recipeId: string; pla
   return { recipeId: ((await res.json()) as { recipeId: string }).recipeId, platform };
 }
 
-export async function importText(text: string): Promise<string> {
-  const res = await apiRequest("POST", "/api/recipes/extract-text", { text });
+/** sourceUrl: the post the text was copied from, when its link couldn't be read */
+export async function importText(text: string, sourceUrl?: string): Promise<string> {
+  const res = await apiRequest("POST", "/api/recipes/extract-text", sourceUrl ? { text, sourceUrl } : { text });
   return ((await res.json()) as { recipeId: string }).recipeId;
 }
 

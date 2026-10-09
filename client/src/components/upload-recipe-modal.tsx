@@ -73,6 +73,9 @@ export function UploadRecipeModal({ open, onOpenChange, initialMode }: UploadRec
   const [preparing, setPreparing] = useState(0);
   const [link, setLink] = useState("");
   const [text, setText] = useState("");
+  // A social post we couldn't read: its caption gets pasted instead, and the
+  // recipe keeps the link
+  const [captionFor, setCaptionFor] = useState<{ url: string; platform: string } | null>(null);
   const [cookbookId, setCookbookId] = useState<string | undefined>();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -96,6 +99,7 @@ export function UploadRecipeModal({ open, onOpenChange, initialMode }: UploadRec
     setPhotos([]);
     setLink("");
     setText("");
+    setCaptionFor(null);
     setCookbookId(undefined);
     setBusy(null);
     setError(null);
@@ -114,6 +118,7 @@ export function UploadRecipeModal({ open, onOpenChange, initialMode }: UploadRec
 
   const goTo = (next: View) => {
     setError(null);
+    setCaptionFor(null);
     setView(next);
   };
 
@@ -214,6 +219,13 @@ export function UploadRecipeModal({ open, onOpenChange, initialMode }: UploadRec
       done(recipePageAfterImport(recipeId));
     } catch (err) {
       setBusy(null);
+      if (platform === "instagram" || platform === "tiktok") {
+        // Instagram sometimes won't show posts to our server; the caption
+        // still has the recipe, so go straight to pasting it
+        setCaptionFor({ url: link, platform: platform === "instagram" ? "Instagram" : "TikTok" });
+        setView("text");
+        return;
+      }
       setError(apiErrorMessage(err, "Grammie couldn't read that link. Check it opens in your browser, or paste the recipe text instead."));
     }
   };
@@ -226,8 +238,8 @@ export function UploadRecipeModal({ open, onOpenChange, initialMode }: UploadRec
     }
     setBusy("Reading your recipe…");
     try {
-      const recipeId = await importText(text);
-      addRecipe(recipeId, "Your Recipe", { kind: "text" });
+      const recipeId = await importText(text, captionFor?.url);
+      addRecipe(recipeId, "Your Recipe", { kind: captionFor ? "social" : "text" });
       await addToCookbook(cookbookId, recipeId);
       done(recipePageAfterImport(recipeId));
     } catch (err) {
@@ -373,7 +385,16 @@ export function UploadRecipeModal({ open, onOpenChange, initialMode }: UploadRec
     </form>
   ) : (
     <form id="add-recipe-form" className="space-y-2" onSubmit={(e) => { e.preventDefault(); void submitText(); }}>
-      <Label htmlFor="add-recipe-text" className="text-base">Recipe</Label>
+      {captionFor && (
+        <div className="space-y-1 rounded-md border bg-muted/50 p-3 text-base" role="status" data-testid="caption-fallback">
+          <p className="font-medium">{captionFor.platform} didn't let us open that post.</p>
+          <p>
+            Open it in the {captionFor.platform} app, tap the caption to show all of it, copy it, and paste it here.
+            We'll keep the link with the recipe.
+          </p>
+        </div>
+      )}
+      <Label htmlFor="add-recipe-text" className="text-base">{captionFor ? "Caption" : "Recipe"}</Label>
       <Textarea
         id="add-recipe-text"
         placeholder={"Grandma's Sugar Cookies\n\n2 cups flour\n1 cup butter, softened\n…\n\n1. Heat the oven to 350°F.\n2. …"}
