@@ -291,14 +291,11 @@ export function PrintOrderPanel({
     </p>
   ) : null;
 
-  // An earlier order that went nowhere is a quiet line, not a status card:
-  // the new order makes new files, so it isn't a problem with this one
+  // Only an earlier order that's still on its way is worth showing here. One
+  // that was rejected or canceled has nothing to do with the new order (it
+  // gets new files), and it read like this order had failed.
   const earlierFailed = existingOrder?.status === "REJECTED" || existingOrder?.status === "CANCELED";
-  const lastOrder = !existingOrder?.id || stage === "placed" ? null : earlierFailed ? (
-    <p className="text-sm text-muted-foreground" data-testid="earlier-order-note">
-      Your earlier order #{existingOrder.id} wasn't printed, and nothing was charged.
-    </p>
-  ) : (
+  const lastOrder = !existingOrder?.id || stage === "placed" || earlierFailed ? null : (
     <OrderStatusCard orderId={existingOrder.id} status={existingOrder.status} heading="Your earlier order" />
   );
 
@@ -552,6 +549,10 @@ export function PrintOrderPanel({
   // ---- 1. Start: copies and an early estimate ----
   const est = estimate.data;
   const estOpt = est?.shippingOptions.find((o) => o.id === DEFAULT_SHIPPING_LEVEL) ?? est?.shippingOptions[0];
+  // Lulu's shipping prices are before tax, so this total is a close estimate
+  const cheapest = est?.shippingOptions
+    .filter((o) => o.shippingCost != null)
+    .reduce<ShippingOptionQuote | undefined>((best, o) => (!best || o.shippingCost! < best.shippingCost! ? o : best), undefined);
   return (
     <div className="space-y-5">
       {lastOrder}
@@ -611,10 +612,31 @@ export function PrintOrderPanel({
             <p className="text-lg font-semibold" data-testid="text-estimated-total">
               About ${Math.ceil(est.totalCost)} including shipping
             </p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              For {quantity} {quantity === 1 ? "copy" : "copies"} shipped by {shippingLevelName(DEFAULT_SHIPPING_LEVEL).toLowerCase()} within the US
-              {estOpt ? `, arriving about ${formatDateRange(estOpt.arrivalMin, estOpt.arrivalMax)}` : ""}. Tax and shipping depend on your address.
+            <dl className="mt-2 max-w-sm space-y-1 text-sm" data-testid="estimate-breakdown">
+              <div className="flex justify-between gap-4">
+                <dt>Printing, {quantity} {quantity === 1 ? "copy" : "copies"}</dt>
+                <dd>{money(est.printCost)}</dd>
+              </div>
+              <div className="flex justify-between gap-4">
+                <dt>Shipping, {shippingLevelName(DEFAULT_SHIPPING_LEVEL).toLowerCase()}</dt>
+                <dd>{money(est.shippingCost)}</dd>
+              </div>
+              <div className="flex justify-between gap-4 border-t pt-1 font-medium">
+                <dt>Total</dt>
+                <dd>{money(est.totalCost)}</dd>
+              </div>
+            </dl>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {estOpt ? `Arrives about ${formatDateRange(estOpt.arrivalMin, estOpt.arrivalMax)}. ` : ""}
+              Includes estimated tax. The exact price depends on your address.
             </p>
+            {cheapest && cheapest.id !== (estOpt?.id ?? DEFAULT_SHIPPING_LEVEL) && (
+              <p className="mt-2 text-sm" data-testid="estimate-cheapest">
+                Cheapest shipping: {shippingLevelName(cheapest.id).toLowerCase()}, about {money(cheapest.shippingCost!)}
+                {` (total about ${money(est.printCost + cheapest.shippingCost!)})`}, arriving about {formatDateRange(cheapest.arrivalMin, cheapest.arrivalMax)}.
+                You can choose it with your address.
+              </p>
+            )}
           </>
         ) : null}
       </div>

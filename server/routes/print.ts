@@ -185,7 +185,7 @@ router.post("/api/print/lulu/calculate-price", isAuthenticated, async (req: any,
         name: level.name,
         available: options.length === 0 || !!lulu,
         // Shipping cost before tax; the selected level's full price is in the totals
-        shippingCost: lulu?.cost_excl_tax ?? null,
+        shippingCost: lulu?.cost_excl_tax != null ? Number(lulu.cost_excl_tax) : null,
         arrivalMin: lulu?.min_delivery_date ?? estimated.min,
         arrivalMax: lulu?.max_delivery_date ?? estimated.max,
         datesFromLulu: !!(lulu?.min_delivery_date && lulu?.max_delivery_date),
