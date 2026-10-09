@@ -66,7 +66,8 @@ export function LookStep({ cookbookId, draft, update, updateCustomization }: Loo
   const { templateStyle, customTemplateId, trimSize, bindingType, paperType, colorType, coverFinish } = draft;
   const selectedCustom = customTemplates.find((t) => t.id === customTemplateId);
   const usesRecipeCardLayout = ((templateStyle === "card" || templateStyle === "heirloom") && !customTemplateId) || !!(selectedCustom?.templateData as any)?.layout;
-  const compatiblePapers = BINDING_PAPER_COMPATIBILITY[bindingType] || [];
+  // Lulu only prints cream paper in black and white
+  const compatiblePapers = (BINDING_PAPER_COMPATIBILITY[bindingType] || []).filter((p) => colorType === "BW" || p !== "060UC444");
   const limits = BINDING_PAGE_LIMITS[bindingType];
   const c = draft.layoutData.customizations;
 
@@ -213,10 +214,12 @@ export function LookStep({ cookbookId, draft, update, updateCustomization }: Loo
               hint={`${BINDING_TYPES[bindingType].description} ${limits.min}–${limits.max} pages.`}
               onChange={(v) => {
                 const bt = v as BindingTypeId;
-                const compat = BINDING_PAPER_COMPATIBILITY[bt] || [];
+                const compat = (BINDING_PAPER_COMPATIBILITY[bt] || []).filter((p) => colorType === "BW" || p !== "060UC444");
                 update({ bindingType: bt, ...(compat.includes(paperType) ? {} : { paperType: compat[0] as PaperTypeId }) });
               }}
-              options={Object.entries(BINDING_TYPES).map(([id, b]) => ({ value: id, label: b.name }))}
+              // Linen wrap is hidden: Lulu makes it in only some sizes, and it
+              // needs a cloth color and foil we don't ask for yet
+              options={Object.entries(BINDING_TYPES).filter(([id]) => id !== "LW" || bindingType === "LW").map(([id, b]) => ({ value: id, label: b.name }))}
               testId="select-binding-type"
             />
             <NativeSelect
@@ -233,7 +236,7 @@ export function LookStep({ cookbookId, draft, update, updateCustomization }: Loo
               label="Color"
               value={colorType}
               hint={COLOR_TYPES[colorType].description}
-              onChange={(v) => update({ colorType: v as ColorTypeId })}
+              onChange={(v) => update({ colorType: v as ColorTypeId, ...(v === "FC" && paperType === "060UC444" ? { paperType: "060UW444" as PaperTypeId } : {}) })}
               options={Object.entries(COLOR_TYPES).map(([id, x]) => ({ value: id, label: x.name }))}
               testId="select-color-type"
             />

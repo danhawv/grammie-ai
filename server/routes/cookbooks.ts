@@ -23,7 +23,7 @@ import { isGeminiAvailable, parseQueryWithGemini } from "../gemini";
 import { generateInteriorPdf, generateCoverPdf, measureRecipeGaps, type CookbookPrintData } from "../lib/pdf/generator";
 import { planFamilyPhotos } from "@shared/family-photos";
 import { transformRecipe } from "../lib/pdf/recipe-transformer";
-import { buildPodPackageId, BINDING_PAGE_LIMITS, BINDING_PAPER_COMPATIBILITY } from "../lib/lulu/pod-package";
+import { buildPodPackageId, BINDING_PAGE_LIMITS, BINDING_PAPER_COMPATIBILITY, unsupportedBookReason } from "../lib/lulu/pod-package";
 import { BOOK_SIZES as LULU_BOOK_SIZES } from "../lib/lulu/book-sizes";
 import { createPrintJob } from "../lib/lulu/client";
 import type { BookConfig, LuluPrintJobRequest, ShippingLevel } from "../lib/lulu/types";
@@ -1447,6 +1447,8 @@ async function placePrintOrder(req: any, userId: string, cookbook: { id: number;
     const paperType = printProject?.paperType || '080CW444';
     const colorType = printProject?.colorType || 'FC';
     const coverFinishVal = printProject?.coverFinish || 'M';
+    const unsupported = unsupportedBookReason({ bindingType, paperType, colorType } as any);
+    if (unsupported) return reply(400, { error: unsupported });
     const templateId = printProject?.templateStyle || 'classic';
     const recipePrintSettings = validatedLayout.data.recipePrintSettings || {};
 

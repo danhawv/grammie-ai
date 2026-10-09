@@ -6,7 +6,7 @@ import { normalizeUsState } from "@shared/us-states";
 import { calculateCost, getPrintJob, getShippingOptions } from "../lib/lulu/client";
 import { startSizeCheck, sizeCheckStatus } from "../lib/lulu/size-check";
 import { SHIPPING_LEVELS, ESTIMATE_ADDRESS, estimateArrival, DEFAULT_SHIPPING_LEVEL } from "@shared/print-checkout";
-import { buildPodPackageId, BINDING_PAGE_LIMITS, BINDING_PAPER_COMPATIBILITY } from "../lib/lulu/pod-package";
+import { buildPodPackageId, BINDING_PAGE_LIMITS, BINDING_PAPER_COMPATIBILITY, unsupportedBookReason } from "../lib/lulu/pod-package";
 import { BOOK_SIZES, BINDING_TYPE_INFO, PAPER_TYPE_INFO, COLOR_TYPE_INFO } from "../lib/lulu/book-sizes";
 import type { BookConfig, CostCalculationRequest, LuluAddress, ShippingLevel } from "../lib/lulu/types";
 
@@ -125,6 +125,9 @@ router.post("/api/print/lulu/calculate-price", isAuthenticated, async (req: any,
         linenColor: 'X',
         foilType: 'X',
       };
+
+      const unsupported = unsupportedBookReason(bookConfig);
+      if (unsupported) return res.status(400).json({ error: unsupported });
 
       // Validate page limits for binding type
       const limits = BINDING_PAGE_LIMITS[bookConfig.bindingType];

@@ -65,6 +65,9 @@ export function unsupportedBookReason(config: Pick<BookConfig, 'colorType' | 'pa
   if (!(BINDING_PAPER_COMPATIBILITY[config.bindingType] || []).includes(config.paperType)) {
     return "That paper doesn't work with this binding.";
   }
+  if (config.bindingType === 'LW') {
+    return "Linen wrap isn't available yet. Choose hardcover for a hard-backed book.";
+  }
   if (config.colorType === 'FC' && config.paperType === '060UC444') {
     return 'Cream paper only prints in black and white. Choose white paper for a color book.';
   }
