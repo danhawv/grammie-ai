@@ -263,6 +263,19 @@ export function LookStep({ cookbookId, draft, update, updateCustomization }: Loo
               testId="select-unit-system"
             />
 
+            <NativeSelect
+              id="steps-version"
+              label="Directions"
+              value={c?.stepsVersion || "improved"}
+              hint="Where a recipe's own directions were brief, Grammie wrote fuller steps. You can change single recipes on the Recipes step."
+              onChange={(v) => updateCustomization("stepsVersion", v)}
+              options={[
+                { value: "improved", label: "Fuller steps by Grammie" },
+                { value: "original", label: "As written on the original" },
+              ]}
+              testId="select-steps-version"
+            />
+
             <fieldset className="space-y-3 sm:col-span-2">
               <legend className="font-medium">Extra pages after each recipe</legend>
               <p className="text-sm text-muted-foreground">Shown only for recipes that have them, so the recipe page stays clean.</p>

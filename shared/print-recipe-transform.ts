@@ -5,7 +5,22 @@ import type { NormalizedRecipe, IngredientGroup, InstructionStep } from './print
 /**
  * Transforms a grammie-ai Recipe into a NormalizedRecipe for PDF rendering.
  */
-export function transformRecipe(recipe: Recipe, unitSystem: UnitSystem = 'original'): NormalizedRecipe {
+export type StepsVersion = 'improved' | 'original';
+
+/** Whether a recipe has two sets of directions: the source's words and Grammie's fuller version */
+export function hasOriginalSteps(recipe: Pick<Recipe, 'instructionsGenerated' | 'originalInstructions'>): boolean {
+  return !!recipe.instructionsGenerated && (recipe.originalInstructions?.length ?? 0) > 0;
+}
+
+/** Which directions a recipe prints with: its own setting, else the book's, else the fuller version */
+export function stepsVersionFor(
+  recipeId: string,
+  layout: { customizations?: { stepsVersion?: StepsVersion }; recipePrintSettings?: Record<string, { steps?: StepsVersion } | undefined> } | undefined,
+): StepsVersion {
+  return layout?.recipePrintSettings?.[recipeId]?.steps ?? layout?.customizations?.stepsVersion ?? 'improved';
+}
+
+export function transformRecipe(recipe: Recipe, unitSystem: UnitSystem = 'original', steps: StepsVersion = 'improved'): NormalizedRecipe {
   return {
     id: recipe.id,
     title: recipe.title,
@@ -19,7 +34,9 @@ export function transformRecipe(recipe: Recipe, unitSystem: UnitSystem = 'origin
     cuisine: recipe.cuisine ?? (recipe.cuisines?.[0] ?? undefined),
     category: recipe.mealType?.[0] ?? undefined,
     ingredients: transformIngredients(recipe, unitSystem),
-    instructions: transformInstructions(recipe),
+    instructions: steps === 'original' && hasOriginalSteps(recipe)
+      ? recipe.originalInstructions!.map((text, i) => ({ step: i + 1, text: stripStepLabel(text) }))
+      : transformInstructions(recipe),
     notes: recipe.tips?.map((t: any) => t.text) ?? undefined,
     tags: [
       ...(recipe.dietType ?? []),

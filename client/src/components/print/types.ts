@@ -25,6 +25,8 @@ export interface RecipeSummary {
   id: string;
   title: string;
   dishImageThumbnail: string | null;
+  /** Has both its own directions and Grammie's fuller steps */
+  hasOriginalSteps?: boolean;
 }
 
 export interface Section {

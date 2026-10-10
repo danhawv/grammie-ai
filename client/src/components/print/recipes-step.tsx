@@ -30,6 +30,8 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubContent,
@@ -49,6 +51,9 @@ interface RecipesStepProps {
   sections: Section[];
   allRecipes: RecipeSummary[];
   onChange: (sections: Section[], undoMessage?: string) => void;
+  /** Which directions each recipe prints (the book's choice, unless overridden) */
+  stepsFor?: (recipeId: string) => "improved" | "original";
+  onSetSteps?: (recipeId: string, steps: "improved" | "original") => void;
 }
 
 function Thumb({ recipe, size = "h-12 w-12" }: { recipe: RecipeSummary; size?: string }) {
@@ -61,7 +66,7 @@ function Thumb({ recipe, size = "h-12 w-12" }: { recipe: RecipeSummary; size?: s
   );
 }
 
-export function RecipesStep({ cookbookId, sections, allRecipes, onChange }: RecipesStepProps) {
+export function RecipesStep({ cookbookId, sections, allRecipes, onChange, stepsFor, onSetSteps }: RecipesStepProps) {
   const recipesById = useMemo(() => new Map(allRecipes.map((r) => [r.id, r])), [allRecipes]);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set(sections.length === 1 ? [sections[0].id] : []));
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -206,6 +211,8 @@ export function RecipesStep({ cookbookId, sections, allRecipes, onChange }: Reci
                                 onMoveUp={i > 0 ? () => setSection(section.id, (s) => ({ ...s, recipeIds: arrayMove(s.recipeIds, s.recipeIds.indexOf(recipe.id), s.recipeIds.indexOf(recipe.id) - 1) })) : undefined}
                                 onMoveDown={i < recipes.length - 1 ? () => setSection(section.id, (s) => ({ ...s, recipeIds: arrayMove(s.recipeIds, s.recipeIds.indexOf(recipe.id), s.recipeIds.indexOf(recipe.id) + 1) })) : undefined}
                                 onMoveTo={(toId) => moveRecipe(section.id, recipe.id, toId)}
+                                steps={stepsFor?.(recipe.id)}
+                                onSetSteps={onSetSteps ? (v) => onSetSteps(recipe.id, v) : undefined}
                                 onRemove={() =>
                                   setSection(section.id, (s) => ({ ...s, recipeIds: s.recipeIds.filter((id) => id !== recipe.id) }), `Took “${recipe.title}” out of the book`)
                                 }
@@ -362,8 +369,12 @@ function SortableRecipeRow({
   onMoveDown,
   onMoveTo,
   onRemove,
+  steps,
+  onSetSteps,
 }: {
   recipe: RecipeSummary;
+  steps?: "improved" | "original";
+  onSetSteps?: (steps: "improved" | "original") => void;
   otherSections: Section[];
   onMoveUp?: () => void;
   onMoveDown?: () => void;
@@ -389,7 +400,12 @@ function SortableRecipeRow({
         <GripVertical className="h-5 w-5 text-muted-foreground" aria-hidden />
       </button>
       <Thumb recipe={recipe} />
-      <span className="min-w-0 flex-1 text-sm font-medium break-words">{recipe.title}</span>
+      <span className="min-w-0 flex-1 break-words">
+        <span className="block text-sm font-medium">{recipe.title}</span>
+        {recipe.hasOriginalSteps && steps === "original" && (
+          <span className="block text-sm text-muted-foreground">Prints the original directions</span>
+        )}
+      </span>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button variant="ghost" size="icon" aria-label={`Options for ${recipe.title}`}>
@@ -399,6 +415,17 @@ function SortableRecipeRow({
         <DropdownMenuContent align="end" className="w-56">
           {onMoveUp && <DropdownMenuItem onClick={onMoveUp}>Move up</DropdownMenuItem>}
           {onMoveDown && <DropdownMenuItem onClick={onMoveDown}>Move down</DropdownMenuItem>}
+          {recipe.hasOriginalSteps && onSetSteps && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel className="text-sm font-normal text-muted-foreground">Directions to print</DropdownMenuLabel>
+              <DropdownMenuRadioGroup value={steps ?? "improved"} onValueChange={(v) => onSetSteps(v as "improved" | "original")}>
+                <DropdownMenuRadioItem value="improved">Fuller steps by Grammie</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="original">As written on the original</DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
+              <DropdownMenuSeparator />
+            </>
+          )}
           {otherSections.length > 0 && (
             <DropdownMenuSub>
               <DropdownMenuSubTrigger>Move to chapter</DropdownMenuSubTrigger>

@@ -25,6 +25,7 @@ import { SaveStatus, StepBar, StepList } from "@/components/print/step-nav";
 import { usePrintAutosave } from "@/components/print/use-print-autosave";
 import { STEPS, isStepId, type BookDraft, type RecipeSummary, type Section, type StepId } from "@/components/print/types";
 import { estimateBookPages, type BookPageDetails } from "@shared/print-readiness";
+import { stepsVersionFor } from "@shared/print-recipe-transform";
 import { replacePhotosForBook } from "@/lib/place-photos";
 import { BINDING_PAGE_LIMITS } from "@/lib/print-constants";
 import type { CookbookPrintProject, CustomTemplate, PrintLayoutData } from "@shared/schema";
@@ -104,10 +105,17 @@ function CookbookPrintEditorInner() {
 
   const recipesQuery = useQuery<{ recipes: RecipeSummary[] }>({
     queryKey: ["/api/cookbooks", cookbookId, "recipes", "all"],
+    // The server sends at most 100 per page; big books need every page
     queryFn: async () => {
-      const res = await fetch(`/api/cookbooks/${cookbookId}/recipes?limit=500`, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to load recipes");
-      return res.json();
+      const all: RecipeSummary[] = [];
+      for (let page = 1; page <= 50; page++) {
+        const res = await fetch(`/api/cookbooks/${cookbookId}/recipes?limit=100&page=${page}`, { credentials: "include" });
+        if (!res.ok) throw new Error("Failed to load recipes");
+        const body = (await res.json()) as { recipes: RecipeSummary[]; hasMore?: boolean };
+        all.push(...body.recipes);
+        if (!body.hasMore || !body.recipes.length) break;
+      }
+      return { recipes: all };
     },
     enabled: cookbookId > 0 && isOwner,
   });
@@ -374,7 +382,23 @@ function CookbookPrintEditorInner() {
       <h2 className="mb-4 font-serif text-2xl font-bold">{stepInfo.title}</h2>
 
       {step === "recipes" && (
-        <RecipesStep cookbookId={cookbookId} sections={layout.sections} allRecipes={allRecipes} onChange={setSections} />
+        <RecipesStep
+          cookbookId={cookbookId}
+          sections={layout.sections}
+          allRecipes={allRecipes}
+          onChange={setSections}
+          stepsFor={(id) => stepsVersionFor(id, layout)}
+          onSetSteps={(id, steps) => {
+            const settings = { ...(layout.recipePrintSettings ?? {}) };
+            const rest = { ...(settings[id] ?? {}) };
+            // Matching the book's choice clears the override, so a later book-wide change still applies
+            if (steps === (layout.customizations?.stepsVersion ?? "improved")) delete rest.steps;
+            else rest.steps = steps;
+            if (Object.keys(rest).length) settings[id] = rest;
+            else delete settings[id];
+            updateLayout({ recipePrintSettings: settings });
+          }}
+        />
       )}
 
       {step === "look" && (

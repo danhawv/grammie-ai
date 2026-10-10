@@ -24,6 +24,7 @@ import { isGeminiAvailable, parseQueryWithGemini } from "../gemini";
 import { generateInteriorPdf, generateCoverPdf, measureRecipeGaps, type CookbookPrintData } from "../lib/pdf/generator";
 import { planFamilyPhotos } from "@shared/family-photos";
 import { transformRecipe } from "../lib/pdf/recipe-transformer";
+import { stepsVersionFor } from "@shared/print-recipe-transform";
 import { buildPodPackageId, BINDING_PAGE_LIMITS, BINDING_PAPER_COMPATIBILITY, unsupportedBookReason } from "../lib/lulu/pod-package";
 import { BOOK_SIZES as LULU_BOOK_SIZES } from "../lib/lulu/book-sizes";
 import {
@@ -313,7 +314,13 @@ router.get("/cookbooks/:id/recipes", optionalAuth, async (req: any, res) => {
       Object.keys(filters).length > 0 ? filters : undefined,
     );
 
-    res.json(result);
+    // Recipes with two sets of directions (the print editor offers a choice)
+    const ids = (result as any).recipes?.map((r: any) => r.id) ?? [];
+    const twoVersions = ids.length
+      ? new Set((await db.select({ id: recipes.id }).from(recipes)
+          .where(and(inArray(recipes.id, ids), eq(recipes.instructionsGenerated, true), isNotNull(recipes.originalInstructions)))).map((r) => r.id))
+      : new Set<string>();
+    res.json({ ...result, recipes: (result as any).recipes.map((r: any) => ({ ...r, hasOriginalSteps: twoVersions.has(r.id) })) });
   } catch (error) {
     console.error("Error fetching cookbook recipes:", error);
     res.status(500).json({ error: "Failed to fetch cookbook recipes" });
@@ -1192,7 +1199,7 @@ async function buildPrintDataFromLayout(
             sectionId: section.id,
             sortOrder: rIdx,
             layoutOverride: settings?.layoutOverride,
-            data: transformRecipe(recipeData, layout.customizations?.unitSystem || 'original'),
+            data: transformRecipe(recipeData, layout.customizations?.unitSystem || 'original', stepsVersionFor(recipeId, layout)),
           };
         }).filter(Boolean)
       ) as CookbookPrintData['recipes'],
@@ -1527,7 +1534,7 @@ async function buildOrderPrintData(order: PrintOrder): Promise<CookbookPrintData
             sectionId: section.id,
             sortOrder: rIdx,
             layoutOverride: recipePrintSettings[recipeId]?.layoutOverride,
-            data: transformRecipe(recipeData, layout.customizations?.unitSystem || 'original'),
+            data: transformRecipe(recipeData, layout.customizations?.unitSystem || 'original', stepsVersionFor(recipeId, layout)),
           };
         }).filter(Boolean)
       ) as CookbookPrintData['recipes'],

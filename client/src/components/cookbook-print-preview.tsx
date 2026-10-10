@@ -13,7 +13,7 @@ import { formatIngredientQuantity } from "@shared/print-format";
 import { convertAmount, type UnitSystem } from "@shared/units";
 import { BOOK_SIZES, type TrimSizeId } from "@/lib/print-constants";
 import { buildRecipeCardHtml, CARD_THEME, HEIRLOOM_THEME } from "@shared/recipe-card";
-import { transformRecipe } from "@shared/print-recipe-transform";
+import { hasOriginalSteps, stepsVersionFor, transformRecipe, type StepsVersion } from "@shared/print-recipe-transform";
 import {
   buildAlbumPageHtml, buildSectionPhotosPageHtml, buildDedicationPhotoPageHtml, chunkAlbum, familyPhotoSlotHtml, fitFamilyPhotoSlots,
   FAMILY_ALBUM_TITLE, type AlbumPhoto,
@@ -38,6 +38,9 @@ interface Recipe {
   normalizedIngredients?: any[] | null;
   instructions?: any[] | null;
   normalizedInstructions?: any[] | null;
+  /** The source's own directions, kept when Grammie wrote fuller ones */
+  originalInstructions?: string[] | null;
+  instructionsGenerated?: boolean | null;
   prepTimeMinutes?: number | null;
   cookTimeMinutes?: number | null;
   totalTimeMinutes?: number | null;
@@ -567,6 +570,7 @@ export function CookbookPrintPreview({
                     recipe={page.recipe}
                     theme={theme}
                     unitSystem={(layoutData?.customizations?.unitSystem as UnitSystem) || "original"}
+                    steps={stepsVersionFor(String(page.recipe.id), layoutData as any)}
                     w={pageW} h={pageH}
                     pageNumber={recipePageNumbers.get(page.index)}
                     familyPhotoSrc={photoByRecipe.get(String(page.recipe.id))}
@@ -585,6 +589,7 @@ export function CookbookPrintPreview({
                     index={page.index}
                     theme={theme}
                     unitSystem={(layoutData?.customizations?.unitSystem as UnitSystem) || "original"}
+                    steps={stepsVersionFor(String(page.recipe.id), layoutData as any)}
                     w={pageW} h={pageH}
                     includePhoto={
                       layoutData?.recipePrintSettings?.[String(page.recipe.id)]?.includePhoto !== false
@@ -1003,13 +1008,13 @@ function PhotoHtmlPage({ w, h, html }: { w: number; h: number; html: string }) {
 
 // Card layout: the same HTML the PDF generator prints (shared/recipe-card.ts),
 // shrunk to fit with the same zoom search when a recipe runs long
-function CardRecipePage({ recipe, theme, w, h, includePhoto, unitSystem, pageNumber, familyPhotoSrc, cookbookId }: {
+function CardRecipePage({ recipe, theme, w, h, includePhoto, unitSystem, steps = "improved", pageNumber, familyPhotoSrc, cookbookId }: {
   recipe: Recipe; theme: ThemeConfig; w: number; h: number;
-  includePhoto: boolean; unitSystem: UnitSystem; pageNumber?: number; familyPhotoSrc?: string; cookbookId: number;
+  includePhoto: boolean; unitSystem: UnitSystem; steps?: StepsVersion; pageNumber?: number; familyPhotoSrc?: string; cookbookId: number;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const html = useMemo(() => {
-    const n = transformRecipe(recipe as any, unitSystem);
+    const n = transformRecipe(recipe as any, unitSystem, steps);
     n.imageUrl = recipe.dishImageThumbnail || recipe.dishImage || n.imageUrl;
     // Original handwritten card: a small copy, loaded only when the layout shows it
     if ((recipe as any).hasOriginalCard && (theme.recipeLayout?.original ?? 'none') !== 'none') {
@@ -1021,7 +1026,7 @@ function CardRecipePage({ recipe, theme, w, h, includePhoto, unitSystem, pageNum
       padLeftIn: MARGIN_INNER, padRightIn: MARGIN_OUTER,
       pageNumber,
     }, { includePhoto, beforePageNumber: familyPhotoSrc ? familyPhotoSlotHtml(familyPhotoSrc, theme) : '' });
-  }, [recipe, theme, unitSystem, w, h, pageNumber, includePhoto, familyPhotoSrc, cookbookId]);
+  }, [recipe, theme, unitSystem, steps, w, h, pageNumber, includePhoto, familyPhotoSrc, cookbookId]);
 
   useLayoutEffect(() => {
     const root = ref.current;
@@ -1068,9 +1073,9 @@ function CardRecipePage({ recipe, theme, w, h, includePhoto, unitSystem, pageNum
   return <div ref={ref} style={{ width: w, height: h }} dangerouslySetInnerHTML={{ __html: html }} />;
 }
 
-function RecipePage({ recipe, index, theme, w, h, includePhoto, unitSystem = "original", familyPhotoSrc }: {
+function RecipePage({ recipe, index, theme, w, h, includePhoto, unitSystem = "original", steps = "improved", familyPhotoSrc }: {
   recipe: Recipe; index: number; theme: ThemeConfig;
-  w: number; h: number; includePhoto: boolean; unitSystem?: UnitSystem; familyPhotoSrc?: string;
+  w: number; h: number; includePhoto: boolean; unitSystem?: UnitSystem; steps?: StepsVersion; familyPhotoSrc?: string;
 }) {
   const padTop = MARGIN_TOP * DPI;
   const padBottom = MARGIN_BOTTOM * DPI;
@@ -1087,10 +1092,12 @@ function RecipePage({ recipe, index, theme, w, h, includePhoto, unitSystem = "or
     (recipe.ingredients || []).map((raw: any) =>
       typeof raw === 'string' ? { raw, item: raw } : raw
     );
-  const instructions = recipe.normalizedInstructions ||
-    (recipe.instructions || []).map((text: any, i: number) =>
-      typeof text === 'string' ? { stepNumber: i + 1, text } : text
-    );
+  const instructions = steps === "original" && hasOriginalSteps(recipe as any)
+    ? recipe.originalInstructions!.map((text, i) => ({ stepNumber: i + 1, text: text.replace(/^\s*step\s*\d+\s*[:.)-]\s*/i, "") }))
+    : recipe.normalizedInstructions ||
+      (recipe.instructions || []).map((text: any, i: number) =>
+        typeof text === 'string' ? { stepNumber: i + 1, text } : text
+      );
 
   // Dynamic font sizes based on page width, overridable by custom templates
   const titleSize = theme.fontSizes?.recipeTitle ?? Math.min(20, w * 0.035);

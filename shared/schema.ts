@@ -583,11 +583,16 @@ export const printLayoutDataSchema = z.object({
     pageSize: z.enum(['6x9', '8.5x11', 'a4']).default('6x9'),
     // Print every ingredient in one measurement system (see shared/units.ts)
     unitSystem: z.enum(['original', 'us', 'metric']).optional(),
+    // Directions for recipes whose short steps Grammie filled out: the fuller
+    // version ('improved', the default) or the card's own words ('original')
+    stepsVersion: z.enum(['improved', 'original']).optional(),
   }).optional(),
   // Per-recipe print settings
   recipePrintSettings: z.record(z.string(), z.object({
     layoutOverride: z.enum(['full-page', 'text-only', 'two-page-spread']).optional(),
     includePhoto: z.boolean().optional(),
+    // Overrides customizations.stepsVersion for this recipe
+    steps: z.enum(['improved', 'original']).optional(),
   })).optional(),
   // Cover customization
   coverData: z.object({
