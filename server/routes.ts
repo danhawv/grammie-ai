@@ -21,6 +21,10 @@ import templateRoutes from "./routes/templates";
 import cookbookPhotoRoutes from "./routes/cookbook-photos";
 import bulkIntakeRoutes from "./routes/bulk-intake";
 import { mealPrepRouter } from "./meal-prep/wiring";
+import { setMealPrepEngines } from "./meal-prep/engines";
+import { createFoodData } from "./meal-prep/food";
+import { createPlanner } from "./meal-prep/planner";
+import { createSessionBuilder } from "./meal-prep/session";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Setup authentication
@@ -45,7 +49,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use("/api", bulkIntakeRoutes);
   app.use("/api", cookbookPhotoRoutes);
   // Meal prep; its cook pages (/api/meal-prep/cook/:token) need no account.
-  // The planning engines are registered with setMealPrepEngines (meal-prep/engines.ts).
+  setMealPrepEngines({ food: createFoodData(), planner: createPlanner(), session: createSessionBuilder() });
   app.use("/api/meal-prep", mealPrepRouter());
 
   // Mount print routes (has both /lulu/* and /api/print/* paths)

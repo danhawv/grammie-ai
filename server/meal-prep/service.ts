@@ -3,7 +3,7 @@
 // comes in through MealPrepDeps, so the routes can be tested with fakes.
 
 import type {
-  Adjuster, PrepPlan, PrepSetup, RecipeFacts,
+  Adjuster, PlanWeights, PrepPlan, PrepSetup, RecipeFacts,
 } from "@shared/meal-prep/contract";
 import type { WishesResult } from "@shared/meal-prep/api";
 import type { PrepPlanRow, PrepRecipes, PrepStore } from "./store";
@@ -107,6 +107,32 @@ export async function factsForPlan(deps: MealPrepDeps, ownerId: string, setup: P
 }
 
 /**
+ * The planner only estimates session time from hands-on minutes; the real
+ * timeline (with washing up, cooling and portioning) comes from the session
+ * builder. When that runs well over the time asked for, plan again against a
+ * shorter budget so it picks fewer or simpler dishes. Up to two retries; the
+ * shortest result wins, and an overrun left over is shown as a warning.
+ */
+async function planWithinSession(
+  deps: MealPrepDeps, ownerId: string, setup: PrepSetup, facts: RecipeFacts[], adjusters: Adjuster[], weights?: PlanWeights,
+) {
+  const engines = requireEngines(deps);
+  const limit = setup.session.maxMinutes;
+  let budget = limit;
+  let best: { plan: PrepPlan; done: Awaited<ReturnType<typeof finishPlan>> } | null = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const planSetup = { ...setup, session: { ...setup.session, maxMinutes: Math.round(budget) } };
+    const plan = await engines.planner.plan(planSetup, facts, adjusters, weights);
+    const done = await finishPlan(deps, ownerId, setup, plan, facts, adjusters);
+    const total = done.session.totalMinutes;
+    if (!best || total < best.done.session.totalMinutes) best = { plan, done };
+    if (total <= limit * 1.1 || plan.fitScore < 50) break;
+    budget = budget * (limit / total) * 0.95;
+  }
+  return best!;
+}
+
+/**
  * Solves the plan for a row and saves the result (or a plain-words failure).
  * `reuseWishes` skips the model when the wishes text hasn't changed.
  */
@@ -117,8 +143,7 @@ export async function buildPlan(deps: MealPrepDeps, row: PrepPlanRow, reuseWishe
     const setup = effectiveSetup(row.setup, wishes);
     const bonus = wishes?.recipeBonus ?? {};
     const weights = Object.keys(bonus).length > 0 ? { ...DEFAULT_PLAN_WEIGHTS, recipeBonus: bonus } : undefined;
-    const plan = await engines.planner.plan(setup, facts, adjusters, weights);
-    const done = await finishPlan(deps, row.ownerUserId, setup, plan, facts, adjusters);
+    const { plan, done } = await planWithinSession(deps, row.ownerUserId, setup, facts, adjusters, weights);
     const wishTitles = wishes ? Object.fromEntries(facts
       .filter(f => wishes.more.includes(f.recipeId) || wishes.less.includes(f.recipeId) || wishes.excludedRecipeIds.includes(f.recipeId))
       .map(f => [f.recipeId, f.title])) : {};
