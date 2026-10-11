@@ -34,6 +34,12 @@ const DEFAULTS = {
   prepExplain: { model: "gemini-3.5-flash-lite" },
   /** Meal prep: pick the canonical ingredient for an unusual item name from a shortlist */
   ingredientMatch: { model: "gemini-3.5-flash-lite" },
+  /**
+   * Meal prep: a recipe's steps -> kitchen tasks (hands-on vs waiting time,
+   * oven/burner, what depends on what). Cached per recipe version, so it runs
+   * once per recipe; checked and corrected in code (server/meal-prep/session).
+   */
+  prepSteps: { model: "gemini-3.5-flash-lite", thinkingLevel: "low" },
   /** Short helper answers (substitutions, generated steps) */
   quickText: { model: "gemini-3.5-flash-lite" },
   /** Dish photo for recipes without one */
