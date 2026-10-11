@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { chapterForTags, buildCoursePlan } from './courses';
+import { chapterForTags, buildCoursePlan, hasMealSlot } from './courses';
 
 describe('chapterForTags', () => {
   it('normalizes case and synonyms', () => {
@@ -47,5 +47,24 @@ describe('buildCoursePlan', () => {
       { id: 'a', title: 'Apple Pork', mealType: ['Dinner'] },
     ]);
     expect(plan[0].recipeTitles).toEqual(['Apple Pork', 'Zucchini Bake']);
+  });
+});
+
+describe('hasMealSlot', () => {
+  it('matches regardless of case', () => {
+    expect(hasMealSlot(['Dinner'], 'dinner')).toBe(true);
+    expect(hasMealSlot(['dinner'], 'dinner')).toBe(true);
+    expect(hasMealSlot(['LUNCH'], 'lunch')).toBe(true);
+  });
+  it('splits combined tags', () => {
+    expect(hasMealSlot(['Lunch/Dinner'], 'dinner')).toBe(true);
+    expect(hasMealSlot(['Breakfast, Brunch'], 'breakfast')).toBe(true);
+    expect(hasMealSlot(['Lunch and Dinner'], 'lunch')).toBe(true);
+  });
+  it('does not match other slots or missing tags', () => {
+    expect(hasMealSlot(['Dinner'], 'lunch')).toBe(false);
+    expect(hasMealSlot(['Dinner Party'], 'dinner')).toBe(false);
+    expect(hasMealSlot(null, 'dinner')).toBe(false);
+    expect(hasMealSlot([], 'dinner')).toBe(false);
   });
 });

@@ -93,3 +93,15 @@ export function buildCoursePlan(recipes: CoursePlanRecipe[]): PlannedChapter[] {
       };
     });
 }
+
+/**
+ * Whether a recipe's meal-type tags include a meal slot. Tags are free-form
+ * and mostly capitalized ("Dinner", "Lunch/Dinner"), while slots are
+ * lowercase, so compare case-insensitively and split combined tags.
+ */
+export function hasMealSlot(tags: string[] | null | undefined, slot: string): boolean {
+  if (!tags || tags.length === 0) return false;
+  const want = slot.trim().toLowerCase();
+  return tags.some(tag =>
+    tag.toLowerCase().split(/[\/,&]|\band\b/).some(part => part.trim() === want));
+}

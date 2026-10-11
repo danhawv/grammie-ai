@@ -4,6 +4,7 @@ import { isAuthenticated } from "../clerkAuth";
 import { storage } from "../storage";
 import { getUserId } from "./route-utils";
 import { mealPlanWsManager } from "../websocket";
+import { hasMealSlot } from "@shared/courses";
 
 const router = Router();
 
@@ -354,7 +355,7 @@ router.get("/meal-plans/:id/suggestions", isAuthenticated, async (req: any, res)
     // Score by ingredient overlap
     const suggestions = allRecipes
       .filter(r => !plannedRecipeIds.has(r.id))
-      .filter(r => !mealSlot || (r.mealType && r.mealType.includes(mealSlot)))
+      .filter(r => !mealSlot || hasMealSlot(r.mealType, mealSlot))
       .map(recipe => {
         const recipeIngredients = (recipe.normalizedIngredients as any[] || [])
           .map((i: any) => i.item?.toLowerCase())

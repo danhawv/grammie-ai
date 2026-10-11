@@ -2,6 +2,7 @@ import { db } from "./db";
 import { eq, and, or, asc, desc, inArray, notInArray, sql, getTableColumns, isNull, isNotNull } from "drizzle-orm";
 import { buildPrintImage } from "./lib/images";
 import { groceryMergeKey, findPantryItem } from "@shared/pantry-match";
+import { addToGroceryAggregate } from "./lib/grocery-aggregate";
 import {
   type Recipe,
   type RecipeListItem,
@@ -3520,22 +3521,17 @@ export class PostgresStorage implements IStorage {
           raw: ingredient.raw,
         };
 
-        if (aggregated.has(itemKey) && conversion.canConvert) {
-          const existing = aggregated.get(itemKey)!;
-          existing.quantity += conversion.quantity;
-          existing.originalEntries.push(provenance);
-        } else {
-          aggregated.set(itemKey, {
-            item: ingredient.item || ingredient.raw,
-            quantity: conversion.quantity,
-            unit: conversion.unit,
-            displayName: ingredient.item || ingredient.raw,
-            aisle: ingredient.groceryMapping?.aisle || 'Other',
-            category: ingredient.groceryMapping?.category || null,
-            emoji: ingredient.emoji || null,
-            originalEntries: [provenance],
-          });
-        }
+        // Same key = same name and recipe unit, so amounts always add up
+        // (an unconvertible repeat used to replace the earlier amount)
+        addToGroceryAggregate(aggregated, itemKey, {
+          item: ingredient.item || ingredient.raw,
+          quantity: conversion.quantity,
+          unit: conversion.unit,
+          displayName: ingredient.item || ingredient.raw,
+          aisle: ingredient.groceryMapping?.aisle || 'Other',
+          category: ingredient.groceryMapping?.category || null,
+          emoji: ingredient.emoji || null,
+        }, provenance);
       }
     }
 
