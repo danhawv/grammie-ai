@@ -6,7 +6,7 @@ import { createPlanner, stopSolver } from "./index";
 import { LpModel } from "./lp";
 import { solveLp } from "./solver";
 import { ageOnDay, expandTerms, keepingFor, matchExclusion } from "./eligibility";
-import { DEFAULT_REPEATS, personSlots } from "./model";
+import { DEFAULT_REPEATS, handsOnMinutes, personSlots } from "./model";
 import { adjusterFacts, person, recipeFacts, scenarios, setupFor } from "./test-fixtures";
 
 const planner = createPlanner({ timeLimit: 2 });
@@ -301,6 +301,26 @@ describe("balanced plates and kitchen equipment", () => {
     expect(plan.batches.map((b) => b.recipeId)).toContain("turkey-chili");
     expect(plan.notes.some((n) => n.includes("easiest with a blender"))).toBe(true);
     expect(plan.relaxed.some((r) => r.includes("blender"))).toBe(false);
+  });
+});
+
+describe("session time", () => {
+  it("estimates hands-on minutes close to real sessions", () => {
+    const f = recipeFacts()[0];
+    const dish = (active: number, lines: number) => ({ ...f, activeMinutes: active, lines: f.lines.slice(0, 1).concat(Array(lines - 1).fill(f.lines[0])) });
+    // measured in real sessions built by the session part: 64, 52 and 40 minutes
+    expect(Math.abs(handsOnMinutes(dish(30, 21), 1) - 64)).toBeLessThan(6);
+    expect(Math.abs(handsOnMinutes(dish(41, 17), 0.5) - 52)).toBeLessThan(6);
+    expect(Math.abs(handsOnMinutes(dish(18, 10), 1.5) - 40)).toBeLessThan(6);
+  });
+
+  it("a larger sessionTimeFactor plans a lighter session", async () => {
+    const s = byName("one-lifter");
+    const slow = createPlanner({ timeLimit: 2, sessionTimeFactor: 2 });
+    const base = await planner.plan(s.setup, s.facts, s.adjusters);
+    const plan = await slow.plan(s.setup, s.facts, s.adjusters);
+    const minutes = (p: PrepPlan) => Number(/About (\d+) minutes of hands-on/.exec(p.notes.join(" "))![1]);
+    expect(minutes(plan) / 2).toBeLessThan(minutes(base));
   });
 });
 

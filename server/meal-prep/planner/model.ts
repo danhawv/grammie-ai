@@ -42,8 +42,16 @@ export const DEFAULT_REPEATS: Record<MealSlot, number> = { breakfast: 7, lunch: 
 const DEFAULT_TOL: Record<MacroKey, number> = { kcal: 0.05, protein: 0, carbs: 0.15, fat: 0.15 };
 /** extra room for numbers we're less sure of, as a share of that food's macros */
 export const CONFIDENCE_WIDEN = { high: 0, medium: 0.05, low: 0.1 } as const;
-/** the session-time proxy: this share of cook-minutes is hands-on capacity */
-const SESSION_HANDS_ON_SHARE = 0.8;
+/**
+ * Session time, calibrated on real sessions built by the session part (8
+ * dishes from the owner's recipes, two full runs; per-dish error about ±5 min,
+ * whole session within a few minutes):
+ *   hands-on per dish ≈ (5 + 1.2 × activeMinutes + 1 × ingredient lines) × (0.6 + 0.4 × batches)
+ *   plus about 10 min for the session and 3 min per plate (portioning, labels, washing up).
+ * The schedule then adds waiting and a 10% cushion, about 13% on top, so one
+ * cook's hands-on minutes should stay under 87% of the session.
+ */
+export const SESSION_MODEL = { perDish: 5, perActiveMinute: 1.2, perLine: 1, batchBase: 0.6, batchSlope: 0.4, session: 10, perPlate: 3, handsOnShare: 0.87, secondCook: 0.7 };
 const MAX_CANDIDATES = 20;
 
 export const PEN = {
@@ -151,6 +159,7 @@ export interface Prepared {
   thinSlots: MealSlot[];
   /** share of a day's targets per slot */
   share: Record<MealSlot, number>;
+  sessionTimeFactor: number;
 }
 
 export interface PrepareOptions {
@@ -160,6 +169,8 @@ export interface PrepareOptions {
   forceRecipes?: string[];
   /** cook exactly this many dishes (swap) */
   dishCount?: number;
+  /** multiplies the session-time estimate (1 = the calibrated model) */
+  sessionTimeFactor?: number;
 }
 
 function macroOf(r: RecipeFacts, m: MacroKey): number {
@@ -271,7 +282,7 @@ export function prepare(setup: PrepSetup, facts: RecipeFacts[], adjusters: Adjus
   return {
     setup, weights, recipes: pool2, adjusters, people, aims, words, allowed, adjAllowed, occasions,
     maxDishes, maxRepeats: { ...DEFAULT_REPEATS, ...(setup.maxRepeats ?? {}) } as Record<MealSlot, number>,
-    pinned, exactDishes: opts.dishCount != null, notes, relaxed, thinSlots, share,
+    pinned, exactDishes: opts.dishCount != null, notes, relaxed, thinSlots, share, sessionTimeFactor: opts.sessionTimeFactor ?? 1,
   };
 }
 
@@ -343,6 +354,8 @@ export interface Built {
   };
   sessionCap: number;
   activeFor: (recipeIdx: number, scale: number) => number;
+  /** estimated hands-on minutes for the whole session, given the plates */
+  sessionMinutes: (batches: Array<{ recipeIdx: number; scale: number }>, plates: number) => number;
 }
 
 /** a plate within ±25% of its meal's share of the day's aim is balanced */
@@ -377,9 +390,10 @@ function isMeal(r: RecipeFacts): boolean {
   return (["breakfast", "lunch", "dinner"] as MealSlot[]).some((s) => suitsSlot(r, s));
 }
 
-export function sessionTimeFactor(scale: number): number {
-  // Bigger batches take a bit longer to chop and brown, not proportionally longer.
-  return scale <= 1 ? 0.85 + 0.15 * scale : 1 + 0.25 * (scale - 1);
+/** Hands-on minutes one batch adds to a session (before the skill factor). */
+export function handsOnMinutes(r: RecipeFacts, scale: number): number {
+  const M = SESSION_MODEL;
+  return (M.perDish + M.perActiveMinute * r.activeMinutes + M.perLine * r.lines.length) * (M.batchBase + M.batchSlope * scale);
 }
 
 const SKILL_FACTOR = { beginner: 1.3, home: 1, pro: 0.85 } as const;
@@ -410,7 +424,7 @@ export function buildModel(P: Prepared): Built {
     return lp.addVar({ type: "B", lb: P.pinned.has(r.recipeId) ? 1 : 0, obj: PEN.dish - PEN.wishDish * wish(r.recipeId) + appliancePenalty });
   });
   const skill = SKILL_FACTOR[setup.session.skill] ?? 1;
-  const activeFor = (i: number, k: number) => R[i].activeMinutes * sessionTimeFactor(k) * skill;
+  const activeFor = (i: number, k: number) => handsOnMinutes(R[i], k) * skill * P.sessionTimeFactor;
   const b = R.map((r, i) =>
     SCALES.map((k) => {
       const cost = r.cost != null ? r.cost * k * W.cost * PEN.costDollar : 0;
@@ -583,11 +597,14 @@ export function buildModel(P: Prepared): Built {
 
   // --- session time (hands-on minutes as a proxy for the real schedule)
   const cooks = Math.max(1, setup.session.cooks || 1);
-  const sessionCap = (setup.session.maxMinutes || 240) * cooks * SESSION_HANDS_ON_SHARE;
+  // a second cook helps, but not twice over (shared oven, waiting on each other)
+  const M = SESSION_MODEL;
+  const sessionCap = (setup.session.maxMinutes || 240) * (1 + M.secondCook * (cooks - 1)) * M.handsOnShare;
   const timeTerms: Term[] = [];
   R.forEach((_, i) => SCALES.forEach((k, s) => timeTerms.push([b[i][s], activeFor(i, k)])));
+  plates.forEach((p) => timeTerms.push([p.x, M.perPlate * skill * P.sessionTimeFactor]));
   slack.sessionMinutes = lp.addVar({ obj: PEN.sessionMinute });
-  lp.addRow([...timeTerms, [slack.sessionMinutes, -1]], "<=", sessionCap);
+  lp.addRow([...timeTerms, [slack.sessionMinutes, -1]], "<=", sessionCap - M.session * skill * P.sessionTimeFactor);
 
   // --- budget (recipes with unknown cost count as free)
   if (setup.budget && setup.budget > 0) {
@@ -684,5 +701,7 @@ export function buildModel(P: Prepared): Built {
     }
   });
 
-  return { lp, y, b, plates, miss, days, plateFloors, equipment, slack, sessionCap, activeFor };
+  const sessionMinutes = (bs: Array<{ recipeIdx: number; scale: number }>, n: number) =>
+    bs.reduce((a, x) => a + activeFor(x.recipeIdx, x.scale), 0) + (M.session + M.perPlate * n) * skill * P.sessionTimeFactor;
+  return { lp, y, b, plates, miss, days, plateFloors, equipment, slack, sessionCap, activeFor, sessionMinutes };
 }

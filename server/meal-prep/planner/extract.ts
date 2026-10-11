@@ -337,8 +337,8 @@ export function extractPlan(P: Prepared, B: Built, values: Record<string, number
     notes.push(`${plural(frozen.length, "plate")} (${list(dishes)}) ${frozen.length === 1 ? "goes" : "go"} in the freezer, since they'll be eaten more than ${plural(fridgeMax, "day")} after cooking.`);
   }
   work.filter((w) => w.mismatch).forEach((w) => notes.push(`${R[w.recipeIdx].title} is used for ${w.slot} on ${dayLabel(P, w.day)} because few ${w.slot} recipes were available.`));
-  const handsOn = batches.reduce((a, bt) => a + B.activeFor(R.findIndex((r) => r.recipeId === bt.recipeId), bt.scale), 0);
-  notes.push(`About ${Math.round(handsOn)} minutes of hands-on cooking for ${plural(batches.length, "dish", "dishes")}.`);
+  const handsOn = B.sessionMinutes(batches.map((bt) => ({ recipeIdx: R.findIndex((r) => r.recipeId === bt.recipeId), scale: bt.scale })), work.length);
+  notes.push(`About ${Math.round(handsOn)} minutes of hands-on work for ${plural(batches.length, "dish", "dishes")}, including portioning and washing up.`);
 
   // --- what had to give
   occasions.forEach((o, idx) => {

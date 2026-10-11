@@ -24,13 +24,28 @@ const facts = await food.factsFor(ids);
 const adjusters = await food.adjusters();
 console.log(`facts for ${facts.length} recipes in ${Date.now() - t0} ms; with equipment: ${facts.filter((f) => f.equipment?.length).length}`);
 const setup = prev.setup;
-const plan = await createPlanner().plan(setup, facts, adjusters);
-console.log(formatPlan(plan, setup, facts, adjusters));
+const planner = createPlanner();
 const builder = createSessionBuilder({ stepStore: memoryStepStore() });
-const s = await builder.session(setup, plan, facts, adjusters);
+// Same loop as planWithinSession in server/meal-prep/service.ts: if the real
+// session runs over 110% of the limit, plan again with a shorter budget.
+const limit = setup.session.maxMinutes;
+let budget = limit;
+let best: { plan: any; s: any; attempt: number } | null = null;
+for (let attempt = 0; attempt < 3; attempt++) {
+  const planSetup = { ...setup, session: { ...setup.session, maxMinutes: Math.round(budget) } };
+  const plan = await planner.plan(planSetup, facts, adjusters);
+  const s = await builder.session(setup, plan, facts, adjusters);
+  const estimate = plan.notes.find((n) => n.includes("hands-on work"));
+  console.log(`attempt ${attempt + 1}: budget ${Math.round(budget)} min -> session ${s.totalMinutes} min (hands-on ${s.handsOnMinutes}); planner: ${estimate}; fit ${plan.fitScore}`);
+  if (!best || s.totalMinutes < best.s.totalMinutes) best = { plan, s, attempt: attempt + 1 };
+  if (s.totalMinutes <= limit * 1.1 || plan.fitScore < 50) break;
+  budget = budget * (limit / s.totalMinutes) * 0.95;
+}
+const { plan, s } = best!;
+console.log(`\nKEPT attempt ${best!.attempt}`);
+console.log(formatPlan(plan, setup, facts, adjusters));
 console.log(`\nSESSION: ${s.tasks.length} tasks, total ${s.totalMinutes} min, hands-on ${s.handsOnMinutes} min; equipment: ${s.equipment.join(", ")}`);
 console.log("WARNINGS:", s.warnings);
-for (const b of plan.batches) { const f = facts.find((x) => x.recipeId === b.recipeId)!; console.log("  ", f.title, "equipment:", f.equipment); }
-fs.writeFileSync(process.argv[3], JSON.stringify({ setup, plan, session: s }, null, 1));
+fs.writeFileSync(process.argv[3], JSON.stringify({ setup, plan, session: s, titles: prev.titles }, null, 1));
 await stopSolver();
 await pool.end();
