@@ -11,9 +11,11 @@ import { UploadProgressProvider } from "@/contexts/UploadProgressContext";
 import { GrammieChat } from "@/components/grammie-chat";
 import { ShareHandler } from "@/components/share-handler";
 import { InstallPrompt } from "@/components/install-prompt";
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { Loader2 } from "lucide-react";
-import { ClerkProvider } from "@clerk/react";
+import { ClerkProvider, useAuth as useClerkAuth } from "@clerk/react";
+import { isNativeApp, setAuthTokenGetter } from "@/lib/platform";
+import { clearImagePass } from "@/lib/image-pass";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { DisplayPrefsApplier } from "@/hooks/use-display-prefs";
 
@@ -111,8 +113,9 @@ function AppCore() {
               </main>
               <GrammieChat />
               <ShareHandler />
-              <InstallPrompt />
-              <UpdateBanner />
+              {/* The app installs and updates through the App Store */}
+              {!isNativeApp() && <InstallPrompt />}
+              {!isNativeApp() && <UpdateBanner />}
             </AddRecipeProvider>
           </UploadProgressProvider>
         </TooltipProvider>
@@ -121,11 +124,32 @@ function AppCore() {
   );
 }
 
+// Lets requests that can't use the sign-in cookie (the iPhone app, live
+// updates) carry the Clerk session token instead
+function AuthTokenBridge() {
+  const { getToken, isLoaded, isSignedIn } = useClerkAuth();
+  useEffect(() => {
+    if (!isLoaded) return;
+    setAuthTokenGetter(() => getToken());
+    return () => setAuthTokenGetter(null);
+  }, [getToken, isLoaded]);
+  // In the app, anything asked for before sign-in was ready (or as someone
+  // else) went without the right token: ask again. In a browser the cookie
+  // already covered it.
+  useEffect(() => {
+    if (!isLoaded || !isNativeApp()) return;
+    clearImagePass();
+    void queryClient.invalidateQueries();
+  }, [isLoaded, isSignedIn]);
+  return null;
+}
+
 function App() {
   if (CLERK_KEY) {
     return (
       <ErrorBoundary>
         <ClerkProvider publishableKey={CLERK_KEY}>
+          <AuthTokenBridge />
           <AppCore />
         </ClerkProvider>
       </ErrorBoundary>

@@ -30,9 +30,17 @@ export function useUndoable() {
     pending.current.clear();
   }, []);
 
+  // Also when the page is hidden: phones (and the iPhone app) often close a
+  // backgrounded page without warning, so don't leave a delete hanging
   useEffect(() => {
+    const onHidden = () => { if (document.visibilityState === "hidden") flushAll(); };
     window.addEventListener("beforeunload", flushAll);
-    return () => { window.removeEventListener("beforeunload", flushAll); flushAll(); };
+    document.addEventListener("visibilitychange", onHidden);
+    return () => {
+      window.removeEventListener("beforeunload", flushAll);
+      document.removeEventListener("visibilitychange", onHidden);
+      flushAll();
+    };
   }, [flushAll]);
 
   return useCallback((opts: UndoableOptions) => {

@@ -3,6 +3,7 @@ import multer from "multer";
 import crypto from "crypto";
 import { and, eq, sql } from "drizzle-orm";
 import { isAuthenticated } from "../clerkAuth";
+import { acceptImagePass } from "../lib/image-pass";
 import { db } from "../db";
 import { bulkIntakePhotos, bulkIntakes, cookbooks } from "@shared/schema";
 import { buildPlan, estimateFirstLook, estimateImport, type IntakeStatus } from "@shared/bulk-intake";
@@ -256,7 +257,7 @@ router.post("/bulk-intake/:id/expect", isAuthenticated, safe(async (req: any, re
 }));
 
 for (const which of ["thumb", "image"] as const) {
-  router.get(`/bulk-intake/:id/photos/:photoId/${which}`, isAuthenticated, safe(async (req: any, res) => {
+  router.get(`/bulk-intake/:id/photos/:photoId/${which}`, acceptImagePass(isAuthenticated), safe(async (req: any, res) => {
     const userId = getUserId(req);
     if (!userId) return res.status(401).end();
     const intake = await getIntake(req.params.id, userId);

@@ -15,6 +15,7 @@ import {
   SheetDescription,
   SheetFooter,
 } from "@/components/ui/sheet";
+import { apiFetch } from "@/lib/platform";
 
 interface AdvancedFilterPanelProps {
   filters: FiltersState;
@@ -128,7 +129,7 @@ export function AdvancedFilterSheet({ open, onOpenChange, filters, dispatch, use
       const params = new URLSearchParams(filterParams);
       if (scope) params.set('scope', scope);
       if (cookbookId) params.set('cookbookId', String(cookbookId));
-      const res = await fetch(`/api/recipes/filter-counts?${params}`);
+      const res = await apiFetch(`/api/recipes/filter-counts?${params}`);
       if (!res.ok) return {};
       return res.json();
     },

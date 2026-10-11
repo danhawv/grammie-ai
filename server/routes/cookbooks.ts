@@ -3,6 +3,7 @@ import { Router } from "express";
 import { parseFiltersFromQuery } from "./filter-parser";
 import { z } from "zod";
 import { isAuthenticated, optionalAuth } from "../clerkAuth";
+import { acceptImagePass } from "../lib/image-pass";
 import { storage } from "../storage";
 import { db } from "../db";
 import { eq, and, inArray, isNotNull, getTableColumns, sql } from "drizzle-orm";
@@ -389,7 +390,7 @@ router.get("/cookbooks/:id/recipes/print", optionalAuth, async (req: any, res) =
 });
 
 // A small copy of a recipe's original handwritten card, for the print preview
-router.get("/cookbooks/:id/original-cards/:recipeId", optionalAuth, async (req: any, res) => {
+router.get("/cookbooks/:id/original-cards/:recipeId", acceptImagePass(optionalAuth), async (req: any, res) => {
   try {
     const userId = getUserId(req);
     const cookbook = await storage.getCookbook(Number(req.params.id), userId);

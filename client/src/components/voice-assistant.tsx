@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Mic, MicOff, Phone, PhoneOff, Volume2, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { apiRequest } from '@/lib/queryClient';
+import { publicUrl } from "@/lib/platform";
 
 interface VoiceSession {
   token: string;
@@ -98,7 +99,7 @@ export function VoiceAssistant({
       let contextParts = [
         `User: ${session.userContext.name}`,
         `Session Token: ${session.token} (use this for API calls to perform actions)`,
-        `Webhook Base URL: ${window.location.origin}/api/voice`,
+        `Webhook Base URL: ${publicUrl("/api/voice")}`,
       ];
 
       if (prefs.allergies?.length) {

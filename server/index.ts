@@ -68,24 +68,32 @@ app.use(compression());
 // Uploaded media (when MEDIA_STORAGE=disk); immutable content-hashed filenames
 app.use('/media', express.static(MEDIA_DIR, { maxAge: '365d', immutable: true }));
 
-// CORS for production
-if (process.env.NODE_ENV === 'production' && process.env.PUBLIC_URL) {
-  app.use((req, res, next) => {
-    const origin = req.headers.origin;
-    const allowed = process.env.PUBLIC_URL!;
-    if (origin && (origin === allowed || origin.endsWith('.railway.app'))) {
-      res.setHeader('Access-Control-Allow-Origin', origin);
-      res.setHeader('Access-Control-Allow-Credentials', 'true');
-      res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
-    }
-    if (req.method === 'OPTIONS') {
-      res.sendStatus(204);
-      return;
-    }
-    next();
-  });
-}
+// CORS. The iPhone/iPad app (Capacitor) serves its pages from
+// capacitor://localhost (https://localhost on Android) and calls this server
+// cross-site with a bearer token, so those origins are always allowed. In
+// production the public site and Railway preview hosts are allowed as before.
+const APP_ORIGINS = ['capacitor://localhost', 'https://localhost'];
+const corsInProduction = process.env.NODE_ENV === 'production' && !!process.env.PUBLIC_URL;
+
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  const fromApp = !!origin && APP_ORIGINS.includes(origin);
+  const fromSite = corsInProduction && !!origin && (origin === process.env.PUBLIC_URL || origin.endsWith('.railway.app'));
+  if (fromApp || fromSite) {
+    res.setHeader('Access-Control-Allow-Origin', origin!);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+    res.setHeader('Vary', 'Origin');
+  }
+  // Production answered every preflight here before; in development only the
+  // app's preflights are answered (other requests carry on as they did)
+  if (req.method === 'OPTIONS' && (corsInProduction || fromApp)) {
+    res.sendStatus(204);
+    return;
+  }
+  next();
+});
 
 // Health check endpoint (before auth middleware)
 app.get('/health', (_req, res) => {

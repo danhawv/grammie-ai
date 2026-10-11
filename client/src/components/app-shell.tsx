@@ -32,7 +32,7 @@ const ME = { href: "/settings", label: "Me", icon: CircleUser, match: (p: string
 const BARE = [/^\/login/, /^\/grocery-list\/shared\//, /^\/prep\/cook\//, /^\/meal-prep\/[^/]+\/(packet|cook)/];
 
 export function AppShell() {
-  const [location] = useLocation();
+  const [location, setLocation] = useLocation();
   const { user } = useAuth();
   const { openAddRecipe } = useAddRecipe();
   const bare = BARE.some((r) => r.test(location));
@@ -104,7 +104,7 @@ export function AppShell() {
           ))}
           <button
             type="button"
-            onClick={() => (user ? openAddRecipe() : (window.location.href = "/login"))}
+            onClick={() => (user ? openAddRecipe() : setLocation("/login"))}
             className="flex flex-col items-center justify-center gap-1 text-xs font-medium text-primary"
             aria-label="Add recipe"
             data-testid="tab-add-recipe"

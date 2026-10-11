@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 import { countJobs, jobBreakdown, jobPercent, type JobState } from "@/lib/job-summary";
+import { mediaUrl } from "@/lib/platform";
 
 export type { JobState } from "@/lib/job-summary";
 
@@ -66,7 +67,7 @@ export function JobStatusRow({ item }: { item: JobItem }) {
     >
       <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-md bg-muted">
         {item.thumbnail ? (
-          <img src={item.thumbnail} alt="" className="h-full w-full object-cover" />
+          <img src={mediaUrl(item.thumbnail)} alt="" className="h-full w-full object-cover" />
         ) : (
           <ImageIcon className="h-5 w-5 text-muted-foreground" aria-hidden />
         )}

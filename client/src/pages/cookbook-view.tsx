@@ -60,6 +60,7 @@ function loadListState(id: number): { filters: FiltersState; sortBy: string } {
 }
 import type { CookbookPrintProject } from "@shared/schema";
 import grammieImage from "@assets/image_1763329917086.png";
+import { apiFetch, mediaUrl, publicUrl } from "@/lib/platform";
 
 interface CookbookWithOwner {
   id: number;
@@ -111,7 +112,7 @@ export default function CookbookViewPage() {
       const formData = new FormData();
       formData.append("image", await downscaleImage(file), file.name.replace(/\.\w+$/, "") + ".jpg");
 
-      const response = await fetch(`/api/cookbooks/${cookbookId}/cover-image`, {
+      const response = await apiFetch(`/api/cookbooks/${cookbookId}/cover-image`, {
         method: "POST",
         body: formData,
         credentials: "include",
@@ -158,7 +159,7 @@ export default function CookbookViewPage() {
   const { data: cookbook, isLoading: cookbookLoading, error: cookbookError, refetch } = useQuery<CookbookWithOwner>({
     queryKey: ["/api/cookbooks", cookbookId],
     queryFn: async () => {
-      const response = await fetch(`/api/cookbooks/${cookbookId}`, { credentials: "include" });
+      const response = await apiFetch(`/api/cookbooks/${cookbookId}`, { credentials: "include" });
       if (!response.ok) {
         if (response.status === 404) throw new Error("This cookbook doesn't exist, or it's private.");
         throw new Error("Check your connection and try again.");
@@ -213,7 +214,7 @@ export default function CookbookViewPage() {
     queryKey: ["/api/cookbooks", cookbookId, "recipes", listParams],
     queryFn: async ({ pageParam = 1 }) => {
       const qs = new URLSearchParams({ ...listParams, page: String(pageParam), limit: "24" });
-      const response = await fetch(`/api/cookbooks/${cookbookId}/recipes?${qs}`, {
+      const response = await apiFetch(`/api/cookbooks/${cookbookId}/recipes?${qs}`, {
         credentials: "include",
       });
       if (!response.ok) throw new Error("Failed to load recipes");
@@ -232,7 +233,7 @@ export default function CookbookViewPage() {
   const { data: fullCount } = useQuery<number>({
     queryKey: ["/api/cookbooks", cookbookId, "recipes", "count"],
     queryFn: async () => {
-      const response = await fetch(`/api/cookbooks/${cookbookId}/recipes?page=1&limit=1`, { credentials: "include" });
+      const response = await apiFetch(`/api/cookbooks/${cookbookId}/recipes?page=1&limit=1`, { credentials: "include" });
       if (!response.ok) throw new Error("Failed to count recipes");
       return (await response.json()).total as number;
     },
@@ -283,7 +284,7 @@ export default function CookbookViewPage() {
   });
 
   const handleShare = async () => {
-    const url = `${window.location.origin}/cookbook/${cookbookId}`;
+    const url = publicUrl(`/cookbook/${cookbookId}`);
     try {
       if (navigator.share && /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent)) {
         await navigator.share({ title: cookbook?.name, url });
@@ -340,7 +341,7 @@ export default function CookbookViewPage() {
   const coverImage = (
     <div className="relative flex h-20 w-16 shrink-0 items-center justify-center overflow-hidden rounded-md bg-primary/10 sm:h-24 sm:w-20">
       {cookbook.coverImage ? (
-        <img src={cookbook.coverImage} alt="" className="h-full w-full object-cover" />
+        <img src={mediaUrl(cookbook.coverImage)} alt="" className="h-full w-full object-cover" />
       ) : (
         <BookOpen className="h-8 w-8 text-primary" aria-hidden />
       )}
@@ -390,7 +391,7 @@ export default function CookbookViewPage() {
         data-testid="link-cookbook-owner"
       >
         <Avatar className="h-7 w-7">
-          <AvatarImage src={cookbook.owner?.avatar || undefined} alt="" />
+          <AvatarImage src={mediaUrl(cookbook.owner?.avatar)} alt="" />
           <AvatarFallback className="text-xs">{initials || <BookOpen className="h-4 w-4" aria-hidden />}</AvatarFallback>
         </Avatar>
         <span>by {ownerName}</span>
@@ -585,7 +586,7 @@ export default function CookbookViewPage() {
                   <div className="relative aspect-[4/3] bg-muted">
                     {recipe.dishImageThumbnail && !recipe.dishImageThumbnail.startsWith("data:image/svg") ? (
                       <img
-                        src={recipe.dishImageThumbnail}
+                        src={mediaUrl(recipe.dishImageThumbnail)}
                         alt=""
                         loading="lazy"
                         className="absolute inset-0 h-full w-full object-cover"

@@ -7,6 +7,7 @@ import { users } from "@shared/schema";
 import { eq, sql } from "drizzle-orm";
 import { userPreferencesUpdateSchema, buildPreferencesPatch } from "@shared/food-profile";
 import { getUserId } from "./route-utils";
+import { createImagePass } from "../lib/image-pass";
 
 const router = Router();
 
@@ -39,6 +40,17 @@ router.get("/users/:userId/profile", async (req: any, res) => {
 // ============================================================================
 // USER PREFERENCES ROUTES
 // ============================================================================
+
+// A short-lived pass for loading the signed-in person's private pictures in
+// <img> tags where the sign-in cookie can't go (the iPhone/iPad app)
+router.get("/image-pass", isAuthenticated, (req: any, res) => {
+  const userId = getUserId(req);
+  if (!userId) return res.status(401).json({ error: "Unauthorized" });
+  const pass = createImagePass(userId);
+  if (!pass) return res.status(503).json({ error: "Image passes aren't set up on this server" });
+  res.setHeader("Cache-Control", "no-store");
+  res.json(pass);
+});
 
 // Get user preferences
 router.get("/user/preferences", isAuthenticated, async (req: any, res) => {

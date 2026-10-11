@@ -9,6 +9,7 @@ import {
   retryImport,
   uploadBatchPhoto,
 } from "@/lib/import-api";
+import { apiFetch } from "@/lib/platform";
 
 // Tracks recipe imports in the background (docs/DESIGN_PRINCIPLES.md §6.9):
 // each item moves Sending… → Reading… → Needs a look → Saved, or fails with a
@@ -183,7 +184,7 @@ export function UploadProgressProvider({ children }: { children: ReactNode }) {
     enabled: readingIds.length > 0,
     refetchInterval: 3000,
     queryFn: async () => {
-      const res = await fetch(`/api/recipe-imports/status?ids=${encodeURIComponent(readingIds.join(","))}`, { credentials: "include" });
+      const res = await apiFetch(`/api/recipe-imports/status?ids=${encodeURIComponent(readingIds.join(","))}`, { credentials: "include" });
       if (!res.ok) return null;
       const data = (await res.json()) as { items: Array<{ recipeId: string; title: string; status: ImportStatus; error: string | null }> };
       let changed = false;
@@ -208,7 +209,7 @@ export function UploadProgressProvider({ children }: { children: ReactNode }) {
     staleTime: 60_000,
     refetchInterval: 5 * 60_000,
     queryFn: async () => {
-      const res = await fetch("/api/recipe-imports/pending", { credentials: "include" });
+      const res = await apiFetch("/api/recipe-imports/pending", { credentials: "include" });
       if (!res.ok) return null;
       return (await res.json()) as {
         tracking: boolean;

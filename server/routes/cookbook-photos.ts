@@ -2,6 +2,7 @@ import { Router } from "express";
 import sharp from "sharp";
 import { and, count, eq } from "drizzle-orm";
 import { isAuthenticated } from "../clerkAuth";
+import { acceptImagePass } from "../lib/image-pass";
 import { storage } from "../storage";
 import { db } from "../db";
 import { cookbookPhotos } from "@shared/schema";
@@ -91,7 +92,7 @@ router.get("/cookbooks/:id/photos", isAuthenticated, async (req: any, res) => {
 });
 
 // Serves a photo as an image (thumbnail by default, ?size=full for print copy)
-router.get("/cookbook-photos/:photoId", isAuthenticated, async (req: any, res) => {
+router.get("/cookbook-photos/:photoId", acceptImagePass(isAuthenticated), async (req: any, res) => {
   try {
     const userId = getUserId(req);
     if (!userId) return res.status(401).json({ error: "Unauthorized" });

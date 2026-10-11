@@ -19,6 +19,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { printPage } from "@/lib/platform";
 
 // The recipe page's "…" menu: everything that isn't cooking from the recipe.
 
@@ -84,7 +85,7 @@ export function RecipeActionsMenu({
           <Share2 aria-hidden />
           Share
         </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => window.print()} className={ITEM} data-testid="menu-print-recipe">
+        <DropdownMenuItem onClick={() => void printPage()} className={ITEM} data-testid="menu-print-recipe">
           <Printer aria-hidden />
           Print recipe
         </DropdownMenuItem>

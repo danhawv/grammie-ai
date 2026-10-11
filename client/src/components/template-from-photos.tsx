@@ -6,6 +6,7 @@ import { Camera, ImagePlus, Loader2, Wand2, X } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { CustomTemplate } from "@shared/schema";
+import { mediaUrl } from "@/lib/platform";
 
 // "Create from cookbook photos": take or upload 1-5 photos of a cookbook page
 // or recipe card, and the AI builds a custom template matching its colors,
@@ -99,7 +100,7 @@ export function TemplateFromPhotos({ onCreated }: { onCreated: (t: CustomTemplat
           <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
             {photos.map((p, i) => (
               <div key={p.url} className="relative aspect-[3/4] rounded-md overflow-hidden border bg-muted">
-                <img src={p.url} alt={`Photo ${i + 1}`} className="w-full h-full object-cover" />
+                <img src={mediaUrl(p.url)} alt={`Photo ${i + 1}`} className="w-full h-full object-cover" />
                 <button
                   className="absolute top-1 right-1 rounded-full bg-black/60 p-0.5 text-white"
                   onClick={() => {

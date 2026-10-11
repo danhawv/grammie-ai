@@ -16,6 +16,7 @@ import { describePlate, eatingDate, formatDay, formatMinutes, formatServings, pl
 import { cn } from "@/lib/utils";
 import { photoOf, titleFor, useOwnerRecipes } from "./cook-data";
 import { DishPhoto, PersonWeek, usePlanNames } from "./plan-bits";
+import { publicUrl, isNativeApp, openExternal } from "@/lib/platform";
 
 // After approval: what to buy (by aisle, with Instacart when it's set up),
 // what to check in the pantry, what to do the day before, how to hand the
@@ -130,12 +131,25 @@ function ShoppingTab({ record }: { record: PrepPlanView }) {
         setInstacartOff(true);
         try { sessionStorage.setItem(INSTACART_OFF, "1"); } catch { /* fine */ }
         toast({ title: "Instacart ordering isn't available yet", description: "Use the list below at the store." });
-        return;
       }
-      window.open(res.url, "_blank", "noopener");
     },
     onError: (err) => toast({ title: "Couldn't reach Instacart", description: errorText(err, "Try again in a moment, or shop from the list below."), variant: "destructive" }),
   });
+  // Browsers block a new tab opened after waiting on the server, so in a
+  // browser the tab opens on the tap and goes to Instacart once the link is
+  // ready. The app opens Instacart in its own browser sheet instead.
+  const orderOnInstacart = () => {
+    const tab = isNativeApp() ? null : window.open("", "_blank");
+    if (tab) tab.opener = null;
+    instacart.mutate(undefined, {
+      onSuccess: (res) => {
+        if (!res) tab?.close();
+        else if (tab) tab.location.href = res.url;
+        else void openExternal(res.url);
+      },
+      onError: () => tab?.close(),
+    });
+  };
   const shopping = record.shopping;
   if (!shopping) return <p className="text-base">The shopping list isn't ready yet.</p>;
   const toBuy = shopping.byAisle.map((a) => ({ ...a, items: a.items.filter((i) => !i.have) })).filter((a) => a.items.length);
@@ -150,7 +164,7 @@ function ShoppingTab({ record }: { record: PrepPlanView }) {
           {got} of {total} in the cart{shopping.estimatedCost != null && ` · about $${Math.round(shopping.estimatedCost)}`}
         </p>
         {!instacartOff && (
-          <Button variant="outline" onClick={() => instacart.mutate()} disabled={instacart.isPending}>
+          <Button variant="outline" onClick={orderOnInstacart} disabled={instacart.isPending}>
             {instacart.isPending ? <Loader2 className="motion-safe:animate-spin" aria-hidden /> : <ExternalLink aria-hidden />}
             Order on Instacart
           </Button>
@@ -276,7 +290,7 @@ function CookShareTab({ record, finished }: { record: PrepPlanView; finished: bo
   const ensureLink = async () => {
     if (link) return link;
     const res = await share.mutateAsync();
-    const url = `${window.location.origin}${res.path || cookPath(res.token)}`;
+    const url = publicUrl(res.path || cookPath(res.token));
     setLink(url);
     return url;
   };

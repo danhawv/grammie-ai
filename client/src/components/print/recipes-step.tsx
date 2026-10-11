@@ -41,6 +41,7 @@ import {
 import { OrganizeByCourse } from "@/components/organize-by-course";
 import { cn } from "@/lib/utils";
 import type { RecipeSummary, Section } from "./types";
+import { mediaUrl } from "@/lib/platform";
 
 // Step 1: which recipes go in the book, and in which chapters. Drag to
 // reorder, or use each recipe's menu (Move up/down, Move to chapter) — every
@@ -58,7 +59,7 @@ interface RecipesStepProps {
 
 function Thumb({ recipe, size = "h-12 w-12" }: { recipe: RecipeSummary; size?: string }) {
   return recipe.dishImageThumbnail ? (
-    <img src={recipe.dishImageThumbnail} alt="" className={cn(size, "shrink-0 rounded object-cover")} />
+    <img src={mediaUrl(recipe.dishImageThumbnail)} alt="" className={cn(size, "shrink-0 rounded object-cover")} />
   ) : (
     <div className={cn(size, "flex shrink-0 items-center justify-center rounded bg-muted")}>
       <BookOpen className="h-5 w-5 text-muted-foreground" aria-hidden />

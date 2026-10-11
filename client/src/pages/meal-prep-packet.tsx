@@ -22,6 +22,7 @@ import {
 } from "@/lib/meal-prep-format";
 import { cn } from "@/lib/utils";
 import { useCookData, useCookSource } from "./meal-prep-cook";
+import { printPage } from "@/lib/platform";
 
 // The printable cook packet: overview, shopping list, mise en place, the
 // timeline, a card per dish (with the written recipe), the portion plan,
@@ -68,7 +69,7 @@ export default function MealPrepPacketPage() {
               {LABEL_LAYOUTS.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
             </select>
           </div>
-          <Button className="print-button ml-auto" onClick={() => window.print()}><Printer aria-hidden /> Print</Button>
+          <Button className="print-button ml-auto" onClick={() => void printPage()}><Printer aria-hidden /> Print</Button>
         </div>
       </div>
       <Packet data={query.data} layout={layout} owner={source.kind === "owner"} />

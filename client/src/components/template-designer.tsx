@@ -33,6 +33,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { GoogleFontsPicker } from "./google-fonts-picker";
+import { apiFetch, mediaUrl } from "@/lib/platform";
 
 // ============================================================================
 // Types
@@ -317,7 +318,7 @@ export function TemplateDesigner({ open, onOpenChange, editingTemplate, onSaved 
     const formData = new FormData();
     formData.append("image", file);
     try {
-      const res = await fetch("/api/templates/upload-background", {
+      const res = await apiFetch("/api/templates/upload-background", {
         method: "POST",
         body: formData,
         credentials: "include",
@@ -340,7 +341,7 @@ export function TemplateDesigner({ open, onOpenChange, editingTemplate, onSaved 
     const formData = new FormData();
     formData.append("image", file);
     try {
-      const res = await fetch("/api/templates/upload-background", {
+      const res = await apiFetch("/api/templates/upload-background", {
         method: "POST",
         body: formData,
         credentials: "include",
@@ -364,7 +365,7 @@ export function TemplateDesigner({ open, onOpenChange, editingTemplate, onSaved 
     formData.append("font", file);
     setUploadingFont(true);
     try {
-      const res = await fetch("/api/templates/upload-font", {
+      const res = await apiFetch("/api/templates/upload-font", {
         method: "POST",
         body: formData,
         credentials: "include",
@@ -692,7 +693,7 @@ export function TemplateDesigner({ open, onOpenChange, editingTemplate, onSaved 
                           {backgroundImage ? (
                             <div className="relative">
                               <img
-                                src={backgroundImage}
+                                src={mediaUrl(backgroundImage)}
                                 alt="Background"
                                 className="w-full h-24 object-cover rounded border"
                               />
@@ -794,7 +795,7 @@ export function TemplateDesigner({ open, onOpenChange, editingTemplate, onSaved 
                       <div className="mt-1 space-y-2">
                         <div className="relative rounded-md overflow-hidden border" style={{ height: 120 }}>
                           <img
-                            src={templateData.cover.coverImage}
+                            src={mediaUrl(templateData.cover.coverImage)}
                             alt="Cover"
                             className="w-full h-full object-cover"
                           />
@@ -889,7 +890,7 @@ function TemplatePreview({ templateData, backgroundImage }: { templateData: Temp
         {templateData.cover?.coverImage && (
           <>
             <img
-              src={templateData.cover.coverImage}
+              src={mediaUrl(templateData.cover.coverImage)}
               alt=""
               style={{
                 position: "absolute",
@@ -968,7 +969,7 @@ function TemplatePreview({ templateData, backgroundImage }: { templateData: Temp
             style={{
               position: "absolute",
               inset: 0,
-              backgroundImage: `url('${backgroundImage}')`,
+              backgroundImage: `url('${mediaUrl(backgroundImage)}')`,
               backgroundSize: "cover",
               opacity: background?.opacity ?? 0.15,
               pointerEvents: "none",

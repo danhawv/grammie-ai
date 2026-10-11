@@ -13,6 +13,7 @@ import {
 import { User, LogOut, Settings } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { UserButton, Show, SignInButton } from "@clerk/react";
+import { mediaUrl } from "@/lib/platform";
 
 const CLERK_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 
@@ -82,7 +83,7 @@ function LegacyUserHeader() {
           data-testid="button-user-menu"
         >
           <Avatar className="h-8 w-8">
-            <AvatarImage src={user?.avatar || undefined} alt={user?.username || user?.email || "User"} />
+            <AvatarImage src={mediaUrl(user?.avatar)} alt={user?.username || user?.email || "User"} />
             <AvatarFallback>{initials}</AvatarFallback>
           </Avatar>
         </Button>
