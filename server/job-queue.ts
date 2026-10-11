@@ -641,11 +641,27 @@ class JobQueue {
         skillLevel: recipe.skillLevel || undefined,
       } : undefined;
 
+      // With Gemini, draw from the whole recipe (ingredients and finishing
+      // steps): in a blind test of 20 family recipes it matched the dish
+      // better in 16, worse in 1, at the same speed and cost. It fixed
+      // vague names ("Liar's Soup", "Quick Bread", "Party Crunch Mix") that
+      // the title-only prompt pictured as something else.
+      const provider = getCurrentProvider();
+      if (provider === "gemini" && recipe?.title && recipe.ingredients?.length) {
+        const { buildFullRecipePhotoPrompt, generateDishPhoto } = await import("./lib/dish-photo");
+        const imagePrompt = buildFullRecipePhotoPrompt(recipe);
+        const imageGenStart = Date.now();
+        const photo = await this.withTimeout(generateDishPhoto(imagePrompt), this.IMAGE_JOB_TIMEOUT_MS, 'Image generation');
+        console.log(`[Timing] Phase 3 image generation: ${Date.now() - imageGenStart}ms (${photo.model}, full recipe)`);
+        const [, mimeType, base64] = photo.dataUrl.match(/^data:([^;]+);base64,(.+)$/)!;
+        await saveDishImage(job.recipeId, Buffer.from(base64, "base64"), mimeType, imagePrompt);
+        return;
+      }
+
       // Build and store the prompt for future editing
       const imagePrompt = buildImagePrompt(job.recipeName, job.ingredients, recipeContext);
 
       // Wrap image generation in timeout - use unified AI service
-      const provider = getCurrentProvider();
       console.log(`[Job Queue] Generating image using ${provider.toUpperCase()}`);
       
       const imageGenStart = Date.now();

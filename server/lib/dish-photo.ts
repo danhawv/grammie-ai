@@ -46,6 +46,7 @@ export function buildFullRecipePhotoPrompt(recipe: PromptRecipe): string {
     "",
     "Show the dish's real colour, texture and form as these ingredients and steps would produce it (for example a smooth cream soup stays smooth and pale; a casserole is shown baked in its dish).",
     "Only show ingredients and garnishes from the recipe. Do not add herbs, nuts, sauces or sides it doesn't mention.",
+    "Make this dish the clear subject. Leave out other dishes it only \"pairs well with\"; show an accompaniment only if the recipe says to serve it with one.",
     "Home-style plating on appropriate dinnerware, on a rustic wooden table with soft natural window light, shallow depth of field, warm appetizing colours. Photorealistic. No text, labels, hands, raw ingredients or cooking process.",
   );
   return lines.join("\n");
