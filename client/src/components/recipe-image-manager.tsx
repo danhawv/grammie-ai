@@ -206,6 +206,22 @@ export function RecipeImageManager({
     },
   });
 
+  // A new photo from the whole recipe (ingredients and finishing steps)
+  const remakeMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest('POST', `/api/recipes/${recipeId}/remake-photo`, {});
+      return res.json();
+    },
+    onSuccess: (data) => {
+      toast({ title: "New photo made from the full recipe" });
+      queryClient.invalidateQueries({ queryKey: ['/api/recipes', recipeId] });
+      onImagesChange?.(data.dishImages);
+    },
+    onError: (error: any) => {
+      toast({ title: "The photo couldn't be made", description: error.message, variant: "destructive" });
+    },
+  });
+
   const deleteMutation = useMutation({
     mutationFn: async (imageId: string) => {
       const res = await apiRequest('DELETE', `/api/recipes/${recipeId}/images/${imageId}`);
@@ -336,7 +352,7 @@ export function RecipeImageManager({
           <DialogHeader>
             <DialogTitle>Manage Recipe Images</DialogTitle>
             <DialogDescription className="text-sm">
-              Upload your own photos or generate AI images. Maximum 5 images per recipe.
+              Upload your own photo, or have Grammie remake the photo from the full recipe (ingredients and steps). Earlier photos are kept here, up to 5.
             </DialogDescription>
           </DialogHeader>
           
@@ -368,14 +384,29 @@ export function RecipeImageManager({
                 </Button>
                 
                 <Button
+                  size="sm"
+                  onClick={() => remakeMutation.mutate()}
+                  disabled={remakeMutation.isPending}
+                  className="gap-2"
+                  data-testid="button-remake-from-recipe"
+                >
+                  {remakeMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Wand2 className="h-4 w-4" />
+                  )}
+                  {remakeMutation.isPending ? "Making…" : "Remake from recipe"}
+                </Button>
+
+                <Button
                   variant="outline"
                   size="sm"
                   onClick={handleOpenPromptDialog}
                   className="gap-2"
                   data-testid="button-generate-ai-image"
                 >
-                  <Wand2 className="h-4 w-4" />
-                  Generate AI Image
+                  <Sparkles className="h-4 w-4" />
+                  Describe it yourself
                 </Button>
               </div>
               

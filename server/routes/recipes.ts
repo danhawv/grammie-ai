@@ -1350,6 +1350,56 @@ router.post("/recipes/:id/regenerate-image", isAuthenticated, async (req: any, r
   }
 });
 
+// The recipe's photos as a list, counting a photo from before photo lists existed
+async function photoList(recipe: any) {
+  const images = recipe.dishImages || [];
+  if (images.length > 0 || !recipe.dishImage || recipe.dishImage.startsWith('data:image/svg')) return images;
+  const { randomUUID } = await import("crypto");
+  return [{
+    id: randomUUID(),
+    url: recipe.dishImage,
+    thumbnailUrl: recipe.dishImageThumbnail || undefined,
+    isAiGenerated: true,
+    order: 0,
+    createdAt: new Date().toISOString(),
+  }];
+}
+
+// Makes a photo from a prompt and puts it first; earlier photos are kept so
+// the owner can switch back in Manage Images
+async function makePrimaryPhoto(recipe: any, prompt: string, userId: string) {
+  const { generateDishPhoto, withNewPrimaryPhoto } = await import("../lib/dish-photo");
+  const { generateThumbnail: genThumb } = await import("../thumbnail");
+  const { randomUUID } = await import("crypto");
+
+  const photo = await generateDishPhoto(prompt);
+  let thumbnail: string | null = null;
+  try {
+    thumbnail = await genThumb(photo.dataUrl, 256);
+  } catch (e) {
+    console.error("Failed to generate thumbnail:", e);
+  }
+  const newImage = {
+    id: randomUUID(),
+    url: photo.dataUrl,
+    thumbnailUrl: thumbnail || undefined,
+    isAiGenerated: true,
+    order: 0,
+    createdAt: new Date().toISOString(),
+  };
+  const dishImages = withNewPrimaryPhoto(await photoList(recipe), newImage);
+  await storage.updateRecipe(recipe.id, {
+    dishImage: photo.dataUrl,
+    dishImageThumbnail: thumbnail,
+    imagePrompt: prompt,
+    dishImages,
+    imageGenerationStatus: 'ready',
+    imageGenerationError: null,
+  }, userId);
+  console.log(`[Photo] New photo for recipe ${recipe.id} (${photo.model})`);
+  return { image: newImage, dishImages };
+}
+
 // Get the image prompt for a recipe (for editing before regeneration)
 router.get("/recipes/:id/image-prompt", isAuthenticated, async (req: any, res) => {
   try {
@@ -1366,22 +1416,13 @@ router.get("/recipes/:id/image-prompt", isAuthenticated, async (req: any, res) =
       return res.status(403).json({ error: "Only the recipe owner can view the image prompt" });
     }
 
-    // If no stored prompt, generate one from recipe context
-    let prompt = recipe.imagePrompt;
-    if (!prompt && recipe.title && recipe.ingredients) {
-      const { buildImagePrompt } = await import("../openai");
-      const ingredientNames = recipe.ingredients.map((ing: any) => ing.item || ing.name || '');
-      prompt = buildImagePrompt(recipe.title, ingredientNames, {
-        instructions: recipe.instructions,
-        cookingMethods: recipe.cookingMethods || undefined,
-        cuisines: recipe.cuisines || undefined,
-        mealType: recipe.mealType || undefined,
-        skillLevel: recipe.skillLevel || undefined,
-      });
-    }
+    // Start from the full-recipe prompt (ingredients and finishing steps),
+    // which matches the dish more closely than the one made at import
+    const { buildFullRecipePhotoPrompt } = await import("../lib/dish-photo");
+    const prompt = recipe.title ? buildFullRecipePhotoPrompt(recipe) : (recipe.imagePrompt || '');
 
     res.json({
-      prompt: prompt || '',
+      prompt,
       dishImages: recipe.dishImages || [],
       currentImage: recipe.dishImage || null,
     });
@@ -1391,11 +1432,39 @@ router.get("/recipes/:id/image-prompt", isAuthenticated, async (req: any, res) =
   }
 });
 
+// Remake the dish photo from the whole recipe: ingredients with amounts and
+// how it's finished, with the best photo model. For when a photo (often a
+// cheaper bulk-import one) doesn't look like the family's dish.
+router.post("/recipes/:id/remake-photo", isAuthenticated, async (req: any, res) => {
+  try {
+    const { id } = req.params;
+    const userId = getUserId(req);
+
+    const recipe = await storage.getRecipe(id, userId);
+    if (!recipe) {
+      return res.status(404).json({ error: "Recipe not found" });
+    }
+    if (recipe.ownerUserId !== userId) {
+      return res.status(403).json({ error: "Only the recipe owner can change its photo" });
+    }
+    if (!recipe.title || !recipe.ingredients?.length) {
+      return res.status(400).json({ error: "This recipe needs a name and ingredients before Grammie can picture it." });
+    }
+
+    const { buildFullRecipePhotoPrompt } = await import("../lib/dish-photo");
+    const result = await makePrimaryPhoto(recipe, buildFullRecipePhotoPrompt(recipe), userId);
+    res.json({ success: true, ...result });
+  } catch (error) {
+    console.error("Error remaking photo:", error);
+    res.status(500).json({ error: "The new photo couldn't be made. Please try again in a minute." });
+  }
+});
+
 // Regenerate image with custom prompt
 router.post("/recipes/:id/regenerate-image-custom", isAuthenticated, async (req: any, res) => {
   try {
     const { id } = req.params;
-    const { prompt, replaceExisting = false } = req.body;
+    const { prompt } = req.body;
     const userId = getUserId(req);
 
     if (!prompt || typeof prompt !== 'string') {
@@ -1411,81 +1480,8 @@ router.post("/recipes/:id/regenerate-image-custom", isAuthenticated, async (req:
       return res.status(403).json({ error: "Only the recipe owner can regenerate images" });
     }
 
-    // Build existing images array - include legacy dishImage if dishImages array is empty
-    let existingImages = recipe.dishImages || [];
-    if (existingImages.length === 0 && recipe.dishImage && !recipe.dishImage.startsWith('data:image/svg')) {
-      // Migrate legacy dishImage to dishImages array
-      const { randomUUID } = await import("crypto");
-      existingImages = [{
-        id: randomUUID(),
-        url: recipe.dishImage,
-        thumbnailUrl: recipe.dishImageThumbnail || undefined,
-        isAiGenerated: true,
-        order: 0,
-        createdAt: new Date().toISOString(),
-      }];
-    }
-
-    // Check image limit (max 3 images) if not replacing
-    if (!replaceExisting && existingImages.length >= 3) {
-      return res.status(400).json({ error: "Maximum 3 images allowed. Delete an existing image first." });
-    }
-
-    // Generate the image
-    const { generateDishImageWithCustomPrompt } = await import("../openai");
-    const { generateThumbnail: genThumb } = await import("../thumbnail");
-    const { randomUUID } = await import("crypto");
-
-    const { buffer } = await generateDishImageWithCustomPrompt(prompt);
-
-    const isSvg = buffer.toString("utf8").startsWith("<svg");
-    const dishImageDataUrl = isSvg
-      ? `data:image/svg+xml;base64,${buffer.toString("base64")}`
-      : `data:image/png;base64,${buffer.toString("base64")}`;
-
-    let thumbnailDataUrl: string | null = null;
-    if (!isSvg) {
-      try {
-        thumbnailDataUrl = await genThumb(dishImageDataUrl, 256);
-      } catch (e) {
-        console.error("Failed to generate thumbnail:", e);
-      }
-    }
-
-    // Create new image entry
-    const newImage = {
-      id: randomUUID(),
-      url: dishImageDataUrl,
-      thumbnailUrl: thumbnailDataUrl || undefined,
-      isAiGenerated: true,
-      order: 0,
-      createdAt: new Date().toISOString(),
-    };
-
-    // Update images array based on replaceExisting flag
-    let updatedImages;
-    if (replaceExisting) {
-      // Replace the first/primary image
-      updatedImages = [newImage, ...existingImages.slice(1).map((img: any, idx: number) => ({ ...img, order: idx + 1 }))];
-    } else {
-      // Add to the beginning
-      updatedImages = [newImage, ...existingImages.map((img: any, idx: number) => ({ ...img, order: idx + 1 }))].slice(0, 3);
-    }
-
-    // Update recipe
-    await storage.updateRecipe(id, {
-      dishImage: dishImageDataUrl,
-      dishImageThumbnail: thumbnailDataUrl,
-      imagePrompt: prompt,
-      dishImages: updatedImages,
-      imageGenerationStatus: 'ready',
-    }, userId);
-
-    res.json({
-      success: true,
-      image: newImage,
-      dishImages: updatedImages,
-    });
+    const result = await makePrimaryPhoto(recipe, prompt.slice(0, 4000), userId);
+    res.json({ success: true, ...result });
   } catch (error) {
     console.error("Error regenerating image with custom prompt:", error);
     res.status(500).json({ error: "Failed to regenerate image" });

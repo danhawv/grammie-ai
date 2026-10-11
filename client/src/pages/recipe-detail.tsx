@@ -196,6 +196,21 @@ export default function RecipeDetail() {
     },
   });
 
+  // A new photo drawn from the whole recipe; the old one stays in Manage Images
+  const remakePhotoMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("POST", `/api/recipes/${recipeId}/remake-photo`, {});
+      return await response.json();
+    },
+    onSuccess: () => {
+      toast({ title: "New photo made", description: "Made from the full recipe. Your earlier photo is still in Manage images if you prefer it." });
+      queryClient.invalidateQueries({ queryKey: ["/api/recipes", recipeId] });
+    },
+    onError: (err: Error) => {
+      toast({ title: "The photo couldn't be made", description: err.message || "Please try again in a minute.", variant: "destructive" });
+    },
+  });
+
   const addToGroceryListMutation = useMutation({
     mutationFn: async () => {
       if (!user) throw new Error("AUTH_REQUIRED");
@@ -381,7 +396,11 @@ export default function RecipeDetail() {
         <PageHeader className="mb-4" title={<span data-testid="text-recipe-title">{recipe.title}</span>} />
 
         <div className="space-y-4">
-          <RecipeHero recipe={recipe} />
+          <RecipeHero
+            recipe={recipe}
+            onRemakePhoto={isOwner ? () => remakePhotoMutation.mutate() : undefined}
+            remakingPhoto={remakePhotoMutation.isPending}
+          />
           <RecipeStatus
             recipe={recipe}
             onRetryEnrichment={() => retryEnrichmentMutation.mutate()}
