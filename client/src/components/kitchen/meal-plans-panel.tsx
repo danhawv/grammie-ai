@@ -11,6 +11,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { EmptyState, ErrorState, LoadingState } from "@/components/page-states";
 import { useToast } from "@/hooks/use-toast";
 import { useUndoable } from "@/hooks/use-undoable";
+import { MealPrepEntryCard } from "@/components/meal-prep/entry-card";
 import { useHiddenIds } from "./use-hidden-ids";
 
 export type MealPlanSummary = {
@@ -120,6 +121,8 @@ export function MealPlansPanel() {
 
   return (
     <div className="space-y-6">
+      <MealPrepEntryCard />
+      <h2 className="pt-2 text-xl font-semibold">Weekly meal plans</h2>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap gap-2" role="group" aria-label="Which plans to show">
           {(Object.keys(VIEW_LABELS) as View[]).map((v) => (
@@ -130,7 +133,7 @@ export function MealPlansPanel() {
         </div>
         {/* The empty state carries the main action when there's nothing yet */}
         {!(view === "active" && !isLoading && !isError && visible.length === 0) && (
-          <Button onClick={() => openCreate()} data-testid="button-new-meal-plan">
+          <Button variant="outline" onClick={() => openCreate()} data-testid="button-new-meal-plan">
             <Plus aria-hidden />
             New meal plan
           </Button>
@@ -150,9 +153,9 @@ export function MealPlansPanel() {
               ? "Open a meal plan and choose “Save as template” to reuse a week you liked."
               : view === "archived"
                 ? "Plans you archive show up here."
-                : "Plan the week's breakfasts, lunches and dinners from your recipes, then turn the whole week into one grocery list."
+                : "Prefer to choose every meal yourself? Lay out the week's breakfasts, lunches and dinners, then turn it into one grocery list."
           }
-          action={view === "active" ? <Button onClick={() => openCreate()}><Plus aria-hidden /> Plan this week</Button> : undefined}
+          action={view === "active" ? <Button variant="outline" onClick={() => openCreate()}><Plus aria-hidden /> Plan this week by hand</Button> : undefined}
         />
       ) : (
         <ul className="space-y-3">

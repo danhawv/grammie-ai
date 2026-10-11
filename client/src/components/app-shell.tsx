@@ -20,7 +20,7 @@ const NAV = [
     href: "/kitchen",
     label: "Kitchen",
     icon: ChefHat,
-    match: (p: string) => /^\/(kitchen|grocery-list|pantry|meal-plans|what-can-i-make)/.test(p),
+    match: (p: string) => /^\/(kitchen|grocery-list|pantry|meal-plans|meal-prep|what-can-i-make)/.test(p),
   },
   { href: "/cookbooks", label: "Cookbooks", icon: BookOpen, match: (p: string) => p.startsWith("/cookbook") },
 ] as const;
@@ -28,7 +28,7 @@ const NAV = [
 const ME = { href: "/settings", label: "Me", icon: CircleUser, match: (p: string) => /^\/(settings|profile)/.test(p) };
 
 /** Pages that render without the app chrome */
-const BARE = [/^\/login/, /^\/grocery-list\/shared\//];
+const BARE = [/^\/login/, /^\/grocery-list\/shared\//, /^\/prep\/cook\//, /^\/meal-prep\/[^/]+\/(packet|cook)/];
 
 export function AppShell() {
   const [location] = useLocation();

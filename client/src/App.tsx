@@ -39,6 +39,10 @@ const MealPlanDetail = lazy(() => import("@/pages/meal-plan-detail"));
 const RecipeCreator = lazy(() => import("@/pages/recipe-creator"));
 const PrintPolicy = lazy(() => import("@/pages/print-policy"));
 const BulkImport = lazy(() => import("@/pages/bulk-import"));
+const MealPrep = lazy(() => import("@/pages/meal-prep"));
+const MealPrepPlan = lazy(() => import("@/pages/meal-prep-plan"));
+const MealPrepCook = lazy(() => import("@/pages/meal-prep-cook"));
+const MealPrepPacket = lazy(() => import("@/pages/meal-prep-packet"));
 const NotFound = lazy(() => import("@/pages/not-found"));
 
 const CLERK_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string | undefined;
@@ -75,6 +79,12 @@ function Router() {
         <Route path="/cookbook/:id/print-editor" component={CookbookPrintEditor} />
         <Route path="/meal-plans" component={MealPlans} />
         <Route path="/meal-plans/:id" component={MealPlanDetail} />
+        <Route path="/meal-prep" component={MealPrep} />
+        <Route path="/meal-prep/:id/packet" component={MealPrepPacket} />
+        <Route path="/meal-prep/:id/cook" component={MealPrepCook} />
+        <Route path="/meal-prep/:id" component={MealPrepPlan} />
+        <Route path="/prep/cook/:token/packet" component={MealPrepPacket} />
+        <Route path="/prep/cook/:token" component={MealPrepCook} />
         <Route path="/processing" component={Processing} />
         <Route path="/import" component={BulkImport} />
         <Route path="/import/:id" component={BulkImport} />
