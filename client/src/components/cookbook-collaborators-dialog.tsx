@@ -10,6 +10,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { UserPlus, X, Loader2, Mail, Clock, Check, AlertCircle } from "lucide-react";
+import { mediaUrl } from "@/lib/platform";
 
 interface CookbookCollaboratorWithUser {
   id: number;
@@ -210,7 +211,7 @@ export function CookbookCollaboratorsDialog({
                   >
                     <div className="flex items-center gap-3">
                       <Avatar className="h-8 w-8">
-                        <AvatarImage src={collab.user.profileImageUrl || undefined} />
+                        <AvatarImage src={mediaUrl(collab.user.profileImageUrl)} />
                         <AvatarFallback className="text-xs">
                           {getUserInitials(collab.user)}
                         </AvatarFallback>

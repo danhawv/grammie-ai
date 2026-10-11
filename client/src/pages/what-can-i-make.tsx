@@ -9,6 +9,7 @@ import { PageHeader } from "@/components/page-header";
 import { EmptyState, ErrorState, LoadingState } from "@/components/page-states";
 import { useToast } from "@/hooks/use-toast";
 import grammieImage from "@assets/image_1763329917086.png";
+import { mediaUrl } from "@/lib/platform";
 
 // Recipes ranked by how much of each your pantry covers. Matching rules live
 // in shared/pantry-match.ts (server route: GET /api/recipes/what-can-i-make).
@@ -83,7 +84,7 @@ function SuggestionCard({ s }: { s: Suggestion }) {
         className="flex gap-4 p-4 hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         {s.recipe.image && !s.recipe.image.startsWith("data:image/svg") ? (
-          <img src={s.recipe.image} alt="" className="h-20 w-20 shrink-0 rounded-md object-cover sm:h-24 sm:w-24" loading="lazy" />
+          <img src={mediaUrl(s.recipe.image)} alt="" className="h-20 w-20 shrink-0 rounded-md object-cover sm:h-24 sm:w-24" loading="lazy" />
         ) : (
           <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-md bg-muted sm:h-24 sm:w-24">
             <img src={grammieImage} alt="" className="h-10 w-10 object-contain opacity-50" />

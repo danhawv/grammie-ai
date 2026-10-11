@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { RecipeImageCarousel } from "@/components/recipe-image-manager";
 import { isPlaceholderImage } from "./recipe-utils";
 import grammieImage from "@assets/image_1763329917086.png";
+import { mediaUrl } from "@/lib/platform";
 
 // The dish photo, kept short (about a third of the screen) so the title, key
 // numbers and "Start cooking" are visible on a phone without scrolling, plus
@@ -31,7 +32,7 @@ export function RecipeHero({
     if (!recipe.dishImage || recipe.dishImage === displayImage || isPlaceholderImage(recipe.dishImage)) return;
     let cancelled = false;
     const img = new Image();
-    img.src = recipe.dishImage;
+    img.src = mediaUrl(recipe.dishImage);
     img.onload = () => {
       if (!cancelled) setDisplayImage(recipe.dishImage);
     };

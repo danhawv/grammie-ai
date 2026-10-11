@@ -1,5 +1,6 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
 import { queryClient } from '@/lib/queryClient';
+import { socketUrl } from '@/lib/platform';
 import type { GroceryListItemsByAisle } from '@shared/schema';
 
 type GroceryListUpdateMessage = 
@@ -33,8 +34,7 @@ export function useGroceryWebSocket({
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
     
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws/grocery-list?token=${token}&name=${encodeURIComponent(displayName)}`;
+    const wsUrl = socketUrl(`/ws/grocery-list?token=${token}&name=${encodeURIComponent(displayName)}`);
     
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;

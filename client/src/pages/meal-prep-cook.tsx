@@ -131,7 +131,7 @@ export default function MealPrepCookPage() {
   };
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen supports-[height:100dvh]:min-h-dvh bg-background">
       <header className="sticky top-0 z-30 border-b bg-background/95 backdrop-blur" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
         <div className="mx-auto max-w-5xl space-y-2 px-4 py-2">
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1">

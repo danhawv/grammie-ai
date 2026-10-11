@@ -4,6 +4,10 @@ import path from "path";
 
 export default defineConfig({
   plugins: [react()],
+  define: {
+    // npm run build:app (the iPhone/iPad app) sets GRAMMIE_APP_BUILD=1
+    __APP_BUILD__: JSON.stringify(process.env.GRAMMIE_APP_BUILD === "1"),
+  },
   resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "client", "src"),

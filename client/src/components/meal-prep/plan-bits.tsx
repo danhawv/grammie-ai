@@ -16,6 +16,7 @@ import {
 } from "@/lib/meal-prep-format";
 import { cn } from "@/lib/utils";
 import { titleFor } from "./cook-data";
+import { mediaUrl } from "@/lib/platform";
 
 // Display pieces shared by the plan review, cook mode and the packet.
 
@@ -81,7 +82,7 @@ export function StorageBadge({ storage }: { storage: Plate["storage"] }) {
 
 export function DishPhoto({ src, className }: { src?: string | null; className?: string }) {
   if (src) {
-    return <img src={src} alt="" className={cn("rounded-md object-cover", className)} loading="lazy" />;
+    return <img src={mediaUrl(src)} alt="" className={cn("rounded-md object-cover", className)} loading="lazy" />;
   }
   return (
     <div className={cn("flex items-center justify-center rounded-md bg-secondary text-muted-foreground", className)} aria-hidden>

@@ -1,4 +1,12 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
+import { navigate } from "wouter/use-browser-location";
+import { apiFetch } from "./platform";
+
+// Sends someone whose sign-in ran out to the sign-in page without reloading
+// the app (a reload inside the iPhone app would restart it)
+export function goToLogin() {
+  if (window.location.pathname !== "/login") navigate("/login");
+}
 
 // Handle 401 errors by redirecting to login if it's a refresh failure
 async function handle401AndThrow(res: Response) {
@@ -8,9 +16,10 @@ async function handle401AndThrow(res: Response) {
     // If 401 with "refresh failed", the user's session expired - redirect to login
     if (res.status === 401 && text.includes("refresh failed")) {
       console.log("Session expired, redirecting to login...");
-      window.location.href = "/login";
-      // Return a promise that never resolves to prevent further processing
-      return new Promise<never>(() => {});
+      goToLogin();
+      // The app stays loaded (no reload), so end this request instead of
+      // leaving it waiting forever
+      throw new Error("401: Your sign-in has ended. Please sign in again.");
     }
     
     throw new Error(`${res.status}: ${text}`);
@@ -25,7 +34,7 @@ export async function apiRequest(
   // Check if data is FormData - if so, don't set Content-Type (browser will set it with boundary)
   const isFormData = data instanceof FormData;
   
-  const res = await fetch(url, {
+  const res = await apiFetch(url, {
     method,
     headers: isFormData ? {} : (data ? { "Content-Type": "application/json" } : {}),
     body: isFormData ? (data as FormData) : (data ? JSON.stringify(data) : undefined),
@@ -71,9 +80,7 @@ export const getQueryFn: <T>(options: {
       }
     }
     
-    const res = await fetch(url, {
-      credentials: "include",
-    });
+    const res = await apiFetch(url);
 
     if (res.status === 401) {
       const text = await res.text();
@@ -81,8 +88,8 @@ export const getQueryFn: <T>(options: {
       // If 401 with "refresh failed", redirect to login
       if (text.includes("refresh failed")) {
         console.log("Session expired, redirecting to login...");
-        window.location.href = "/login";
-        return new Promise<never>(() => {});
+        goToLogin();
+        throw new Error("401: Your sign-in has ended. Please sign in again.");
       }
       
       if (unauthorizedBehavior === "returnNull") {

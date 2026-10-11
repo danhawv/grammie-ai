@@ -11,6 +11,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { ownerDisplayName, type CookbookOwner } from "@/lib/cookbook-owner";
 import { orderStatusLabel } from "@shared/print-checkout";
 import type { CookbookPrintProject } from "@shared/schema";
+import { mediaUrl } from "@/lib/platform";
 
 // The Cookbooks destination (docs/DESIGN_PRINCIPLES.md §3): your cookbooks,
 // cookbooks other people shared with you, and one way to start a new one.
@@ -53,7 +54,7 @@ export default function CookbooksPage() {
           icon={BookOpen}
           title="Sign in to see your cookbooks"
           description="Cookbooks collect your family's recipes in one place, and you can print them as a real book."
-          action={<Button asChild><a href="/login">Sign in</a></Button>}
+          action={<Button asChild><Link href="/login">Sign in</Link></Button>}
         />
       </div>
     );
@@ -134,7 +135,7 @@ function CookbookTile({ cookbook, byline, orderStatus }: { cookbook: CookbookLis
     >
       <div className="flex h-24 w-20 shrink-0 items-center justify-center overflow-hidden rounded-md bg-primary/10">
         {cookbook.coverImage ? (
-          <img src={cookbook.coverImage} alt="" className="h-full w-full object-cover" loading="lazy" />
+          <img src={mediaUrl(cookbook.coverImage)} alt="" className="h-full w-full object-cover" loading="lazy" />
         ) : (
           <BookOpen className="h-8 w-8 text-primary" aria-hidden />
         )}

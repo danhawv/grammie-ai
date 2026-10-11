@@ -20,6 +20,7 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { Loader2 } from "lucide-react";
+import { apiFetch } from "@/lib/platform";
 
 interface MealNutrition {
   calories: number;
@@ -80,7 +81,7 @@ export default function NutritionDashboard({
   const { data, isLoading } = useQuery<NutritionData>({
     queryKey: ["/api/meal-plans", planId, "nutrition"],
     queryFn: async () => {
-      const res = await fetch(`/api/meal-plans/${planId}/nutrition`);
+      const res = await apiFetch(`/api/meal-plans/${planId}/nutrition`);
       if (!res.ok) throw new Error("Failed to fetch nutrition data");
       return res.json();
     },

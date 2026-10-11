@@ -47,6 +47,7 @@ import { useMealPlanWebSocket } from "@/hooks/use-meal-plan-websocket";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { useUndoable } from "@/hooks/use-undoable";
+import { mediaUrl } from "@/lib/platform";
 
 const MEAL_SLOTS = ["breakfast", "lunch", "dinner", "snack"] as const;
 const SLOT_LABELS: Record<string, string> = { breakfast: "Breakfast", lunch: "Lunch", dinner: "Dinner", snack: "Snack" };
@@ -111,7 +112,7 @@ function EntryContent({ entry, compact }: { entry: MealPlanEntry; compact?: bool
   return (
     <>
       {!compact && (image ? (
-        <img src={image} alt="" className="aspect-[4/3] w-full object-cover" />
+        <img src={mediaUrl(image)} alt="" className="aspect-[4/3] w-full object-cover" />
       ) : (
         <div className="flex aspect-[4/3] w-full items-center justify-center bg-muted/50">
           <Utensils className="h-5 w-5 text-muted-foreground" aria-hidden />
@@ -223,7 +224,7 @@ function EntryDialog({
         </DialogHeader>
 
         {recipe && (recipe.dishImage || recipe.dishImageThumbnail) && (
-          <img src={recipe.dishImage || recipe.dishImageThumbnail} alt="" className="aspect-video w-full rounded-lg object-cover" />
+          <img src={mediaUrl(recipe.dishImage || recipe.dishImageThumbnail)} alt="" className="aspect-video w-full rounded-lg object-cover" />
         )}
         {recipe?.totalTime && (
           <p className="flex items-center gap-2 text-base text-muted-foreground">
@@ -596,7 +597,7 @@ export default function MealPlanDetailPage() {
                           className="flex min-h-12 w-full items-center gap-3 overflow-hidden rounded-lg border bg-background text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         >
                           {entry.recipe?.dishImageThumbnail ? (
-                            <img src={entry.recipe.dishImageThumbnail} alt="" className="h-14 w-14 shrink-0 object-cover" />
+                            <img src={mediaUrl(entry.recipe.dishImageThumbnail)} alt="" className="h-14 w-14 shrink-0 object-cover" />
                           ) : (
                             <span className="flex h-14 w-14 shrink-0 items-center justify-center bg-muted">
                               <Utensils className="h-5 w-5 text-muted-foreground" aria-hidden />

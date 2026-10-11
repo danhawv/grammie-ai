@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Loader2, Copy, Check } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
+import { apiFetch, mediaUrl } from "@/lib/platform";
 
 // Finds recipes with identical titles and lets the user merge each group:
 // one survivor keeps all cookbook memberships, meal-plan entries, and
@@ -48,7 +49,7 @@ export function DuplicateRecipesDialog({ open, onClose }: { open: boolean; onClo
 
   const mergeMutation = useMutation({
     mutationFn: async ({ keepId, removeIds }: { keepId: string; removeIds: string[] }) => {
-      const res = await fetch("/api/recipes/merge-duplicates", {
+      const res = await apiFetch("/api/recipes/merge-duplicates", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -130,7 +131,7 @@ export function DuplicateRecipesDialog({ open, onClose }: { open: boolean; onClo
                             className="mt-1"
                           />
                           {r.dishImageThumbnail && (
-                            <img src={r.dishImageThumbnail} alt="" className="w-12 h-12 rounded object-cover shrink-0" />
+                            <img src={mediaUrl(r.dishImageThumbnail)} alt="" className="w-12 h-12 rounded object-cover shrink-0" />
                           )}
                           <div className="min-w-0 text-xs space-y-0.5">
                             <p className="font-medium">{keepId === r.id ? "Keep this one" : "Remove"}</p>

@@ -8,6 +8,7 @@ import {
   timersStorageKey,
   type VoiceCommand,
 } from "@shared/cooking-session";
+import { isNativeApp, keepAwake } from "@/lib/platform";
 
 // State for cooking mode that outlives a single visit: the last step a cook
 // reached, timers that keep running between steps (and while cooking mode is
@@ -143,16 +144,20 @@ export function useKeepAwakePreference(): [boolean, (v: boolean) => void] {
   return [value, update];
 }
 
-/** Keeps the screen awake while active; re-requests when the tab comes back into view */
+/**
+ * Keeps the screen awake while active: the app's own keep-awake when running
+ * in the iPhone/iPad app, else the browser's Wake Lock (re-requested when the
+ * tab comes back into view)
+ */
 export function useWakeLock(active: boolean): WakeLockStatus {
   const supported = typeof navigator !== "undefined" && "wakeLock" in navigator;
-  const [status, setStatus] = useState<WakeLockStatus>(supported ? "off" : "unsupported");
+  const [status, setStatus] = useState<WakeLockStatus>(supported || isNativeApp() ? "off" : "unsupported");
 
   useEffect(() => {
-    if (!supported) { setStatus("unsupported"); return; }
-    if (!active) { setStatus("off"); return; }
+    if (!active) { setStatus(supported || isNativeApp() ? "off" : "unsupported"); return; }
     let lock: any = null;
     let cancelled = false;
+    let native = false;
 
     const acquire = async () => {
       if (document.visibilityState !== "visible") return;
@@ -169,14 +174,25 @@ export function useWakeLock(active: boolean): WakeLockStatus {
         if (!cancelled) setStatus("blocked");
       }
     };
-
-    acquire();
     const onVisible = () => {
       if (document.visibilityState === "visible") acquire();
     };
-    document.addEventListener("visibilitychange", onVisible);
+
+    void (async () => {
+      native = await keepAwake(true);
+      if (cancelled) {
+        if (native) void keepAwake(false);
+        return;
+      }
+      if (native) { setStatus("on"); return; }
+      if (!supported) { setStatus("unsupported"); return; }
+      acquire();
+      document.addEventListener("visibilitychange", onVisible);
+    })();
+
     return () => {
       cancelled = true;
+      if (native) void keepAwake(false);
       document.removeEventListener("visibilitychange", onVisible);
       lock?.release?.().catch(() => {});
     };

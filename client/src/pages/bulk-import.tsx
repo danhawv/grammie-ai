@@ -29,6 +29,7 @@ import {
   type IntakeSummaryRow,
 } from "@/lib/bulk-api";
 import { estimateFirstLook, progressText } from "@shared/bulk-intake";
+import { privateImageUrl, useImagePass } from "@/lib/image-pass";
 
 // "Bring in a whole box of recipes" (docs/BULK_IMPORT.md). /import starts
 // one: drop a folder or .zip, choose lots of photos, or bring them from
@@ -202,6 +203,7 @@ const ACTIVE = new Set(["uploading", "pairing", "importing"]);
 
 function IntakePage({ id }: { id: string }) {
   const [, navigate] = useLocation();
+  const imagePass = useImagePass();
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { data: config } = useConfig();
@@ -361,7 +363,7 @@ function IntakePage({ id }: { id: string }) {
     return {
       id: g.key,
       title: g.recipe && g.recipe.title !== "Your Recipe" ? g.recipe.title : g.title || "Recipe card",
-      thumbnail: thumbUrl(intake.id, g.key),
+      thumbnail: privateImageUrl(thumbUrl(intake.id, g.key), imagePass),
       state: !g.recipeId ? "queued" : st === "ready" ? "done" : st === "failed" ? "failed" : "working",
       statusText: !g.recipeId ? (g.problem ?? "Waiting its turn…") : st === "extracting" ? "Reading the card…" : st === "enriching" ? "Adding the details…" : undefined,
       error: st === "failed" ? "We couldn't read this one. Open it to try again." : undefined,

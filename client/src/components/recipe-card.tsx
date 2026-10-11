@@ -13,6 +13,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { mediaUrl } from "@/lib/platform";
 
 // The one recipe card (docs/DESIGN_PRINCIPLES.md §4). Used on Recipes home;
 // cookbook view, meal plans and search should adopt it too.
@@ -150,7 +151,7 @@ export function RecipeCard({
         </div>
       ) : (
         <img
-          src={recipe.dishImageThumbnail!}
+          src={mediaUrl(recipe.dishImageThumbnail!)}
           alt=""
           loading="lazy"
           className="h-full w-full object-cover"

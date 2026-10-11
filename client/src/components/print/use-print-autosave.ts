@@ -50,9 +50,16 @@ export function usePrintAutosave(cookbookId: number, initialProjectId: number | 
       e.preventDefault();
       e.returnValue = "";
     };
+    // Phones (and the iPhone app) can close a backgrounded page without
+    // warning: send the last change as soon as it's hidden
+    const onHidden = () => {
+      if (document.visibilityState === "hidden" && saver.hasUnsaved) void saver.flush();
+    };
     window.addEventListener("beforeunload", onBeforeUnload);
+    document.addEventListener("visibilitychange", onHidden);
     return () => {
       window.removeEventListener("beforeunload", onBeforeUnload);
+      document.removeEventListener("visibilitychange", onHidden);
       // Leaving the editor inside the app: send the last change
       void saver.flush();
     };

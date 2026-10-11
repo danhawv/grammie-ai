@@ -5,8 +5,8 @@ import { isNativeApp } from "./lib/platform";
 
 async function start() {
   // Inside the iPhone/iPad app: native helpers first (links, share sheet,
-  // camera). Loaded on demand so the website doesn't download them.
-  const native = isNativeApp() ? await import("./native").catch((err) => {
+  // camera). Only the app's build includes them (__APP_BUILD__).
+  const native = __APP_BUILD__ && isNativeApp() ? await import("./native").catch((err) => {
     console.error("[native] failed to load", err);
     return null;
   }) : null;

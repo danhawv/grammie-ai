@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "NODE_ENV=development tsx server/index.ts",
     "build": "vite build && esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
-    "build:app": "VITE_PUBLIC_ORIGIN=${VITE_PUBLIC_ORIGIN:-https://grammie.ai} vite build",
+    "build:app": "GRAMMIE_APP_BUILD=1 VITE_PUBLIC_ORIGIN=${VITE_PUBLIC_ORIGIN:-https://grammie.ai} vite build",
     "cap:sync": "npm run build:app && cap sync ios",
     "cap:open": "cap open ios",
     "app:icons": "node scripts/generate-app-icons.mjs",

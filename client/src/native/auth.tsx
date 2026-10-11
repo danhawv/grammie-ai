@@ -4,7 +4,7 @@ import { ui } from "@clerk/ui/no-rhc";
 import { ClerkProvider } from "@clerk/react";
 import { Preferences } from "@capacitor/preferences";
 import { Browser } from "@capacitor/browser";
-import { PUBLIC_ORIGIN, setAuthTokenGetter } from "@/lib/platform";
+import { PUBLIC_ORIGIN } from "@/lib/platform";
 import { reportBack, waitForSsoCallback } from "./returns";
 
 // Sign-in inside the iPhone/iPad app (Clerk "Native API" mode).
@@ -55,8 +55,7 @@ function nativeClerk(publishableKey: string): Clerk {
     if (header) await saveJwt(header);
   });
   instance = clerk;
-  // Requests to our API carry the session token (lib/platform.ts apiFetch)
-  setAuthTokenGetter(async () => (clerk.session ? await clerk.session.getToken() : null));
+  // AuthTokenBridge (App.tsx) hands the session token to lib/platform.ts
   return clerk;
 }
 

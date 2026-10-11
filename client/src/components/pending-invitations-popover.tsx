@@ -8,6 +8,7 @@ import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Mail, BookOpen, Check, X, Loader2 } from "lucide-react";
 import { useLocation } from "wouter";
+import { mediaUrl } from "@/lib/platform";
 
 interface CookbookInvitationWithDetails {
   id: number;
@@ -129,7 +130,7 @@ export function PendingInvitationsPopover() {
                 >
                   <div className="flex items-start gap-3">
                     <Avatar className="h-8 w-8 flex-shrink-0">
-                      <AvatarImage src={invitation.inviter.profileImageUrl || undefined} />
+                      <AvatarImage src={mediaUrl(invitation.inviter.profileImageUrl)} />
                       <AvatarFallback className="text-xs">
                         {getInviterInitials(invitation.inviter)}
                       </AvatarFallback>

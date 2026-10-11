@@ -1,4 +1,5 @@
 import type { Express, RequestHandler } from "express";
+import type { IncomingMessage } from "http";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
 import { storage } from "./storage";
@@ -137,9 +138,14 @@ function extractBearerToken(req: any): string | null {
   return null;
 }
 
+// The session middleware in use, kept so live-update sockets can read the
+// same sign-in session as normal requests
+let sessionMiddleware: RequestHandler | null = null;
+
 export async function setupAuth(app: Express) {
   app.set("trust proxy", 1);
-  app.use(getSession());
+  sessionMiddleware = getSession();
+  app.use(sessionMiddleware);
 
   try {
     const cookieParser = (await import("cookie-parser")).default;
@@ -382,3 +388,64 @@ export const optionalAuth: RequestHandler = async (req: any, _res, next) => {
 
   return next();
 };
+
+function parseCookies(header: string | undefined): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const part of (header ?? "").split(";")) {
+    const i = part.indexOf("=");
+    if (i < 0) continue;
+    const name = part.slice(0, i).trim();
+    if (!name || name in out) continue;
+    try { out[name] = decodeURIComponent(part.slice(i + 1).trim()); } catch { out[name] = part.slice(i + 1).trim(); }
+  }
+  return out;
+}
+
+/**
+ * Who opened a live-update socket (the WebSocket upgrade request), using the
+ * same checks as isAuthenticated: a session token in the `token` query
+ * parameter (the app, which can't send cookies cross-site), the Clerk session
+ * cookie, the older sign-in session, then the development stand-in user.
+ * Returns the user id, or null when nobody is signed in.
+ */
+export async function userIdForSocket(req: IncomingMessage): Promise<string | null> {
+  const hasClerk = !!process.env.CLERK_SECRET_KEY;
+  const url = new URL(req.url || "", "http://localhost");
+  const token = url.searchParams.get("token") || extractBearerToken(req);
+
+  if (token) {
+    const mobilePayload = verifyToken(token);
+    if (mobilePayload) return mobilePayload.sub;
+    if (hasClerk) {
+      const clerkUserId = await verifyClerkToken(token);
+      if (clerkUserId) {
+        try { return (await upsertUserFromClerk(clerkUserId)).id; } catch { return null; }
+      }
+      return null;
+    }
+  }
+
+  const cookies = parseCookies(req.headers.cookie);
+  if (hasClerk && cookies["__session"]) {
+    const clerkUserId = await verifyClerkToken(cookies["__session"]);
+    if (clerkUserId) {
+      try { return (await upsertUserFromClerk(clerkUserId)).id; } catch { /* fall through */ }
+    }
+  }
+
+  if (sessionMiddleware && cookies["connect.sid"]) {
+    const r = req as any;
+    await new Promise<void>((resolve) => {
+      try { sessionMiddleware!(r, {} as any, () => resolve()); } catch { resolve(); }
+    });
+    const user = r.session?.passport?.user;
+    if (user?.claims?.sub && !(user.expires_at && Math.floor(Date.now() / 1000) > user.expires_at)) {
+      return user.claims.sub;
+    }
+  }
+
+  if ((process.env.NODE_ENV === "development" && !hasClerk) || process.env.BYPASS_AUTH === "true") {
+    return "37290791";
+  }
+  return null;
+}

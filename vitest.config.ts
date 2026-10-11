@@ -2,6 +2,7 @@ import { defineConfig } from 'vitest/config';
 import path from 'path';
 
 export default defineConfig({
+  define: { __APP_BUILD__: 'false' },
   resolve: {
     alias: {
       '@shared': path.resolve(import.meta.dirname, 'shared'),

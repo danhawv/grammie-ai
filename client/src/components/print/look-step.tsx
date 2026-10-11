@@ -33,6 +33,7 @@ import {
 } from "@/lib/print-constants";
 import type { CustomTemplate } from "@shared/schema";
 import type { BookDraft, TemplateStyle } from "./types";
+import { apiFetch } from "@/lib/platform";
 
 // Step 2: how the book looks. Templates first (built-in, yours, from photos,
 // or designed), then the physical book (size, binding, paper) and recipe
@@ -84,7 +85,7 @@ export function LookStep({ cookbookId, draft, update, updateCustomization }: Loo
         if (wasSelected) update({ customTemplateId: t.id });
       },
       commit: async () => {
-        const res = await fetch(`/api/templates/${t.id}`, { method: "DELETE", credentials: "include" });
+        const res = await apiFetch(`/api/templates/${t.id}`, { method: "DELETE", credentials: "include" });
         if (res.status === 409) {
           // Another cookbook uses it: keep it, and say why
           setHidden((prev) => { const n = new Set(prev); n.delete(t.id); return n; });

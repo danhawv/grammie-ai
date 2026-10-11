@@ -1,5 +1,6 @@
 import { useEffect, useRef, useCallback, useState } from "react";
 import { queryClient } from "@/lib/queryClient";
+import { authToken, socketUrl } from "@/lib/platform";
 
 type MealPlanWsMessage =
   | { type: "entry_added"; entry: any }
@@ -23,14 +24,20 @@ export function useMealPlanWebSocket({
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout>();
   const pingIntervalRef = useRef<NodeJS.Timeout>();
+  const stopped = useRef(false);
   const [isConnected, setIsConnected] = useState(false);
   const [onlineUsers, setOnlineUsers] = useState<{ userId: string; displayName: string }[]>([]);
 
-  const connect = useCallback(() => {
+  const connect = useCallback(async () => {
     if (!enabled || !planId || !userId) return;
 
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${protocol}//${window.location.host}/ws/meal-plan?planId=${planId}&userId=${userId}`;
+    // The server works out who we are from sign-in: the cookie in a browser,
+    // the session token (added here when there is one) in the app
+    const params = new URLSearchParams({ planId });
+    const token = await authToken();
+    if (token) params.set("token", token);
+    if (stopped.current) return;
+    const wsUrl = socketUrl(`/ws/meal-plan?${params}`);
 
     try {
       const ws = new WebSocket(wsUrl);
@@ -71,11 +78,12 @@ export function useMealPlanWebSocket({
         }
       };
 
-      ws.onclose = () => {
+      ws.onclose = (event) => {
         setIsConnected(false);
         if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
-        // Reconnect after 3 seconds
-        if (enabled) {
+        // Reconnect after 3 seconds, unless we were turned away (not signed
+        // in, or not on this plan) or the page is done with the socket
+        if (enabled && !stopped.current && event.code !== 4401 && event.code !== 4003) {
           reconnectTimeoutRef.current = setTimeout(connect, 3000);
         }
       };
@@ -90,9 +98,11 @@ export function useMealPlanWebSocket({
   }, [planId, userId, enabled]);
 
   useEffect(() => {
-    connect();
+    stopped.current = false;
+    void connect();
 
     return () => {
+      stopped.current = true;
       if (wsRef.current) {
         wsRef.current.close();
         wsRef.current = null;

@@ -11,6 +11,7 @@ import { placePhotos } from "@/lib/place-photos";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { FamilyPhotoEntry, PrintLayoutData } from "@shared/schema";
+import { privateImageUrl, useImagePass } from "@/lib/image-pass";
 
 // Family photos: upload a batch, then "Place photos" puts each one in the
 // empty space under a recipe (never moving the recipe). Photos that don't
@@ -49,6 +50,7 @@ export function FamilyPhotosPanel({ cookbookId, layoutData, onChange, templateSt
   const { toast } = useToast();
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState<{ done: number; total: number } | null>(null);
+  const imagePass = useImagePass();
   const photos = layoutData.familyPhotos ?? [];
 
   // Photos uploaded but never saved into the layout (e.g. left without saving)
@@ -215,7 +217,7 @@ export function FamilyPhotosPanel({ cookbookId, layoutData, onChange, templateSt
               return (
                 <div key={p.id} className="space-y-1">
                   <div className={`relative aspect-square rounded-md overflow-hidden border bg-muted ${p.placement?.type === "unplaced" ? "ring-2 ring-destructive/60" : ""}`}>
-                    <img src={`/api/cookbook-photos/${p.id}`} alt="" className="w-full h-full object-cover" loading="lazy" />
+                    <img src={privateImageUrl(`/api/cookbook-photos/${p.id}`, imagePass)} alt="" className="w-full h-full object-cover" loading="lazy" />
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <button className="absolute top-0 right-0 flex h-11 w-11 items-start justify-end p-1" aria-label="Photo options">
@@ -243,7 +245,7 @@ export function FamilyPhotosPanel({ cookbookId, layoutData, onChange, templateSt
                             <DropdownMenuSubContent className="max-h-72 overflow-y-auto w-56">
                               {placed.map((q) => (
                                 <DropdownMenuItem key={q.id} onClick={() => swap(p, q)} className="gap-2">
-                                  <img src={`/api/cookbook-photos/${q.id}`} alt="" className="w-7 h-7 rounded object-cover shrink-0" />
+                                  <img src={privateImageUrl(`/api/cookbook-photos/${q.id}`, imagePass)} alt="" className="w-7 h-7 rounded object-cover shrink-0" />
                                   <span className="truncate text-xs">{recipeTitles.get(q.placement!.recipeId!) ?? "Recipe"}</span>
                                 </DropdownMenuItem>
                               ))}

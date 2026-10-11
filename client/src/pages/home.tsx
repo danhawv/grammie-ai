@@ -1,6 +1,6 @@
 import { useState, useMemo, useReducer, useEffect, useRef, useCallback } from "react";
 import { SortMenu, serializeFiltersToParams, HANDY_FILTERS, filterChips, FilterChipsRow } from "@/components/recipe-filter-controls";
-import { useLocation } from "wouter";
+import { Link, useLocation } from "wouter";
 import { useQuery, useMutation, useInfiniteQuery } from "@tanstack/react-query";
 import { PaginatedRecipes, RecipeCardData } from "@shared/schema";
 import { pluralize } from "@shared/format";
@@ -47,6 +47,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useUndoable } from "@/hooks/use-undoable";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
+import { apiFetch, publicUrl } from "@/lib/platform";
 
 type CollectionFilter = "all" | "yours" | "public" | "shared" | "bookmarked";
 
@@ -171,13 +172,13 @@ function RecipesHome() {
       const path = queryKey[0] as string;
       const params = (queryKey[1] as Record<string, string>) || {};
       if (path === "/api/bookmarks/recipes") {
-        const response = await fetch(path, { credentials: "include" });
+        const response = await apiFetch(path, { credentials: "include" });
         if (!response.ok) throw new Error("We couldn't load your favorites.");
         const recipes = await response.json();
         return { recipes, total: recipes.length, page: 1, limit: recipes.length, hasMore: false };
       }
       const queryParams = new URLSearchParams({ ...params, page: String(pageParam), limit: "24" });
-      const response = await fetch(`${path}?${queryParams}`, { credentials: "include" });
+      const response = await apiFetch(`${path}?${queryParams}`, { credentials: "include" });
       if (!response.ok) throw new Error("We couldn't load your recipes.");
       return response.json();
     },
@@ -383,7 +384,7 @@ function RecipesHome() {
   });
 
   const handleShare = async (recipe: RecipeCardData) => {
-    const url = `${window.location.origin}/recipe/${recipe.id}`;
+    const url = publicUrl(`/recipe/${recipe.id}`);
     try {
       if (navigator.share && window.matchMedia("(pointer: coarse)").matches) {
         await navigator.share({ title: recipe.title, url });
@@ -743,7 +744,7 @@ function RecipesHome() {
                 description="Sign in to save your family's recipes."
                 action={
                   <Button asChild>
-                    <a href="/login">Sign in</a>
+                    <Link href="/login">Sign in</Link>
                   </Button>
                 }
               />

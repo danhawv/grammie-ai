@@ -6,6 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowLeft, ChevronLeft, ChevronRight, BookOpen, Printer, ShoppingCart } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import type { Recipe } from "@shared/schema";
+import { apiFetch, mediaUrl, printPage } from "@/lib/platform";
 
 interface Cookbook {
   id: number;
@@ -69,7 +70,7 @@ export default function CookbookPrintPage() {
   const { data: cookbook, isLoading: cookbookLoading } = useQuery<Cookbook>({
     queryKey: ['/api/cookbooks', cookbookId],
     queryFn: async () => {
-      const response = await fetch(`/api/cookbooks/${cookbookId}`, { credentials: 'include' });
+      const response = await apiFetch(`/api/cookbooks/${cookbookId}`, { credentials: 'include' });
       if (!response.ok) throw new Error('Failed to load cookbook');
       return response.json();
     },
@@ -79,7 +80,7 @@ export default function CookbookPrintPage() {
   const { data: recipesData, isLoading: recipesLoading } = useQuery<PrintRecipesResponse>({
     queryKey: ['/api/cookbooks', cookbookId, 'recipes', 'print'],
     queryFn: async () => {
-      const response = await fetch(`/api/cookbooks/${cookbookId}/recipes/print`, { credentials: 'include' });
+      const response = await apiFetch(`/api/cookbooks/${cookbookId}/recipes/print`, { credentials: 'include' });
       if (!response.ok) throw new Error('Failed to load recipes');
       return response.json();
     },
@@ -136,7 +137,7 @@ export default function CookbookPrintPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-stone-100 flex items-center justify-center">
+      <div className="min-h-screen supports-[height:100dvh]:min-h-dvh bg-stone-100 flex items-center justify-center">
         <div className="w-full max-w-2xl p-8">
           <Skeleton className="h-[600px] w-full rounded-lg" />
         </div>
@@ -146,7 +147,7 @@ export default function CookbookPrintPage() {
 
   if (!cookbook) {
     return (
-      <div className="min-h-screen bg-stone-100 flex items-center justify-center">
+      <div className="min-h-screen supports-[height:100dvh]:min-h-dvh bg-stone-100 flex items-center justify-center">
         <div className="text-center">
           <p className="text-muted-foreground mb-4">Cookbook not found</p>
           <Link href="/"><Button variant="outline"><ArrowLeft className="h-4 w-4 mr-2" />Back to Home</Button></Link>
@@ -158,7 +159,7 @@ export default function CookbookPrintPage() {
   const page = pages[currentPage];
 
   return (
-    <div className="min-h-screen bg-stone-100">
+    <div className="min-h-screen supports-[height:100dvh]:min-h-dvh bg-stone-100">
       {/* Top bar */}
       <div className="sticky top-0 z-10 bg-white/90 backdrop-blur border-b px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -187,14 +188,14 @@ export default function CookbookPrintPage() {
               </Link>
             </>
           )}
-          <Button variant="ghost" size="sm" onClick={() => window.print()}>
+          <Button variant="ghost" size="sm" onClick={() => void printPage()}>
             <Printer className="h-4 w-4" />
           </Button>
         </div>
       </div>
 
       {/* Book display */}
-      <div className="flex items-center justify-center min-h-[calc(100vh-60px)] px-4 py-8">
+      <div className="flex items-center justify-center min-h-[calc(100vh-60px)] supports-[height:100dvh]:min-h-[calc(100dvh-60px)] px-4 py-8">
         {/* Left arrow */}
         <button
           onClick={() => setCurrentPage(p => Math.max(p - 1, 0))}
@@ -265,7 +266,7 @@ function CoverPage({ cookbook, ownerName, recipeCount }: { cookbook: Cookbook; o
       <div className="absolute top-6 left-6 right-6 bottom-6 border-2 border-orange-200/50 rounded-lg pointer-events-none" />
 
       {cookbook.coverImage ? (
-        <img src={cookbook.coverImage} alt="" className="w-32 h-32 rounded-full object-cover mb-6 ring-4 ring-orange-200 shadow-lg" />
+        <img src={mediaUrl(cookbook.coverImage)} alt="" className="w-32 h-32 rounded-full object-cover mb-6 ring-4 ring-orange-200 shadow-lg" />
       ) : (
         <div className="w-24 h-24 rounded-full bg-gradient-to-br from-orange-400 to-amber-500 flex items-center justify-center mb-6 shadow-lg">
           <BookOpen className="h-12 w-12 text-white" />
@@ -335,7 +336,7 @@ function RecipePage({ recipe, index }: { recipe: Recipe; index: number }) {
       {recipe.dishImageThumbnail && (
         <div className="relative h-40 sm:h-48 shrink-0">
           <img
-            src={recipe.dishImageThumbnail}
+            src={mediaUrl(recipe.dishImageThumbnail)}
             alt={recipe.title}
             className="w-full h-full object-cover"
           />

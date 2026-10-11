@@ -12,6 +12,7 @@ import { apiErrorMessage } from "@/lib/import-api";
 import { uploadBackFor } from "@/lib/bulk-upload";
 import { imageUrl, makeChoice, startImport, thumbUrl, type Choice, type IntakeGroup, type IntakeState } from "@/lib/bulk-api";
 import { cn } from "@/lib/utils";
+import { privateImageUrl, useImagePass } from "@/lib/image-pass";
 
 // The review screen for a box of recipes (docs/BULK_IMPORT.md): what we
 // found, in plain words, before anything is imported. The person can
@@ -30,6 +31,7 @@ export function IntakeReview({ intake, confirmAbove, onImported }: Props) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [zoom, setZoom] = useState<{ photoId: string; title: string } | null>(null);
+  const imagePass = useImagePass();
   const [choosingBackFor, setChoosingBackFor] = useState<IntakeGroup | null>(null);
   const [confirmed, setConfirmed] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
@@ -179,7 +181,7 @@ export function IntakeReview({ intake, confirmAbove, onImported }: Props) {
         <DialogContent className="max-w-2xl">
           <DialogTitle>{zoom?.title}</DialogTitle>
           <DialogDescription className="sr-only">The photo, larger</DialogDescription>
-          {zoom && <img src={imageUrl(intake.id, zoom.photoId)} alt={zoom.title} className="max-h-[70vh] w-full rounded-md object-contain" />}
+          {zoom && <img src={privateImageUrl(imageUrl(intake.id, zoom.photoId), imagePass)} alt={zoom.title} className="max-h-[70vh] w-full rounded-md object-contain" />}
         </DialogContent>
       </Dialog>
 
@@ -198,7 +200,7 @@ export function IntakeReview({ intake, confirmAbove, onImported }: Props) {
                     setChoosingBackFor(null);
                   }}
                 >
-                  <img src={thumbUrl(intake.id, b.key)} alt="A card with no recipe name" loading="lazy" className="aspect-[3/4] w-full bg-muted object-contain" />
+                  <img src={privateImageUrl(thumbUrl(intake.id, b.key), imagePass)} alt="A card with no recipe name" loading="lazy" className="aspect-[3/4] w-full bg-muted object-contain" />
                   <span className="block p-2 text-sm">Use this one</span>
                 </button>
               </li>
@@ -254,6 +256,7 @@ function GroupRow({
   onZoom: (photoId: string) => void;
   extra?: ReactNode;
 }) {
+  const imagePass = useImagePass();
   const title = titleOf(g);
   const id = `include-${g.key}`;
   return (
@@ -263,7 +266,7 @@ function GroupRow({
         <div className="flex shrink-0 gap-1.5">
           {g.photoIds.map((pid, i) => (
             <button key={pid} type="button" onClick={() => onZoom(pid)} className="overflow-hidden rounded-md border focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary" aria-label={`See ${i === 0 ? "the front" : "the back"} of ${title} larger`}>
-              <img src={thumbUrl(intakeId, pid)} alt="" loading="lazy" className="h-16 w-14 bg-muted object-cover sm:h-20 sm:w-16" />
+              <img src={privateImageUrl(thumbUrl(intakeId, pid), imagePass)} alt="" loading="lazy" className="h-16 w-14 bg-muted object-cover sm:h-20 sm:w-16" />
             </button>
           ))}
         </div>

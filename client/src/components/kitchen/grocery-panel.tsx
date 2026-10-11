@@ -25,6 +25,7 @@ import { useUndoable } from "@/hooks/use-undoable";
 import { useHiddenIds } from "./use-hidden-ids";
 import type { GroceryListItemsByAisle, GroceryListItemWithDisplay, PantryItem } from "@shared/schema";
 import { findPantryItem } from "@shared/pantry-match";
+import { publicUrl } from "@/lib/platform";
 
 type UnitSystem = "us" | "metric";
 
@@ -119,7 +120,7 @@ export function GroceryPanel({ onOpenPantry }: { onOpenPantry: () => void }) {
 
   const shareMutation = useMutation({
     mutationFn: async () => (await apiRequest("POST", "/api/grocery-list/share", {})).json(),
-    onSuccess: (data: { token: string }) => setShareLink(`${window.location.origin}/grocery-list/shared/${data.token}`),
+    onSuccess: (data: { token: string }) => setShareLink(publicUrl(`/grocery-list/shared/${data.token}`)),
   });
 
   // Pantry lookups, computed once per list/pantry change

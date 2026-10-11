@@ -861,3 +861,13 @@ html[data-text-size="xlarge"] { font-size: 125%; }
 @media (max-width: 767px) {
   body.has-tab-bar { padding-bottom: calc(4.5rem + env(safe-area-inset-bottom, 0px)); }
 }
+
+/* The page runs edge to edge (viewport-fit=cover, needed by the iPhone/iPad
+   app). Keep content clear of the notch in landscape, and of the status bar on
+   pages without the app header (the header pads itself). All zero in an
+   ordinary browser tab. */
+body {
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}
+body:not(.has-tab-bar) { padding-top: env(safe-area-inset-top, 0px); }

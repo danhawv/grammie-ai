@@ -11,12 +11,13 @@ import { UploadProgressProvider } from "@/contexts/UploadProgressContext";
 import { GrammieChat } from "@/components/grammie-chat";
 import { ShareHandler } from "@/components/share-handler";
 import { InstallPrompt } from "@/components/install-prompt";
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { Loader2 } from "lucide-react";
-import { ClerkProvider } from "@clerk/react";
+import { ClerkProvider, useAuth as useClerkAuth } from "@clerk/react";
+import { isNativeApp, setAuthTokenGetter } from "@/lib/platform";
+import { clearImagePass } from "@/lib/image-pass";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { DisplayPrefsApplier } from "@/hooks/use-display-prefs";
-import { isNativeApp } from "@/lib/platform";
 
 const Home = lazy(() => import("@/pages/home"));
 const RecipeDetail = lazy(() => import("@/pages/recipe-detail"));
@@ -47,7 +48,7 @@ const MealPrepPacket = lazy(() => import("@/pages/meal-prep-packet"));
 const SsoCallback = lazy(() => import("@/pages/sso-callback"));
 const NotFound = lazy(() => import("@/pages/not-found"));
 // The app's sign-in (bundled Clerk, token instead of cookies): native only
-const NativeClerkProvider = lazy(() => import("@/native/auth"));
+const NativeClerkProvider = __APP_BUILD__ ? lazy(() => import("@/native/auth")) : null;
 
 const CLERK_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string | undefined;
 
@@ -113,7 +114,7 @@ function AppCore() {
                 <Router />
               </main>
               <GrammieChat />
-              {/* The app has its own share sheet, install and updates */}
+              {/* The app has its own share sheet, and installs and updates through the App Store */}
               {!isNativeApp() && <ShareHandler />}
               {!isNativeApp() && <InstallPrompt />}
               {!isNativeApp() && <UpdateBanner />}
@@ -125,12 +126,33 @@ function AppCore() {
   );
 }
 
+// Lets requests that can't use the sign-in cookie (the iPhone app, live
+// updates) carry the Clerk session token instead
+function AuthTokenBridge() {
+  const { getToken, isLoaded, isSignedIn } = useClerkAuth();
+  useEffect(() => {
+    if (!isLoaded) return;
+    setAuthTokenGetter(() => getToken());
+    return () => setAuthTokenGetter(null);
+  }, [getToken, isLoaded]);
+  // In the app, anything asked for before sign-in was ready (or as someone
+  // else) went without the right token: ask again. In a browser the cookie
+  // already covered it.
+  useEffect(() => {
+    if (!isLoaded || !isNativeApp()) return;
+    clearImagePass();
+    void queryClient.invalidateQueries();
+  }, [isLoaded, isSignedIn]);
+  return null;
+}
+
 function App() {
-  if (CLERK_KEY && isNativeApp()) {
+  if (CLERK_KEY && NativeClerkProvider && isNativeApp()) {
     return (
       <ErrorBoundary>
         <Suspense fallback={<PageLoader />}>
           <NativeClerkProvider publishableKey={CLERK_KEY}>
+            <AuthTokenBridge />
             <AppCore />
           </NativeClerkProvider>
         </Suspense>
@@ -142,6 +164,7 @@ function App() {
     return (
       <ErrorBoundary>
         <ClerkProvider publishableKey={CLERK_KEY}>
+          <AuthTokenBridge />
           <AppCore />
         </ClerkProvider>
       </ErrorBoundary>

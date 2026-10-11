@@ -19,6 +19,8 @@ import { apiErrorMessage, retryImport } from "@/lib/import-api";
 import { importStatusText } from "@/lib/import-jobs";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { apiFetch, mediaUrl } from "@/lib/platform";
+import { ExternalAnchor } from "@/components/external-anchor";
 
 // Review step for AI imports (docs/DESIGN_PRINCIPLES.md §6.2): the original
 // beside what Grammie read, edit-likely spots highlighted, one "Check the
@@ -89,7 +91,7 @@ export default function RecipeReview() {
     enabled: !!recipeId && reading,
     refetchInterval: 1000,
     queryFn: async () => {
-      const res = await fetch(`/api/recipe-imports/status?ids=${encodeURIComponent(recipeId)}`, { credentials: "include" });
+      const res = await apiFetch(`/api/recipe-imports/status?ids=${encodeURIComponent(recipeId)}`, { credentials: "include" });
       if (!res.ok) return null;
       const data = (await res.json()) as { items: Array<{ status: string }> };
       if (data.items[0] && data.items[0].status !== "reading") {
@@ -287,7 +289,7 @@ function SourcePanel({ recipe, record, kind }: { recipe: Recipe; record: ImportR
           </Button>
         </div>
         <button type="button" className="block w-full overflow-hidden rounded-md bg-muted" onClick={() => setZoomed(true)} aria-label="See the original full size">
-          <img src={current} alt={`Original recipe${pages.length > 1 ? `, page ${page + 1}` : ""}`} className="max-h-[60vh] w-full object-contain" />
+          <img src={mediaUrl(current)} alt={`Original recipe${pages.length > 1 ? `, page ${page + 1}` : ""}`} className="max-h-[60vh] w-full object-contain" />
         </button>
         {pages.length > 1 && (
           <div className="flex flex-wrap gap-2" role="group" aria-label="Pages">
@@ -302,7 +304,7 @@ function SourcePanel({ recipe, record, kind }: { recipe: Recipe; record: ImportR
         <Dialog open={zoomed} onOpenChange={setZoomed}>
           <DialogContent className="max-h-[95vh] max-w-[95vw] overflow-auto p-2 sm:max-w-5xl">
             <DialogTitle className="sr-only">Original recipe, full size</DialogTitle>
-            <img src={current} alt="Original recipe, full size" className="h-auto w-full" />
+            <img src={mediaUrl(current)} alt="Original recipe, full size" className="h-auto w-full" />
           </DialogContent>
         </Dialog>
       </section>
@@ -319,10 +321,10 @@ function SourcePanel({ recipe, record, kind }: { recipe: Recipe; record: ImportR
     return (
       <section aria-labelledby="original-heading" className="space-y-2 rounded-lg border bg-card p-4">
         <h2 id="original-heading" className="text-lg font-semibold">Where it came from</h2>
-        <a href={url} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center gap-2 break-all text-base font-medium text-primary underline underline-offset-4">
+        <ExternalAnchor href={url} className="inline-flex min-h-11 items-center gap-2 break-all text-base font-medium text-primary underline underline-offset-4">
           {host} <ExternalLink className="h-4 w-4 shrink-0" aria-hidden />
           <span className="sr-only">(opens in a new tab)</span>
-        </a>
+        </ExternalAnchor>
         <p className="text-sm text-muted-foreground">Open the page next to this one to compare.</p>
       </section>
     );

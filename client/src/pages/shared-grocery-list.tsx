@@ -95,7 +95,7 @@ export default function SharedGroceryListPage() {
 
   if (!hasJoined) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+      <div className="min-h-screen supports-[height:100dvh]:min-h-dvh bg-background flex items-center justify-center p-4">
         <div className="max-w-md w-full space-y-6 text-center">
           <div>
             <ShoppingCart className="w-12 h-12 mx-auto text-primary mb-4" />
@@ -130,7 +130,7 @@ export default function SharedGroceryListPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-background p-4 md:p-6">
+      <div className="min-h-screen supports-[height:100dvh]:min-h-dvh bg-background p-4 md:p-6">
         <div className="max-w-2xl mx-auto">
           <div className="flex items-center justify-center py-12">
             <Loader2 className="w-6 h-6 animate-spin mr-2" />
@@ -143,7 +143,7 @@ export default function SharedGroceryListPage() {
 
   if (error) {
     return (
-      <div className="min-h-screen bg-background p-4 md:p-6">
+      <div className="min-h-screen supports-[height:100dvh]:min-h-dvh bg-background p-4 md:p-6">
         <div className="max-w-2xl mx-auto text-center py-12">
           <AlertCircle className="w-12 h-12 mx-auto text-destructive mb-4" />
           <h2 className="text-xl font-semibold mb-2">Link Invalid or Expired</h2>
@@ -159,7 +159,7 @@ export default function SharedGroceryListPage() {
   const totalItems = groceryList.reduce((sum, aisle) => sum + aisle.items.length, 0);
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen supports-[height:100dvh]:min-h-dvh bg-background">
       <div className="max-w-2xl mx-auto px-4 py-6">
         <div className="flex items-center justify-between mb-6">
           <div>

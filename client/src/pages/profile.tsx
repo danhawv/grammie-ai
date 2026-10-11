@@ -5,6 +5,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowLeft, User, Calendar, Book } from "lucide-react";
+import { apiFetch, mediaUrl } from "@/lib/platform";
 
 interface PublicProfile {
   id: string;
@@ -22,7 +23,7 @@ export default function ProfilePage() {
   const { data: profile, isLoading, error } = useQuery<PublicProfile>({
     queryKey: ['/api/users', userId, 'profile'],
     queryFn: async () => {
-      const response = await fetch(`/api/users/${userId}/profile`);
+      const response = await apiFetch(`/api/users/${userId}/profile`);
       if (!response.ok) {
         throw new Error('Profile not found');
       }
@@ -110,7 +111,7 @@ export default function ProfilePage() {
         <CardHeader>
           <div className="flex items-center gap-4">
             <Avatar className="h-20 w-20">
-              <AvatarImage src={profile.avatar || undefined} alt={displayName} />
+              <AvatarImage src={mediaUrl(profile.avatar)} alt={displayName} />
               <AvatarFallback className="text-2xl">{initials}</AvatarFallback>
             </Avatar>
             <div>
