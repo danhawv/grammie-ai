@@ -71,6 +71,10 @@ The `vision` job uses `gemini-3.6-flash` with minimal thinking. It was tested on
 
 Flash-Lite is slightly faster but invents extra lines. Gemini 3.6 Flash is a stable release, unlike the old preview model.
 
+## Bulk intake (a whole box of cards)
+
+`bulkCatalog` and `bulkPairing` use `gemini-3.1-flash-lite`: one call per photo for which way up and what it is, and one text call per box to pair fronts with backs. It costs $0.00057 a photo, and 36 of 37 photos were turned the right way. Details and the benchmark are in docs/BULK_IMPORT.md (`scripts/bench-bulk-intake.ts`).
+
 ## Not changed yet
 
 - The `@google/generative-ai` SDK is deprecated in favor of `@google/genai`. It still works, including thinking settings, but plan the move.

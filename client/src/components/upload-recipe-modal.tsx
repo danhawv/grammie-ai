@@ -366,6 +366,17 @@ export function UploadRecipeModal({ open, onOpenChange, initialMode }: UploadRec
       >
         {batch ? "Back to one recipe with several pages" : "Add several recipes at once"}
       </button>
+      {batch && (
+        <button
+          type="button"
+          className="block min-h-11 text-left text-base font-medium text-primary underline-offset-4 hover:underline disabled:opacity-50"
+          onClick={() => { close(); navigate("/import"); }}
+          disabled={!!busy}
+          data-testid="link-bulk-import"
+        >
+          More than {MAX_BATCH}? Bring in a whole box or folder of recipes
+        </button>
+      )}
     </div>
   ) : view === "link" ? (
     <form id="add-recipe-form" className="space-y-4" onSubmit={(e) => { e.preventDefault(); void submitLink(); }}>
