@@ -1,6 +1,6 @@
 import { downscaleImage } from "@/lib/images";
 import { exifTakenAt, isPdfName, isPhotoName, isZipName, orderPhotos, readZip, sha256Hex, ZipError } from "@/lib/bulk-files";
-import { apiFetch } from "@/lib/platform";
+import { apiFetch } from "./platform";
 
 // Getting hundreds of photos to the server reliably (docs/BULK_IMPORT.md):
 //  - folders and .zip files are opened in the browser, so nothing huge is

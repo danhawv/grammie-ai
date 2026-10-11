@@ -12,7 +12,7 @@ import type {
   SwapOptionView,
   TaskProgress,
 } from "@shared/meal-prep/api";
-import { apiFetch } from "@/lib/platform";
+import { apiFetch } from "./platform";
 
 // Every call the meal-prep screens make to /api/meal-prep lives here, typed
 // against shared/meal-prep/api.ts, so endpoint details change in one place.
