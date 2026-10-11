@@ -28,6 +28,12 @@ const DEFAULTS = {
   bulkCatalog: { model: "gemini-3.1-flash-lite", thinkingLevel: "minimal" },
   /** Bulk intake: matching card backs to their fronts from short text notes */
   bulkPairing: { model: "gemini-3.1-flash-lite", thinkingLevel: "low" },
+  /**
+   * Meal prep: a recipe's steps -> kitchen tasks (hands-on vs waiting time,
+   * oven/burner, what depends on what). Cached per recipe version, so it runs
+   * once per recipe; checked and corrected in code (server/meal-prep/session).
+   */
+  prepSteps: { model: "gemini-3.5-flash-lite", thinkingLevel: "low" },
   /** Short helper answers (substitutions, generated steps) */
   quickText: { model: "gemini-3.5-flash-lite" },
   /** Dish photo for recipes without one */
