@@ -15,6 +15,7 @@ import { lazy, Suspense, useEffect } from "react";
 import { Loader2 } from "lucide-react";
 import { ClerkProvider, useAuth as useClerkAuth } from "@clerk/react";
 import { isNativeApp, setAuthTokenGetter } from "@/lib/platform";
+import { clearImagePass } from "@/lib/image-pass";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { DisplayPrefsApplier } from "@/hooks/use-display-prefs";
 
@@ -127,11 +128,16 @@ function AuthTokenBridge() {
   useEffect(() => {
     if (!isLoaded) return;
     setAuthTokenGetter(() => getToken());
-    // In the app, anything asked for before sign-in was ready went without
-    // the token: ask again now (in a browser the cookie already covered it)
-    if (isNativeApp()) void queryClient.invalidateQueries();
     return () => setAuthTokenGetter(null);
-  }, [getToken, isLoaded, isSignedIn]);
+  }, [getToken, isLoaded]);
+  // In the app, anything asked for before sign-in was ready (or as someone
+  // else) went without the right token: ask again. In a browser the cookie
+  // already covered it.
+  useEffect(() => {
+    if (!isLoaded || !isNativeApp()) return;
+    clearImagePass();
+    void queryClient.invalidateQueries();
+  }, [isLoaded, isSignedIn]);
   return null;
 }
 

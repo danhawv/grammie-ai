@@ -1,6 +1,7 @@
 import { WebSocketServer, WebSocket } from "ws";
 import { Server } from "http";
 import { storage } from "./storage";
+import { userIdForSocket } from "./clerkAuth";
 import type { GroceryListUpdateMessage } from "@shared/schema";
 
 type ListConnection = {
@@ -277,10 +278,16 @@ class MealPlanWebSocketManager {
     this.wss.on("connection", async (ws, req) => {
       const url = new URL(req.url || "", `http://${req.headers.host}`);
       const planId = url.searchParams.get("planId");
-      const userId = url.searchParams.get("userId");
+      if (!planId) {
+        ws.close(4001, "planId required");
+        return;
+      }
 
-      if (!planId || !userId) {
-        ws.close(4001, "planId and userId required");
+      // Who this is comes from their sign-in (session token or cookie), never
+      // from a user id the page sends
+      const userId = await userIdForSocket(req).catch(() => null);
+      if (!userId) {
+        ws.close(4401, "Sign in required");
         return;
       }
 
