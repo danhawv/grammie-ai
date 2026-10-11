@@ -97,3 +97,20 @@ describe("helpers", () => {
     expect(substitutesFor({ id: "buttermilk-ranch-mix", name: "Buttermilk ranch dressing mix", aisle: "Pantry" })).toEqual([]);
   });
 });
+
+describe("food-data style ids", () => {
+  it("shops for the raw ingredient behind a cooked add-on, and shows lines without amounts as written", async () => {
+    const chicken = { ...ADJUSTERS[0], id: "chicken-breast-cooked", name: "Cooked chicken breast", ingredient: { id: "chicken-cooked", name: "Cooked chicken", aisle: "Meat & Seafood" as const } };
+    const plan = { ...PLAN, batches: [{ recipeId: "x", scale: 1, servingsMade: 2 }], adjusterCooking: { "chicken-breast-cooked": 300 }, plates: [] };
+    const facts = [{ ...FACTS[2], recipeId: "x", lines: [
+      { index: 0, raw: "1 lb chicken breast", ingredient: { id: "chicken-breast", name: "Chicken breast", aisle: "Meat & Seafood" as const }, grams: 454, prep: null, optional: false, confidence: "high" as const },
+      { index: 1, raw: "1 jar small white onions (Jar)", ingredient: { id: "onion-yellow", name: "Yellow onion", aisle: "Produce" as const }, grams: null, prep: null, optional: false, confidence: "high" as const },
+    ] }];
+    const list = await buildShoppingList(plan, facts, [chicken], [], food());
+    const items = list.byAisle.flatMap((a) => a.items);
+    const breast = items.filter((i) => /chicken/i.test(i.ingredient.name));
+    expect(breast).toHaveLength(1);
+    expect(breast[0].neededGrams).toBe(454 + 400); // 300 g cooked is ~400 g raw
+    expect(items.find((i) => i.ingredient.id === "onion-yellow")!.display).toBe("1 jar small white onions");
+  });
+});

@@ -16,28 +16,36 @@ interface Need {
   grams: number;
   /** some uses had no amount ("salt to taste") */
   someUnknown: boolean;
+  /** the recipe lines without an amount, as written ("1 jar small white onions") */
+  unknownLines: string[];
   forRecipes: Set<string>;
 }
 
 /** "rice-cooked" / "Rice, cooked" -> the thing you buy */
 function buyable(ref: CanonicalIngredientRef): CanonicalIngredientRef {
-  if (!/cooked/i.test(`${ref.id} ${ref.name}`)) return ref;
+  if (!/cooked|steamed|roasted|baked|boiled/i.test(`${ref.id} ${ref.name}`)) return ref;
   return {
     ...ref,
-    id: ref.id.replace(/[-_]?cooked$/i, "").replace(/^cooked[-_]?/i, ""),
-    name: ref.name.replace(/,?\s*\(?cooked\)?/i, "").replace(/^cooked\s+/i, "").trim(),
+    id: ref.id.replace(COOKED_SUFFIX, "").replace(/^cooked[-_]?/i, ""),
+    name: cap(ref.name.replace(/,?\s*\(?(cooked|steamed|roasted|baked|hard[- ]boiled)\)?/ig, "").replace(/\s+/g, " ").trim()),
   };
 }
+
+/** "chicken-breast-cooked" -> the buyable id (food-data ids put the cooking last) */
+const COOKED_SUFFIX = /[-_](cooked|steamed|roasted|baked|hard[-_]boiled)$/i;
 
 const IGNORE = /^(water|ice|ice water|hot water|cold water|boiling water)$/i;
 
 export function gatherNeeds(plan: PrepPlan, facts: RecipeFacts[], adjusters: Adjuster[]): Need[] {
   const needs = new Map<string, Need>();
-  const add = (ref: CanonicalIngredientRef, grams: number | null, forRecipe: string) => {
+  const add = (ref: CanonicalIngredientRef, grams: number | null, forRecipe: string, raw: string | null) => {
     const r = buyable(ref);
     if (IGNORE.test(r.name.trim())) return;
-    const n = needs.get(r.id) ?? { ingredient: r, grams: 0, someUnknown: false, forRecipes: new Set<string>() };
-    if (grams == null || !Number.isFinite(grams)) n.someUnknown = true;
+    const n = needs.get(r.id) ?? { ingredient: r, grams: 0, someUnknown: false, unknownLines: [], forRecipes: new Set<string>() };
+    if (grams == null || !Number.isFinite(grams)) {
+      n.someUnknown = true;
+      if (raw && !n.unknownLines.includes(raw.trim())) n.unknownLines.push(raw.trim());
+    }
     else n.grams += grams;
     n.forRecipes.add(forRecipe);
     needs.set(r.id, n);
@@ -50,11 +58,13 @@ export function gatherNeeds(plan: PrepPlan, facts: RecipeFacts[], adjusters: Adj
       if (!line.ingredient || line.optional) continue;
       let grams = line.grams == null ? null : line.grams * batch.scale;
       // "2 cups cooked rice": buy the dry rice it takes
-      if (grams != null && isCookedLine(line.raw, line.prep, line.ingredient.id)) {
+      let ref = line.ingredient;
+      if (isCookedLine(line.raw, line.prep, line.ingredient.id)) {
         const def = componentFor(`${line.ingredient.name} ${line.raw}`);
-        if (def) grams = rawGrams(def, grams, def.lineAmountIs);
+        if (def && grams != null) grams = rawGrams(def, grams, def.lineAmountIs);
+        if (def?.buy && /cooked/.test(ref.id)) ref = { ...def.buy, aisle: ref.aisle };
       }
-      add(line.ingredient, grams, f.title);
+      add(ref, grams, f.title, line.raw);
     }
   }
   // Plate add-ons: the cooked ones from adjusterCooking (cooked weight), the rest from the plates
@@ -66,7 +76,9 @@ export function gatherNeeds(plan: PrepPlan, facts: RecipeFacts[], adjusters: Adj
     const grams = adj.needsCooking ? cooked[adj.id] ?? plated.get(adj.id) ?? 0 : plated.get(adj.id) ?? 0;
     if (!(grams > 0)) continue;
     const def = adj.needsCooking ? componentFor(`${adj.ingredient.name} ${adj.name}`) : null;
-    add(adj.ingredient, def ? rawGrams(def, grams, "cooked") : grams, "Plate add-ons");
+    // Shop for the raw thing: "Cooked chicken" on the plates is chicken breast at the store
+    const ref = def?.buy ? { ...def.buy, aisle: adj.ingredient.aisle } : adj.ingredient;
+    add(ref, def ? rawGrams(def, grams, "cooked") : grams, "Plate add-ons", null);
   }
   for (const id of Object.keys(cooked)) if (!byId.has(id)) console.warn(`[MealPrep] adjusterCooking has unknown adjuster ${id}`);
   return Array.from(needs.values());
@@ -148,7 +160,8 @@ export function choosePackages(grams: number, options: Array<{ label: string; gr
   let best: { label: string; n: number; grams: number; leftover: number; price: number | null } | null = null;
   for (const o of options) {
     if (!(o.grams > 0)) continue;
-    const n = Math.max(1, Math.ceil(grams / o.grams - 0.02));
+    // Up to 10% short is fine (the amounts are estimates); more means another package
+    const n = Math.max(1, Math.ceil(grams / o.grams - 0.1));
     const leftover = n * o.grams - grams;
     const price = o.price != null ? n * o.price : null;
     const better = !best
@@ -196,9 +209,12 @@ export async function buildShoppingList(
       have = true;
       pantryCheck.push(`${grams != null ? `${humanAmount(grams, ing)} ` : ""}${ing.name.toLowerCase()}`);
     }
+    // Uses without an amount are shown as the recipe wrote them
+    const extra = n.unknownLines.filter((l) => !/to taste|as needed|for garnish/i.test(l)).map(cleanLine);
+    const unknownText = extra.length ? extra.join("; ") : "to taste";
     const display = grams != null
-      ? `${humanAmount(grams, ing, { wholeItems: true })}${n.someUnknown ? ", plus some to taste" : ""}${note}`
-      : "to taste";
+      ? `${humanAmount(grams, ing, { wholeItems: true })}${n.someUnknown ? `, plus ${extra.length ? extra.join("; ") : "some to taste"}` : ""}${note}`
+      : unknownText;
     let buy: string | null = null;
     if (!have && grams != null) {
       const choice = choosePackages(grams, packages[ing.id] ?? []);
@@ -243,4 +259,10 @@ export async function buildShoppingList(
   return { byAisle, pantryCheck, estimatedCost };
 }
 
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/** "1 jar small white onions (Jar)" -> "1 jar small white onions" */
+function cleanLine(raw: string): string {
+  return raw.replace(/\s*\([^)]*\)\s*$/, "").replace(/^[*•\-\s]+/, "").trim();
+}

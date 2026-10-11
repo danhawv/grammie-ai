@@ -119,6 +119,7 @@ export function normalizeVessel(v: unknown): string | null {
 export function plainName(raw: string): string {
   return (extractIngredientName(raw) || raw)
     .toLowerCase()
+    .replace(/^(t|tb|tbs|tbsp|tsp|c|cups?|lbs?|oz|g)\.?\s+/, "")
     .split(/\s+-\s+|,|\(/)[0]
     .replace(/\b(finely|thinly|roughly|freshly|chopped|diced|minced|sliced|grated|shredded|juiced|cubed|cooked|peeled)\b/g, "")
     .replace(/\s+/g, " ")

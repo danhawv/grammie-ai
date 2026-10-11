@@ -148,5 +148,7 @@ export function humanAmount(grams: number | null, ing: AmountIngredient, opts: {
   }
   const perCup = BY_VOLUME.find(([re]) => re.test(h))?.[1];
   if (perCup) return `${volumeText(grams / perCup)}${grams >= 150 && perCup !== 240 ? ` (${Math.round(grams)} g)` : ""}`;
+  // A spoonful of something (hot sauce, chopped peppers): by the spoon, as if water
+  if (grams < 15) return volumeText(grams / 240);
   return weightText(grams);
 }

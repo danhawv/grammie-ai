@@ -106,3 +106,27 @@ describe("shortTitle", () => {
     expect(shortTitle("Taylor's Greek Avgolemono (Greek Lemon Chicken Soup)")).toBe("Taylor's Greek Avgolemono");
   });
 });
+
+describe("notes and names", () => {
+  it("keeps packing notes, drops make-ahead advice, and shortens them", async () => {
+    const { packSeparately, shortNote, plainAdjusterName } = await import("./merge");
+    expect(packSeparately("Keep the sauce in a separate cup")).toBe(true);
+    expect(packSeparately("Keep the breadcrumb topping separate until just before baking.")).toBe(false);
+    expect(shortNote("Store the chicken separate from the rice to prevent the rice from becoming mushy. Reheat gently.")).toBe("Store the chicken separate from the rice");
+    expect(plainAdjusterName("Cooked white rice")).toBe("white rice");
+    expect(plainAdjusterName("Rice (cooked)")).toBe("rice");
+  });
+});
+
+describe("components the recipe cooks itself", () => {
+  it("doesn't add a shared component when the recipe's own steps cook the line", () => {
+    const b = batches().filter((x) => x.facts.recipeId === "chili");
+    // The chili's rice line, cooked by a step of its own
+    b[0].steps = { ...b[0].steps, tasks: [...b[0].steps.tasks, {
+      id: "rice", text: "Cook the rice", kind: "simmer", activeMin: 2, passiveMin: 18, heat: "burner", tempF: null, appliance: null,
+      vessel: "saucepan", dependsOn: [], holdMin: 30, doneCue: null, ingredients: [{ index: 6, fraction: 1, prep: null }], fromSteps: [3],
+    }] };
+    const g = buildGraph(SETUP, { ...PLAN, batches: [PLAN.batches[0]], adjusterCooking: {}, plates: [] }, b, ADJUSTERS);
+    expect(g.components).toHaveLength(0);
+  });
+});

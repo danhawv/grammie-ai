@@ -89,7 +89,7 @@ function coalesceWashing(extra: ScheduledTask[]) {
     if (run.length > 1) {
       const counts = new Map<string, number>();
       for (const w of run) { const k = w.text.replace(/^Wash the /, "").replace(/ for the next dish$/, ""); counts.set(k, (counts.get(k) ?? 0) + 1); }
-      const parts = Array.from(counts.entries()).map(([k, n]) => (n > 1 ? `${n} ${k}s` : k));
+      const parts = Array.from(counts.entries()).map(([k, n]) => (n > 1 ? `${n} ${/(sh|ch|s|x)$/.test(k) ? `${k}es` : `${k}s`}` : k));
       const head = run[0];
       head.text = `Wash the ${parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}` : parts[0]}`;
       head.end = run[run.length - 1].end;

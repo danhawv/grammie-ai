@@ -2,7 +2,7 @@ import type {
   Adjuster, Confidence, ContainerLabel, Macros, Plate, PrepPlan, PrepSetup, RecipeFacts, ScheduledTask,
 } from "@shared/meal-prep/contract";
 import { niceNumber } from "@shared/meal-prep/amounts";
-import type { SessionGraph } from "./merge";
+import { packSeparately, plainAdjusterName, shortNote, type SessionGraph } from "./merge";
 import type { RecipeSteps } from "./types";
 
 // Containers and labels, plus the lists around the session: equipment, the
@@ -38,8 +38,7 @@ const roundMacros = (m: Macros): Macros => ({
   ...(m.fiber != null ? { fiber: Math.round(m.fiber) } : {}),
 });
 
-const plainAdjusterName = (a: Adjuster | undefined, fallback: string) =>
-  (a?.name ?? fallback).toLowerCase().replace(/\s*\(cooked\)|,?\s*cooked/g, "").trim();
+const adjusterLabel = (a: Adjuster | undefined, fallback: string) => plainAdjusterName(a?.name ?? fallback);
 
 export function plateKey(p: Pick<Plate, "personId" | "day" | "slot">): string {
   return `${p.personId}:${p.day}:${p.slot}`;
@@ -71,7 +70,7 @@ export function buildLabels(setup: PrepSetup, plan: PrepPlan, facts: RecipeFacts
           : `${fmtServings(item.amount)} ${name}`);
         if (f) {
           if (f.storage.reheat) reheat.add(f.storage.reheat);
-          for (const n of f.storage.notes) if (/separate/i.test(n)) notes.add(n);
+          for (const n of f.storage.notes) if (packSeparately(n)) notes.add(shortNote(n));
           for (const a of f.allergens) allergens.add(a);
           if (CONF_ORDER.indexOf(f.confidence) < CONF_ORDER.indexOf(confidence)) confidence = f.confidence;
           // Never later than the dish keeps
@@ -81,12 +80,12 @@ export function buildLabels(setup: PrepSetup, plan: PrepPlan, facts: RecipeFacts
         } else confidence = "low";
       } else {
         const a = adjById.get(item.refId);
-        const name = plainAdjusterName(a, item.refId);
+        const name = adjusterLabel(a, item.refId);
         names.push(name);
         portion.push(`${Math.round((item.grams ?? item.amount) / 5) * 5} g ${name}`);
         if (a) {
           for (const x of adjusterAllergens(a)) allergens.add(x);
-          for (const n of a.storage.notes) if (/separate/i.test(n)) notes.add(n);
+          for (const n of a.storage.notes) if (packSeparately(n)) notes.add(shortNote(n));
           const days = storage === "freezer" ? a.storage.freezerDays ?? a.storage.fridgeDays : a.storage.fridgeDays;
           const limit = addDays(madeOn, days);
           if (limit < eatBy) eatBy = limit;
@@ -124,6 +123,9 @@ export function containerSizes(grams: number[]): Record<string, number> {
   return sizes;
 }
 
+/** "baking dish" -> "baking dishes" */
+const pluralKind = (k: string) => (/(sh|ch|s|x)$/.test(k) ? `${k}es` : `${k}s`);
+
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 export function equipmentList(setup: PrepSetup, graph: SessionGraph, tasks: ScheduledTask[], containers: number): string[] {
@@ -149,7 +151,7 @@ export function equipmentList(setup: PrepSetup, graph: SessionGraph, tasks: Sche
     for (const s of spans) peak = Math.max(peak, spans.filter((o) => o.start < s.end && o.end > s.start && o.start <= s.start).length);
     kinds.set(kind, Math.max(1, peak));
   }
-  for (const [kind, n] of Array.from(kinds.entries()).sort()) list.push(n > 1 ? `${n} ${kind === "dutch oven" ? "dutch ovens" : `${kind}s`}` : `${/^[aeiou]/.test(kind) ? "an" : "a"} ${kind}`);
+  for (const [kind, n] of Array.from(kinds.entries()).sort()) list.push(n > 1 ? `${n} ${pluralKind(kind)}` : `${/^[aeiou]/.test(kind) ? "an" : "a"} ${kind}`);
   const temps = Array.from(new Set(tasks.filter((t) => t.kind === "preheat").map((t) => t.resources[0]?.tempF).filter(Boolean)));
   if (temps.length) list.push(`Oven (${temps.map((t) => `${t}°F`).join(", then ")})`);
   const apps = new Set(tasks.flatMap((t) => t.resources.filter((r) => r.kind === "appliance").map((r) => r.name!)));

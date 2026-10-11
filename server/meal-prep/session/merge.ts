@@ -50,6 +50,20 @@ export const SKILL_PAD: Record<PrepSetup["session"]["skill"], number> = { beginn
 
 const FLUFF = /^(hearty|easy|quick|simple|best|classic|the|my|homemade|healthy|one[- ]pan|one[- ]pot|sheet[- ]pan|crispy|creamy|juicy|leveled[- ]up)\s+/i;
 
+/**
+ * Storage notes that change how a container is packed ("keep the sauce in a
+ * separate cup"), not make-ahead advice ("keep the topping separate until
+ * just before baking").
+ */
+export function packSeparately(note: string): boolean {
+  return /separate/i.test(note) && !/bak|assembl|in advance|before (cooking|serving the casserole)|until just before/i.test(note);
+}
+
+/** A storage note short enough for a label: the first sentence, without the "why" */
+export function shortNote(note: string): string {
+  return note.split(/(?<=[.!?])\s/)[0].replace(/\s+(to prevent|so that|so the|because)\b.*$/i, "").replace(/[.;\s]+$/, "");
+}
+
 /** "Hearty Mexican-Style Beef and Bean Chili" -> "Bean Chili": short enough to start a task line */
 export function shortTitle(title: string): string {
   let t = title.replace(/\([^)]*\)/g, "").replace(/\s+(with|w\/)\s+.*$/i, "").replace(/["“”]/g, "").trim();
@@ -119,7 +133,12 @@ export function buildGraph(setup: PrepSetup, plan: PrepPlan, batches: BatchInput
     const label = batch.scale !== 1 ? `${name} (×${niceNumber(batch.scale)})` : name;
     const dependedOn = new Set(steps.tasks.flatMap((t) => t.dependsOn));
     const componentLines = new Map<number, ComponentDef>();
+    // Lines the recipe's own steps cook ("cook the chicken strips in a skillet") aren't shared components
+    const cookedHere = new Set(steps.tasks
+      .filter((t) => t.heat !== "none" && ["cook", "simmer", "bake"].includes(t.kind))
+      .flatMap((t) => t.ingredients.map((g) => g.index)));
     for (const line of facts.lines) {
+      if (cookedHere.has(line.index)) continue;
       if (!isCookedLine(line.raw, line.prep, line.ingredient?.id ?? null)) continue;
       const def = componentFor(`${line.ingredient?.name ?? ""} ${line.raw}`);
       if (def) componentLines.set(line.index, def);
@@ -214,9 +233,14 @@ export function buildGraph(setup: PrepSetup, plan: PrepPlan, batches: BatchInput
       byRecipe.set(c.recipeId, prev === undefined ? c.use.grams : prev == null || c.use.grams == null ? null : prev + c.use.grams);
     }
     const allKnown = Array.from(byRecipe.values()).every((g) => g != null);
-    const total = allKnown ? Array.from(byRecipe.values()).reduce((s: number, g) => s + (g ?? 0), 0) : null;
+    const rawTotal = allKnown ? Array.from(byRecipe.values()).reduce((s: number, g) => s + (g ?? 0), 0) : null;
     const verb = verbFor(first.form);
     const counted = countedWeight(ing);
+    // Counted things: the total is the sum of the rounded parts, so "1½: ½ for A, 1 for B" adds up
+    let total = rawTotal;
+    if (counted && total != null) {
+      total = Array.from(byRecipe.values()).reduce((s: number, g) => s + Math.max(0.5, Math.round((g ?? 0) / counted.grams * 2) / 2), 0) * counted.grams;
+    }
     const amountOf = (g: number) => (counted ? humanAmount(g, ing).replace(/^(\S+)\s.*$/, "$1") : humanAmount(g, ing));
     const names = Array.from(byRecipe.keys()).map((r) => short.get(r)!);
     const what = total != null ? `${humanAmount(total, ing)}${counted ? "" : ` ${ing.name.toLowerCase()}`}` : `the ${ing.name.toLowerCase()}`;
@@ -368,7 +392,7 @@ function addPortioning(
     groups.set(key, [...(groups.get(key) ?? []), p]);
   }
   const itemName = (kind: string, ref: string) =>
-    kind === "recipe" ? short.get(ref) ?? "dish" : (adjusterById.get(ref)?.name ?? ref).toLowerCase().replace(/\s*\(cooked\)|,?\s*cooked/g, "");
+    kind === "recipe" ? short.get(ref) ?? "dish" : plainAdjusterName(adjusterById.get(ref)?.name ?? ref);
   const itemText = (i: Plate["items"][number]) =>
     i.grams != null ? `${Math.round(i.grams / 5) * 5} g ${itemName(i.kind, i.refId)}`
       : i.kind === "recipe" ? `${niceNumber(i.amount)} ${i.amount > 1 ? "servings" : "serving"} ${itemName(i.kind, i.refId)}`
@@ -414,7 +438,7 @@ function addPortioning(
     const sepNotes = new Set<string>();
     for (const p of group) for (const i of p.items) {
       const notes = i.kind === "recipe" ? batches.find((b) => b.facts.recipeId === i.refId)?.facts.storage.notes : adjusterById.get(i.refId)?.storage.notes;
-      for (const note of notes ?? []) if (/separate/i.test(note)) sepNotes.add(note);
+      for (const note of notes ?? []) if (packSeparately(note)) sepNotes.add(shortNote(note));
     }
     if (sepNotes.size) text += ` (${Array.from(sepNotes).join("; ")})`;
 
@@ -478,6 +502,11 @@ function componentKey(adj: Adjuster): string | null {
 }
 
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+/** "Cooked white rice" -> "white rice", "Rice (cooked)" -> "rice": what a label calls an add-on */
+export function plainAdjusterName(name: string): string {
+  return name.toLowerCase().replace(/\(cooked\)|\bcooked\b/g, "").replace(/\s+/g, " ").replace(/\s+,/g, ",").trim();
+}
 
 function joinAnd(items: string[]): string {
   if (items.length <= 1) return items[0] ?? "";

@@ -33,13 +33,15 @@ export interface ComponentDef {
   steps(opts: { riceCooker: boolean }): ComponentStep[];
   /** food safety note for the session */
   safety?: string;
+  /** the raw canonical ingredient to shop for (food-data ids) */
+  buy?: { id: string; name: string };
 }
 
 const NOT_PLAIN = /\b(brown|wild|cauliflower|paper|vinegar|noodle|wine|flour|cake|pudding|krispies|minute|instant)\b/;
 
 export const COMPONENTS: ComponentDef[] = [
   {
-    key: "rice", name: "rice", match: /\b(white |jasmine |basmati |long[- ]grain )?rice\b/, cookedPerRaw: 3,
+    key: "rice", name: "rice", buy: { id: "rice-white", name: "White rice" }, match: /\b(white |jasmine |basmati |long[- ]grain )?rice\b/, cookedPerRaw: 3,
     lineAmountIs: "cooked", baseRawGrams: 370,
     steps: ({ riceCooker }) => riceCooker
       ? [{ text: "Rinse the rice and start it in the rice cooker", kind: "simmer", activeMin: 4, passiveMin: 35, heat: "appliance", appliance: "rice cooker", vessel: null, doneCue: "Rice cooker clicks to warm", holdMin: 30 }]
@@ -50,7 +52,7 @@ export const COMPONENTS: ComponentDef[] = [
     safety: "Cooked rice: spread it out in a shallow container so it cools fast, and refrigerate it soon after cooking.",
   },
   {
-    key: "brown-rice", name: "brown rice", match: /\bbrown rice\b/, cookedPerRaw: 2.6, lineAmountIs: "cooked", baseRawGrams: 370,
+    key: "brown-rice", name: "brown rice", buy: { id: "rice-brown", name: "Brown rice" }, match: /\bbrown rice\b/, cookedPerRaw: 2.6, lineAmountIs: "cooked", baseRawGrams: 370,
     steps: () => [
       { text: "Rinse the brown rice, bring it to a boil with water (1 part rice to 2 parts water), cover and cook on low", kind: "simmer", activeMin: 4, passiveMin: 45, heat: "burner", vessel: "saucepan", doneCue: "Water is absorbed", holdMin: 15 },
       { text: "Let the brown rice stand, covered, then fluff with a fork", kind: "rest", activeMin: 1, passiveMin: 10, heat: "none", vessel: "saucepan", holdMin: 30 },
@@ -58,21 +60,21 @@ export const COMPONENTS: ComponentDef[] = [
     safety: "Cooked rice: spread it out in a shallow container so it cools fast, and refrigerate it soon after cooking.",
   },
   {
-    key: "quinoa", name: "quinoa", match: /\bquinoa\b/, cookedPerRaw: 2.7, lineAmountIs: "cooked", baseRawGrams: 340,
+    key: "quinoa", name: "quinoa", buy: { id: "quinoa", name: "Quinoa" }, match: /\bquinoa\b/, cookedPerRaw: 2.7, lineAmountIs: "cooked", baseRawGrams: 340,
     steps: () => [
       { text: "Rinse the quinoa, bring it to a boil with water (1 to 2), cover and cook on low", kind: "simmer", activeMin: 3, passiveMin: 15, heat: "burner", vessel: "saucepan", doneCue: "Water is absorbed", holdMin: 15 },
       { text: "Let the quinoa stand, covered, then fluff it", kind: "rest", activeMin: 1, passiveMin: 5, heat: "none", vessel: "saucepan", holdMin: 30 },
     ],
   },
   {
-    key: "pasta", name: "pasta", match: /\b(pasta|spaghetti|penne|macaroni|rotini|fusilli)\b/, cookedPerRaw: 2.2, lineAmountIs: "cooked", baseRawGrams: 450,
+    key: "pasta", name: "pasta", buy: { id: "pasta", name: "Pasta" }, match: /\b(pasta|spaghetti|penne|macaroni|rotini|fusilli)\b/, cookedPerRaw: 2.2, lineAmountIs: "cooked", baseRawGrams: 450,
     steps: () => [
       { text: "Bring a large pot of salted water to a boil", kind: "simmer", activeMin: 2, passiveMin: 12, heat: "burner", vessel: "large pot", holdMin: 30 },
       { text: "Boil the pasta until just tender, drain and toss with a little oil", kind: "cook", activeMin: 4, passiveMin: 8, heat: "burner", vessel: "large pot", doneCue: "Tender with a little bite", holdMin: 20 },
     ],
   },
   {
-    key: "chicken-breast", name: "chicken breast", match: /\bchicken breast|\bchix breast|\bchicken\b(?!.*\b(thigh|stock|broth|soup|base|bouillon|leg|wing)\b)/, cookedPerRaw: 0.75,
+    key: "chicken-breast", name: "chicken breast", buy: { id: "chicken-breast", name: "Chicken breast" }, match: /\bchicken breast|\bchix breast|\bchicken\b(?!.*\b(thigh|stock|broth|soup|base|bouillon|leg|wing)\b)/, cookedPerRaw: 0.75,
     lineAmountIs: "raw", baseRawGrams: 900,
     steps: () => [
       { text: "Season the chicken breasts with salt, pepper and a little oil and lay them on a sheet pan", kind: "prep", activeMin: 5, passiveMin: 0, heat: "none", vessel: "sheet pan", holdMin: 30 },
@@ -81,7 +83,7 @@ export const COMPONENTS: ComponentDef[] = [
     ],
   },
   {
-    key: "chicken-thigh", name: "chicken thighs", match: /\bchicken thigh/, cookedPerRaw: 0.7, lineAmountIs: "raw", baseRawGrams: 900,
+    key: "chicken-thigh", name: "chicken thighs", buy: { id: "chicken-thigh", name: "Chicken thighs" }, match: /\bchicken thigh/, cookedPerRaw: 0.7, lineAmountIs: "raw", baseRawGrams: 900,
     steps: () => [
       { text: "Season the chicken thighs with salt, pepper and a little oil and lay them on a sheet pan", kind: "prep", activeMin: 5, passiveMin: 0, heat: "none", vessel: "sheet pan", holdMin: 30 },
       { text: "Roast the chicken thighs", kind: "bake", activeMin: 1, passiveMin: 25, heat: "oven", tempF: 425, vessel: "sheet pan", doneCue: "Reaches 175°F", holdMin: 20 },
@@ -95,7 +97,7 @@ export const COMPONENTS: ComponentDef[] = [
     ],
   },
   {
-    key: "egg", name: "eggs", match: /\b(hard[- ]boiled )?eggs?\b/, cookedPerRaw: 1, lineAmountIs: "raw", baseRawGrams: 600,
+    key: "egg", name: "eggs", buy: { id: "egg", name: "Eggs" }, match: /\b(hard[- ]boiled )?eggs?\b/, cookedPerRaw: 1, lineAmountIs: "raw", baseRawGrams: 600,
     steps: () => [
       { text: "Cover the eggs with water, bring to a boil, then turn off the heat and cover", kind: "simmer", activeMin: 2, passiveMin: 22, heat: "burner", vessel: "saucepan", holdMin: 10 },
       { text: "Move the eggs to cold water to cool", kind: "chill", activeMin: 2, passiveMin: 10, heat: "none", vessel: "mixing bowl", holdMin: 120 },
@@ -106,6 +108,13 @@ export const COMPONENTS: ComponentDef[] = [
     steps: () => [
       { text: "Cut the potatoes into chunks, toss with oil and salt on a sheet pan", kind: "prep", activeMin: 8, passiveMin: 0, heat: "none", vessel: "sheet pan", holdMin: 30 },
       { text: "Roast the potatoes, turning once", kind: "bake", activeMin: 2, passiveMin: 30, heat: "oven", tempF: 425, vessel: "sheet pan", doneCue: "Browned and tender", holdMin: 30 },
+    ],
+  },
+  {
+    key: "steamed-veg", name: "vegetables", match: /\bsteamed\b/, cookedPerRaw: 0.95, lineAmountIs: "raw", baseRawGrams: 500,
+    steps: () => [
+      { text: "Cut the vegetables into bite-size pieces", kind: "prep", activeMin: 6, passiveMin: 0, heat: "none", vessel: null, holdMin: 120 },
+      { text: "Steam the vegetables in a covered pot with a little water until just tender", kind: "simmer", activeMin: 2, passiveMin: 7, heat: "burner", vessel: "saucepan", doneCue: "Bright and just tender", holdMin: 30 },
     ],
   },
   {
