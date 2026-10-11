@@ -38,6 +38,7 @@ import {
   type TextSize,
   type UserPreferences,
 } from "@shared/food-profile";
+import { apiFetch, mediaUrl } from "@/lib/platform";
 
 // The "Me" page: Account, Food profile, Display. One place for every
 // preference (docs/DESIGN_PRINCIPLES.md §4). Changes save automatically.
@@ -174,7 +175,7 @@ function AccountCard({
     <div className="space-y-4">
       <div className="flex items-center gap-4">
         <Avatar className="h-14 w-14">
-          <AvatarImage src={imageUrl || undefined} alt="" />
+          <AvatarImage src={mediaUrl(imageUrl)} alt="" />
           <AvatarFallback>{initials}</AvatarFallback>
         </Avatar>
         <div className="min-w-0">
@@ -729,7 +730,7 @@ function AdminSettings() {
   const { data: info } = useQuery<AIProviderInfo | null>({
     queryKey: ["/api/admin/ai-provider"],
     queryFn: async () => {
-      const response = await fetch("/api/admin/ai-provider", { credentials: "include" });
+      const response = await apiFetch("/api/admin/ai-provider", { credentials: "include" });
       if (response.status === 403 || response.status === 401) return null; // not an admin
       if (!response.ok) throw new Error("Failed to fetch AI provider info");
       return response.json();
@@ -739,7 +740,7 @@ function AdminSettings() {
 
   const updateProvider = useMutation({
     mutationFn: async (provider: "openai" | "gemini") => {
-      const response = await fetch("/api/admin/ai-provider", {
+      const response = await apiFetch("/api/admin/ai-provider", {
         method: "PUT",
         body: JSON.stringify({ provider }),
         headers: { "Content-Type": "application/json" },

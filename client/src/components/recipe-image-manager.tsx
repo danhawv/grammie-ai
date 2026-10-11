@@ -27,6 +27,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { apiFetch, mediaUrl } from "@/lib/platform";
 
 interface DishImage {
   id: string;
@@ -83,7 +84,7 @@ export function RecipeImageCarousel({
   return (
     <div className="relative w-full h-full">
       <img
-        src={currentDisplayImage?.url}
+        src={mediaUrl(currentDisplayImage?.url)}
         alt="Recipe dish"
         className="w-full h-full object-cover"
         data-testid="img-recipe-carousel"
@@ -183,7 +184,7 @@ export function RecipeImageManager({
 
   const { data: promptData, isLoading: isLoadingPrompt } = useQuery({
     queryKey: ['/api/recipes', recipeId, 'image-prompt'],
-    queryFn: () => fetch(`/api/recipes/${recipeId}/image-prompt`, { credentials: 'include' }).then(r => r.json()),
+    queryFn: () => apiFetch(`/api/recipes/${recipeId}/image-prompt`, { credentials: 'include' }).then(r => r.json()),
     enabled: isPromptDialogOpen,
   });
 
@@ -266,7 +267,7 @@ export function RecipeImageManager({
 
     setIsUploading(true);
     try {
-      const res = await fetch(`/api/recipes/${recipeId}/upload-image`, {
+      const res = await apiFetch(`/api/recipes/${recipeId}/upload-image`, {
         method: 'POST',
         body: formData,
         credentials: 'include',
@@ -454,7 +455,7 @@ export function RecipeImageManager({
                   </div>
                   
                   <img
-                    src={img.thumbnailUrl || img.url}
+                    src={mediaUrl(img.thumbnailUrl || img.url)}
                     alt={`Recipe image ${idx + 1}`}
                     className="w-20 h-20 object-cover rounded-md"
                     data-testid={`img-thumbnail-${img.id}`}

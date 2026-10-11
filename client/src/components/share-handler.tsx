@@ -14,6 +14,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Loader2, ImageIcon, Link2, Upload, CheckCircle2 } from 'lucide-react';
 import { useUploadProgress } from '@/contexts/UploadProgressContext';
+import { apiFetch } from "@/lib/platform";
 
 interface SharedFile {
   name: string;
@@ -62,7 +63,7 @@ export function ShareHandler() {
       const formData = new FormData();
       formData.append('images', file);
 
-      const response = await fetch('/api/recipes/upload', {
+      const response = await apiFetch('/api/recipes/upload', {
         method: 'POST',
         body: formData,
         credentials: 'include',

@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { apiRequest, getQueryFn, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/useAuth";
 import type { UserPreferences } from "@shared/food-profile";
+import { apiFetch } from "@/lib/platform";
 
 // The signed-in user's saved preferences (Food profile, Display, …), and an
 // autosaver for the Me page. Readers should interpret the object with
@@ -96,7 +97,7 @@ export function useAutosavePreferences(delay = 700) {
       const body = JSON.stringify(pending.current);
       pending.current = {};
       try {
-        void fetch(PREFERENCES_URL, {
+        void apiFetch(PREFERENCES_URL, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body,

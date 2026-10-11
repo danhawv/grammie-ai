@@ -22,6 +22,7 @@ import {
 import type { PrintLayoutData } from "@shared/schema";
 import { BOOK_SIZES, BINDING_TYPES, PAPER_TYPES, COLOR_TYPES, COVER_FINISHES } from "@/lib/print-constants";
 import { TEMPLATE_STYLES } from "@/components/print/look-step";
+import { mediaUrl } from "@/lib/platform";
 
 // Checkout (docs/DESIGN_PRINCIPLES.md §5 and §8):
 //   1. Copies, with "about $X including shipping" and an arrival range before any form
@@ -285,7 +286,7 @@ export function PrintOrderPanel({
 
   const cover = (
     <div className="flex h-28 w-20 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-primary/10 shadow-sm">
-      {coverImage ? <img src={coverImage} alt="" className="h-full w-full object-cover" /> : <BookOpen className="h-8 w-8 text-primary" aria-hidden />}
+      {coverImage ? <img src={mediaUrl(coverImage)} alt="" className="h-full w-full object-cover" /> : <BookOpen className="h-8 w-8 text-primary" aria-hidden />}
     </div>
   );
 

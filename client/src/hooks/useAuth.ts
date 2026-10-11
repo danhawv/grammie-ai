@@ -1,5 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { navigate } from "wouter/use-browser-location";
 import { queryClient, apiRequest, getQueryFn } from "@/lib/queryClient";
+import { apiFetch } from "@/lib/platform";
 
 export interface User {
   id: string;
@@ -27,19 +29,21 @@ export function useAuth() {
   });
 
   const loginMutation = useMutation({
+    // Both the Clerk and the older sign-in use the /login page (the server's
+    // /api/login only redirected there); no reload, so it works in the app too
     mutationFn: async () => {
-      if (hasClerk) {
-        window.location.href = "/login";
-      } else {
-        window.location.href = "/api/login";
-      }
+      navigate("/login");
     },
   });
 
   const logoutMutation = useMutation({
+    // With Clerk, signing out goes through Clerk (settings / UserButton).
+    // The older sign-in ends the server session, then goes home.
     mutationFn: async () => {
       if (!hasClerk) {
-        window.location.href = "/api/logout";
+        await apiFetch("/api/logout").catch(() => undefined);
+        qc.clear();
+        navigate("/");
       }
     },
   });

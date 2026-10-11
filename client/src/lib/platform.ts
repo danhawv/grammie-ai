@@ -29,6 +29,17 @@ export function apiUrl(path: string): string {
 }
 
 /**
+ * An image or file reference from the server ("/media/...", "/api/...", a
+ * full URL or a data: URL) as something an <img src> can load from here.
+ * Passes empty values through so it can wrap optional fields.
+ */
+export function mediaUrl(ref: string): string;
+export function mediaUrl(ref: string | null | undefined): string | undefined;
+export function mediaUrl(ref: string | null | undefined): string | undefined {
+  return ref ? apiUrl(ref) : undefined;
+}
+
+/**
  * A link to a page of the site that works for anyone it's sent to: the
  * current site in a browser, the public site from inside the app.
  */

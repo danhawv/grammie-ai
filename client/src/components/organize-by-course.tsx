@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Loader2, LayoutList, ChevronDown } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { apiFetch } from "@/lib/platform";
 
 // Sidebar card in the print editor: proposes book chapters by course
 // (Breakfast, Mains, Desserts...) and replaces the current sections only
@@ -31,7 +32,7 @@ export function OrganizeByCourse({ cookbookId, hasExistingSections, onApply }: {
   const buildPlan = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/cookbooks/${cookbookId}/course-plan`, { method: "POST", credentials: "include" });
+      const res = await apiFetch(`/api/cookbooks/${cookbookId}/course-plan`, { method: "POST", credentials: "include" });
       if (!res.ok) throw new Error((await res.json()).error || "Failed to organize");
       setPlan(await res.json());
     } catch (e: any) {

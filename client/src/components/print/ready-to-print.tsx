@@ -11,6 +11,7 @@ import { lintIngredients, type NormalizedIngredientLike } from "@shared/ingredie
 import type { BookPageDetails, ReadinessItem, ReadinessResult } from "@shared/print-readiness";
 import type { CustomTemplate, FamilyPhotoEntry, PrintLayoutData } from "@shared/schema";
 import type { BookDraft, StepId } from "./types";
+import { privateImageUrl, useImagePass } from "@/lib/image-pass";
 
 // "Ready to print?" (replaces the old Review and Preflight panels): one
 // plain-language list, split into "Needs attention" (would print wrong) and
@@ -65,6 +66,7 @@ export function ReadyToPrint({ cookbookId, draft, updateLayout, goToStep, onOpen
   const { toast } = useToast();
   const layout = draft.layoutData;
   const { dismissed, dismiss } = useDismissed(cookbookId);
+  const imagePass = useImagePass();
   const replaceRef = useRef<HTMLInputElement>(null);
   const [replacing, setReplacing] = useState<FamilyPhotoEntry | null>(null);
 
@@ -228,7 +230,7 @@ export function ReadyToPrint({ cookbookId, draft, updateLayout, goToStep, onOpen
         names: [{ label: c.title, href: `/recipe/${c.recipeId}` }],
         media: (
           <img
-            src={`/api/cookbooks/${cookbookId}/original-cards/${c.recipeId}?v=${cardVersion[c.recipeId] ?? 0}`}
+            src={privateImageUrl(`/api/cookbooks/${cookbookId}/original-cards/${c.recipeId}?v=${cardVersion[c.recipeId] ?? 0}`, imagePass)}
             alt={`Original card for ${c.title}, as it would print`}
             className="mt-3 max-h-48 w-auto rounded border bg-muted"
             loading="lazy"

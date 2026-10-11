@@ -12,6 +12,7 @@ import type {
   SwapOptionView,
   TaskProgress,
 } from "@shared/meal-prep/api";
+import { apiFetch } from "@/lib/platform";
 
 // Every call the meal-prep screens make to /api/meal-prep lives here, typed
 // against shared/meal-prep/api.ts, so endpoint details change in one place.
@@ -49,7 +50,7 @@ export function errorText(err: unknown, fallback = "Check your connection and tr
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<{ status: number; data: T }> {
   if (fixturesOn()) return (await import("./meal-prep-fixtures")).fixtureCall<T>(method, path, body);
-  const res = await fetch(`${BASE}${path}`, {
+  const res = await apiFetch(`${BASE}${path}`, {
     method,
     headers: body !== undefined ? { "Content-Type": "application/json" } : {},
     body: body !== undefined ? JSON.stringify(body) : undefined,

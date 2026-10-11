@@ -18,6 +18,8 @@ import {
   buildAlbumPageHtml, buildSectionPhotosPageHtml, buildDedicationPhotoPageHtml, chunkAlbum, familyPhotoSlotHtml, fitFamilyPhotoSlots,
   FAMILY_ALBUM_TITLE, type AlbumPhoto,
 } from "@shared/family-photos";
+import { apiFetch, mediaUrl } from "@/lib/platform";
+import { privateImageUrl, useImagePass } from "@/lib/image-pass";
 
 // --- Constants ---
 const DPI = 96;
@@ -273,7 +275,7 @@ export function CookbookPrintPreview({
   const { data: recipesData } = useQuery<{ recipes: Recipe[] }>({
     queryKey: ['/api/cookbooks', cookbookId, 'recipes', 'print'],
     queryFn: async () => {
-      const response = await fetch(`/api/cookbooks/${cookbookId}/recipes/print`, { credentials: 'include' });
+      const response = await apiFetch(`/api/cookbooks/${cookbookId}/recipes/print`, { credentials: 'include' });
       if (!response.ok) throw new Error('Failed to load recipes');
       return response.json();
     },
@@ -310,6 +312,7 @@ export function CookbookPrintPreview({
   }, [showNutrition, showTips, showVariations, theme.recipeLayout]);
 
   // Family photos: one under each recipe that has room, the rest in the album
+  const imagePass = useImagePass();
   const { photoByRecipe, albumPhotos, photosBySection, dedicationPhoto } = useMemo(() => {
     const inBook = new Set((layoutData?.sections ?? []).flatMap((s) => s.recipeIds));
     const byRecipe = new Map<string, string>();
@@ -317,16 +320,16 @@ export function CookbookPrintPreview({
     const bySection = new Map<string, AlbumPhoto[]>();
     let dedication: AlbumPhoto | undefined;
     for (const p of layoutData?.familyPhotos ?? []) {
-      const photo = { src: photoUrl(p.id), aspect: p.width / p.height };
+      const photo = { src: privateImageUrl(photoUrl(p.id), imagePass), aspect: p.width / p.height };
       if (p.placement?.type === 'dedication') dedication ??= photo;
       else if (p.placement?.type === 'section' && p.placement.sectionId) bySection.set(p.placement.sectionId, [...(bySection.get(p.placement.sectionId) ?? []), photo]);
       else if (p.placement?.type === 'album') album.push(photo);
       else if (p.placement?.type === 'recipe' && p.placement.recipeId && inBook.has(p.placement.recipeId) && !byRecipe.has(p.placement.recipeId)) {
-        byRecipe.set(p.placement.recipeId, photoUrl(p.id));
+        byRecipe.set(p.placement.recipeId, privateImageUrl(photoUrl(p.id), imagePass));
       }
     }
     return { photoByRecipe: byRecipe, albumPhotos: album, photosBySection: bySection, dedicationPhoto: dedication };
-  }, [layoutData?.familyPhotos, layoutData?.sections]);
+  }, [layoutData?.familyPhotos, layoutData?.sections, imagePass]);
 
   // Build pages
   const pages: PageContent[] = useMemo(() => {
@@ -773,7 +776,7 @@ function CoverPage({ layoutData, theme, recipes, w, h, customTemplateData }: {
       {customTemplateData?.cover?.coverImage && !layoutData?.coverData?.frontImageUrl && (
         <>
           <img
-            src={customTemplateData.cover.coverImage}
+            src={mediaUrl(customTemplateData.cover.coverImage)}
             alt=""
             style={{
               position: 'absolute', inset: 0, width: '100%', height: '100%',
@@ -798,7 +801,7 @@ function CoverPage({ layoutData, theme, recipes, w, h, customTemplateData }: {
 
       {layoutData?.coverImage || layoutData?.coverData?.frontImageUrl ? (
         <img
-          src={layoutData.coverData?.frontImageUrl || layoutData.coverImage || ''}
+          src={mediaUrl(layoutData.coverData?.frontImageUrl || layoutData.coverImage) || ''}
           alt=""
           style={{
             width: Math.min(120, w * 0.25), height: Math.min(120, w * 0.25),
@@ -1013,12 +1016,13 @@ function CardRecipePage({ recipe, theme, w, h, includePhoto, unitSystem, steps =
   includePhoto: boolean; unitSystem: UnitSystem; steps?: StepsVersion; pageNumber?: number; familyPhotoSrc?: string; cookbookId: number;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const imagePass = useImagePass();
   const html = useMemo(() => {
     const n = transformRecipe(recipe as any, unitSystem, steps);
-    n.imageUrl = recipe.dishImageThumbnail || recipe.dishImage || n.imageUrl;
+    n.imageUrl = mediaUrl(recipe.dishImageThumbnail || recipe.dishImage || n.imageUrl);
     // Original handwritten card: a small copy, loaded only when the layout shows it
     if ((recipe as any).hasOriginalCard && (theme.recipeLayout?.original ?? 'none') !== 'none') {
-      n.originalImageUrl = `/api/cookbooks/${cookbookId}/original-cards/${recipe.id}`;
+      n.originalImageUrl = privateImageUrl(`/api/cookbooks/${cookbookId}/original-cards/${recipe.id}`, imagePass);
     }
     return buildRecipeCardHtml(n, theme.recipeLayout, theme, {
       widthIn: w / DPI, heightIn: h / DPI, bleedIn: 0,
@@ -1026,7 +1030,7 @@ function CardRecipePage({ recipe, theme, w, h, includePhoto, unitSystem, steps =
       padLeftIn: MARGIN_INNER, padRightIn: MARGIN_OUTER,
       pageNumber,
     }, { includePhoto, beforePageNumber: familyPhotoSrc ? familyPhotoSlotHtml(familyPhotoSrc, theme) : '' });
-  }, [recipe, theme, unitSystem, steps, w, h, pageNumber, includePhoto, familyPhotoSrc, cookbookId]);
+  }, [recipe, theme, unitSystem, steps, w, h, pageNumber, includePhoto, familyPhotoSrc, cookbookId, imagePass]);
 
   useLayoutEffect(() => {
     const root = ref.current;
@@ -1083,7 +1087,7 @@ function RecipePage({ recipe, index, theme, w, h, includePhoto, unitSystem = "or
   const padRight = MARGIN_OUTER * DPI;
 
   const hasImage = includePhoto && (recipe.dishImageThumbnail || recipe.dishImage);
-  const imageUrl = recipe.dishImageThumbnail || recipe.dishImage || '';
+  const imageUrl = mediaUrl(recipe.dishImageThumbnail || recipe.dishImage) || '';
 
   // Image takes a proportional chunk of the page
   const imageH = hasImage ? Math.min(h * 0.3, 220) : 0;

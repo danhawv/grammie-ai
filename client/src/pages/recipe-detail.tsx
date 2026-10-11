@@ -37,6 +37,7 @@ import { RecipeExtras } from "@/components/recipe/recipe-extras";
 import { RecipeActionsMenu } from "@/components/recipe/recipe-actions";
 import { RecipePrintView } from "@/components/recipe/recipe-print-view";
 import { getDisplayIngredients, getDisplayInstructions } from "@/components/recipe/recipe-utils";
+import { apiFetch, mediaUrl } from "@/lib/platform";
 
 // The recipe page, recipe first (docs/DESIGN_PRINCIPLES.md rule 1):
 // title, a short photo and the key numbers; a big "Start cooking"; then
@@ -127,7 +128,7 @@ export default function RecipeDetail() {
     enabled: !!readingStage && !!user && user.id === recipe?.ownerUserId,
     refetchInterval: 1000,
     queryFn: async () => {
-      const res = await fetch(`/api/recipe-imports/status?ids=${encodeURIComponent(recipeId ?? "")}`, { credentials: "include" });
+      const res = await apiFetch(`/api/recipe-imports/status?ids=${encodeURIComponent(recipeId ?? "")}`, { credentials: "include" });
       if (!res.ok) return null;
       const data = (await res.json()) as { items: Array<{ stage?: string }> };
       const stage = data.items[0]?.stage;
@@ -497,7 +498,7 @@ export default function RecipeDetail() {
       <Dialog open={imageModalOpen} onOpenChange={setImageModalOpen}>
         <DialogContent className="max-w-4xl p-0">
           <DialogTitle className="sr-only">Original recipe card</DialogTitle>
-          <img src={modalImage} alt="Original recipe card, full size" className="h-auto w-full" data-testid="img-modal-full-size" />
+          <img src={mediaUrl(modalImage)} alt="Original recipe card, full size" className="h-auto w-full" data-testid="img-modal-full-size" />
         </DialogContent>
       </Dialog>
 

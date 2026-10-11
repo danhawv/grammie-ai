@@ -20,6 +20,7 @@ import {
   ChefHat,
   Utensils,
 } from "lucide-react";
+import { apiFetch, mediaUrl } from "@/lib/platform";
 
 type RecipeResult = {
   id: string;
@@ -55,7 +56,7 @@ export function RecipePicker({
     queryFn: async () => {
       const params = new URLSearchParams({ page: "1", limit: "20" });
       if (search) params.set("search", search);
-      const res = await fetch(`/api/recipes?${params}`);
+      const res = await apiFetch(`/api/recipes?${params}`);
       if (!res.ok) throw new Error("Failed to fetch");
       const data = await res.json();
       return data.recipes || data;
@@ -68,7 +69,7 @@ export function RecipePicker({
     queryFn: async () => {
       const params = new URLSearchParams();
       if (mealSlot) params.set("mealSlot", mealSlot);
-      const res = await fetch(`/api/meal-plans/${mealPlanId}/suggestions?${params}`);
+      const res = await apiFetch(`/api/meal-plans/${mealPlanId}/suggestions?${params}`);
       if (!res.ok) throw new Error("Failed to fetch");
       return res.json();
     },
@@ -99,7 +100,7 @@ export function RecipePicker({
     >
       {recipe.dishImageThumbnail ? (
         <img
-          src={recipe.dishImageThumbnail}
+          src={mediaUrl(recipe.dishImageThumbnail)}
           alt={recipe.title}
           className="w-14 h-14 rounded-lg object-cover flex-shrink-0"
         />

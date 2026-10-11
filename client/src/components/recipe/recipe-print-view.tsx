@@ -1,6 +1,7 @@
 import type { Recipe } from "@shared/schema";
 import { formatMinutes, ingredientDisplay } from "@shared/recipe-display";
 import { isPlaceholderImage } from "./recipe-utils";
+import { mediaUrl } from "@/lib/platform";
 
 // Print-only layout (hidden on screen), used by "Print recipe".
 
@@ -21,9 +22,9 @@ export function RecipePrintView({ recipe, ingredients, instructions }: { recipe:
       </div>
 
       <div className="print-recipe-images">
-        {image && <img src={image} alt={recipe.title} className="print-recipe-dish-image" />}
+        {image && <img src={mediaUrl(image)} alt={recipe.title} className="print-recipe-dish-image" />}
         {recipe.handwrittenImage && (
-          <img src={recipe.handwrittenImage} alt="Original handwritten recipe" className="print-recipe-handwritten-image" />
+          <img src={mediaUrl(recipe.handwrittenImage)} alt="Original handwritten recipe" className="print-recipe-handwritten-image" />
         )}
       </div>
 

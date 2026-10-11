@@ -6,6 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowLeft, ChevronLeft, ChevronRight, BookOpen, Printer, ShoppingCart } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import type { Recipe } from "@shared/schema";
+import { apiFetch, mediaUrl } from "@/lib/platform";
 
 interface Cookbook {
   id: number;
@@ -69,7 +70,7 @@ export default function CookbookPrintPage() {
   const { data: cookbook, isLoading: cookbookLoading } = useQuery<Cookbook>({
     queryKey: ['/api/cookbooks', cookbookId],
     queryFn: async () => {
-      const response = await fetch(`/api/cookbooks/${cookbookId}`, { credentials: 'include' });
+      const response = await apiFetch(`/api/cookbooks/${cookbookId}`, { credentials: 'include' });
       if (!response.ok) throw new Error('Failed to load cookbook');
       return response.json();
     },
@@ -79,7 +80,7 @@ export default function CookbookPrintPage() {
   const { data: recipesData, isLoading: recipesLoading } = useQuery<PrintRecipesResponse>({
     queryKey: ['/api/cookbooks', cookbookId, 'recipes', 'print'],
     queryFn: async () => {
-      const response = await fetch(`/api/cookbooks/${cookbookId}/recipes/print`, { credentials: 'include' });
+      const response = await apiFetch(`/api/cookbooks/${cookbookId}/recipes/print`, { credentials: 'include' });
       if (!response.ok) throw new Error('Failed to load recipes');
       return response.json();
     },
@@ -265,7 +266,7 @@ function CoverPage({ cookbook, ownerName, recipeCount }: { cookbook: Cookbook; o
       <div className="absolute top-6 left-6 right-6 bottom-6 border-2 border-orange-200/50 rounded-lg pointer-events-none" />
 
       {cookbook.coverImage ? (
-        <img src={cookbook.coverImage} alt="" className="w-32 h-32 rounded-full object-cover mb-6 ring-4 ring-orange-200 shadow-lg" />
+        <img src={mediaUrl(cookbook.coverImage)} alt="" className="w-32 h-32 rounded-full object-cover mb-6 ring-4 ring-orange-200 shadow-lg" />
       ) : (
         <div className="w-24 h-24 rounded-full bg-gradient-to-br from-orange-400 to-amber-500 flex items-center justify-center mb-6 shadow-lg">
           <BookOpen className="h-12 w-12 text-white" />
@@ -335,7 +336,7 @@ function RecipePage({ recipe, index }: { recipe: Recipe; index: number }) {
       {recipe.dishImageThumbnail && (
         <div className="relative h-40 sm:h-48 shrink-0">
           <img
-            src={recipe.dishImageThumbnail}
+            src={mediaUrl(recipe.dishImageThumbnail)}
             alt={recipe.title}
             className="w-full h-full object-cover"
           />

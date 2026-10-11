@@ -30,6 +30,7 @@ import { replacePhotosForBook } from "@/lib/place-photos";
 import { BINDING_PAGE_LIMITS } from "@/lib/print-constants";
 import type { CookbookPrintProject, CustomTemplate, PrintLayoutData } from "@shared/schema";
 import type { BindingTypeId, ColorTypeId, CoverFinishId, PaperTypeId, TrimSizeId } from "@/lib/print-constants";
+import { apiFetch } from "@/lib/platform";
 
 // The print builder, as a short guided flow (docs/DESIGN_PRINCIPLES.md §8):
 // 1 Recipes & chapters · 2 Look · 3 Personalize · 4 Ready to print? · 5 Order.
@@ -109,7 +110,7 @@ function CookbookPrintEditorInner() {
     queryFn: async () => {
       const all: RecipeSummary[] = [];
       for (let page = 1; page <= 50; page++) {
-        const res = await fetch(`/api/cookbooks/${cookbookId}/recipes?limit=100&page=${page}`, { credentials: "include" });
+        const res = await apiFetch(`/api/cookbooks/${cookbookId}/recipes?limit=100&page=${page}`, { credentials: "include" });
         if (!res.ok) throw new Error("Failed to load recipes");
         const body = (await res.json()) as { recipes: RecipeSummary[]; hasMore?: boolean };
         all.push(...body.recipes);
@@ -258,7 +259,7 @@ function CookbookPrintEditorInner() {
     if (!draft) return;
     setIsGeneratingPdf(true);
     try {
-      const response = await fetch(`/api/cookbooks/${cookbookId}/generate-pdf`, {
+      const response = await apiFetch(`/api/cookbooks/${cookbookId}/generate-pdf`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",

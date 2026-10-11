@@ -4,6 +4,7 @@ import { ArrowLeftRight, ExternalLink, Wand2, ZoomIn } from "lucide-react";
 import { SiInstagram, SiTiktok, SiYoutube } from "react-icons/si";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import { mediaUrl } from "@/lib/platform";
 
 // Where the recipe came from: the family's notes, the original card image,
 // the social post it was imported from, or the recipe it was adapted from.
@@ -34,7 +35,7 @@ function SourceAttribution({
       <div className="flex min-w-0 items-center gap-3">
         {creatorAvatar ? (
           <Avatar className="h-10 w-10 shrink-0 border-2 border-muted">
-            <AvatarImage src={creatorAvatar} alt="" />
+            <AvatarImage src={mediaUrl(creatorAvatar)} alt="" />
             <AvatarFallback><Icon className="h-5 w-5" /></AvatarFallback>
           </Avatar>
         ) : (
@@ -116,7 +117,7 @@ export function RecipeNotes({ recipe, onViewImage }: { recipe: Recipe; onViewIma
             aria-label="View the original recipe card full size"
             data-testid="button-view-handwritten"
           >
-            <img src={recipe.handwrittenImage} alt="Original recipe card" className="h-auto w-full" />
+            <img src={mediaUrl(recipe.handwrittenImage)} alt="Original recipe card" className="h-auto w-full" />
             <span className="absolute bottom-2 right-2 inline-flex items-center gap-1.5 rounded-md bg-background/90 px-2.5 py-1.5 text-sm font-medium shadow">
               <ZoomIn className="h-4 w-4" aria-hidden />
               View full size

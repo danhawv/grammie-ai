@@ -1,5 +1,6 @@
 import { downscaleImage } from "@/lib/images";
 import { exifTakenAt, isPdfName, isPhotoName, isZipName, orderPhotos, readZip, sha256Hex, ZipError } from "@/lib/bulk-files";
+import { apiFetch } from "@/lib/platform";
 
 // Getting hundreds of photos to the server reliably (docs/BULK_IMPORT.md):
 //  - folders and .zip files are opened in the browser, so nothing huge is
@@ -129,7 +130,7 @@ async function postPhoto(intakeId: string, form: FormData): Promise<void> {
   for (let attempt = 1; ; attempt++) {
     let res: Response | null = null;
     try {
-      res = await fetch(`/api/bulk-intake/${intakeId}/photos`, { method: "POST", body: form, credentials: "include" });
+      res = await apiFetch(`/api/bulk-intake/${intakeId}/photos`, { method: "POST", body: form, credentials: "include" });
     } catch {
       // Offline or the connection dropped: retry below
     }

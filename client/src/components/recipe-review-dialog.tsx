@@ -8,6 +8,7 @@ import { Loader2, Check, Wand2, ArrowRight } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
 import { lintIngredients, type IngredientIssue, type NormalizedIngredientLike } from "@shared/ingredient-lint";
+import { apiFetch } from "@/lib/platform";
 
 // Pre-print review: scans every recipe in the cookbook for ingredient lines
 // that would look wrong in a printed book (AI-normalization artifacts like
@@ -37,7 +38,7 @@ export function RecipeReviewDialog({ cookbookId, open, onClose }: {
   const { data, isLoading } = useQuery<{ recipes: ReviewRecipe[] }>({
     queryKey: ['/api/cookbooks', cookbookId, 'recipes', 'print'],
     queryFn: async () => {
-      const res = await fetch(`/api/cookbooks/${cookbookId}/recipes/print`, { credentials: 'include' });
+      const res = await apiFetch(`/api/cookbooks/${cookbookId}/recipes/print`, { credentials: 'include' });
       if (!res.ok) throw new Error('Failed to load recipes');
       return res.json();
     },
@@ -64,7 +65,7 @@ export function RecipeReviewDialog({ cookbookId, open, onClose }: {
       const updated = (recipe.normalizedIngredients || []).map((ing, i) =>
         i === issue.index ? { ...ing, ...patch } : ing
       );
-      const res = await fetch(`/api/recipes/${recipe.id}`, {
+      const res = await apiFetch(`/api/recipes/${recipe.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
