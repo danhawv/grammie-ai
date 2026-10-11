@@ -16,7 +16,7 @@ export type UnitKind =
 /** Household portions the catalog may know grams for */
 export type PortionKey =
   | "piece" | "small" | "medium" | "large" | "clove" | "slice" | "stick" | "stalk" | "head"
-  | "bunch" | "sprig" | "leaf" | "fillet" | "scoop" | "spray" | "inch" | "juice";
+  | "bunch" | "sprig" | "leaf" | "fillet" | "scoop" | "spray" | "inch" | "juice" | "sheet" | "chunk";
 
 const ML = { tsp: 4.92892, tbsp: 14.7868, cup: 236.588, floz: 29.5735, pint: 473.176, quart: 946.353, gallon: 3785.41, l: 1000, ml: 1 };
 const G = { g: 1, kg: 1000, mg: 0.001, oz: 28.3495, lb: 453.592 };
@@ -47,7 +47,7 @@ add("pinch|pinches|sprinkle|shakes|shake", { kind: "volume", ml: 0.31 });
 add("dash|dashes", { kind: "volume", ml: 0.62 });
 add("splash|splashes|drizzle|squeeze", { kind: "volume", ml: 7.5 });
 add("handful|handfuls", { kind: "volume", ml: 60 }); // about 1/4 cup
-add("|whole|count|unit|units|item|items|each|piece|pieces|pc|pcs|ea|x|half|halves|portion|serving|servings|chunk|chunks|lump|lumps|ball|balls|bar|bars|cob|cobs|ear|ears|spear|spears|steak|steaks|breast|breasts|thigh|thighs|wedge|wedges|round|rounds|cube|cubes|roll|rolls|shell|shells|block|brick|bricks|rind|blade|bulb|rack|racks|strip|strips|cookie|cookies|crust|tenderloins|filet|filets", { kind: "piece" });
+add("|whole|count|unit|units|item|items|each|piece|pieces|pc|pcs|ea|x|half|halves|portion|serving|servings|lump|lumps|ball|balls|bar|bars|cob|cobs|ear|ears|spear|spears|steak|steaks|breast|breasts|thigh|thighs|wedge|wedges|round|rounds|roll|rolls|shell|shells|block|brick|bricks|rind|blade|bulb|rack|racks|strip|strips|cookie|cookies|crust|tenderloins|filet|filets", { kind: "piece" });
 add("small|sm|smaller", { kind: "piece", size: "small" });
 add("medium|med|mid", { kind: "piece", size: "medium" });
 add("large|lg|big|jumbo|extra large|xl", { kind: "piece", size: "large" });
@@ -71,7 +71,8 @@ add("bag|bags", { kind: "pack", pack: "bag" });
 add("box|boxes", { kind: "pack", pack: "box" });
 add("bottle|bottles", { kind: "pack", pack: "bottle" });
 add("loaf|loaves", { kind: "pack", pack: "package" });
-add("sheet|sheets", { kind: "pack", pack: "package" });
+add("sheet|sheets", { kind: "piece", portion: "sheet" });
+add("chunk|chunks|cube|cubes", { kind: "piece", portion: "chunk" });
 add("to taste|as needed|as desired|for garnish|garnish|for serving|to cover|for frying|for greasing|optional|some|few|null|none|n/a|batch|total|seconds|ripe|spiral", { kind: "none" });
 
 export interface ParsedUnit {
@@ -115,6 +116,14 @@ export function parseUnit(unitIn: string | null | undefined, raw = "", quantity?
     if (per) return { unit: { kind: "mass", grams: per } };
   }
 
+  // No unit, but the line starts with a weight: "2 oz salami, chopped"
+  if (!u) {
+    const lead = raw.match(/^[\s\d\/.½¼¾⅓⅔⅛-]+\s*(oz|ounces?|g|grams?|lbs?|pounds?|kg)\b/i);
+    if (lead) {
+      const per = weightToGrams(1, lead[1]);
+      if (per) return { unit: { kind: "mass", grams: per } };
+    }
+  }
   // "t"/"t." is a teaspoon and "T"/"T." a tablespoon; units were lowercased, so look at the raw line
   if (u === "t" || u === "tb") {
     const m = raw.match(/(?:^|[\s\d½¼¾⅓⅔)])(T|t)\.?(?=\s|$)/);
@@ -173,7 +182,7 @@ const AISLE_CUP: Record<string, number> = {
 
 // Sensible grams for portions when the ingredient doesn't say
 const GENERIC_PORTION: Partial<Record<PortionKey, number>> = {
-  sprig: 1, leaf: 0.5, spray: 0.3, scoop: 31, bunch: 50, slice: 25, inch: 6, stick: 113,
+  sprig: 1, leaf: 0.5, spray: 0.3, scoop: 31, bunch: 50, slice: 25, inch: 6, stick: 113, chunk: 25,
 };
 
 /**
@@ -203,7 +212,9 @@ export function toGrams(quantity: number | null | undefined, parsed: ParsedUnit,
     case "piece": {
       const p = facts?.portions ?? {};
       if (unit.portion) {
-        const g = p[unit.portion] ?? (unit.portion === "head" ? p.large : undefined) ?? GENERIC_PORTION[unit.portion];
+        // A "slice" of pepperoni or a "fillet" of anchovy is the item's own piece
+        const own = unit.portion === "slice" || unit.portion === "fillet" || unit.portion === "sheet" ? p.piece : undefined;
+        const g = p[unit.portion] ?? (unit.portion === "head" ? p.large : undefined) ?? own ?? GENERIC_PORTION[unit.portion];
         if (g) return { grams: q * g, confidence: p[unit.portion] ? "high" : "medium", how: unit.portion };
         if (p.piece || p.medium) return { grams: q * (p.piece ?? p.medium)!, confidence: "medium", how: `${unit.portion} as piece` };
         return { grams: null, confidence: "low", how: `unknown ${unit.portion}` };

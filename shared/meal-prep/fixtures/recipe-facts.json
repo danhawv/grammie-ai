@@ -1305,10 +1305,10 @@
   "title": "Charred Chipotle Salmon Tacos with Creamy Avocado Slaw",
   "servings": 3,
   "perServing": {
-   "kcal": 835,
-   "protein": 45.4,
+   "kcal": 829,
+   "protein": 45.7,
    "carbs": 79.9,
-   "fat": 38.8,
+   "fat": 37.9,
    "fiber": 14.7
   },
   "confidence": "high",
@@ -1422,11 +1422,11 @@
     "index": 10,
     "raw": "1/4 cup mild 0 percent Greek yogurt",
     "ingredient": {
-     "id": "greek-yogurt",
-     "name": "Greek yogurt",
+     "id": "greek-yogurt-nonfat",
+     "name": "Nonfat Greek yogurt",
      "aisle": "Dairy & Eggs"
     },
-    "grams": 57.5,
+    "grams": 61.3,
     "prep": null,
     "optional": false,
     "confidence": "medium"
@@ -1755,180 +1755,6 @@
   }
  },
  {
-  "recipeId": "39d2451b-e392-4801-950a-191d4c05e6e5",
-  "title": "Mongolian Beef",
-  "servings": 2,
-  "perServing": {
-   "kcal": 438,
-   "protein": 45.1,
-   "carbs": 37.7,
-   "fat": 10.9,
-   "fiber": 0.9
-  },
-  "confidence": "medium",
-  "nutritionSource": "mixed",
-  "lines": [
-   {
-    "index": 0,
-    "raw": "1 T. soybean oil",
-    "ingredient": {
-     "id": "vegetable-oil",
-     "name": "Vegetable oil",
-     "aisle": "Oils, Vinegars & Condiments"
-    },
-    "grams": 13.6,
-    "prep": null,
-    "optional": false,
-    "confidence": "medium"
-   },
-   {
-    "index": 1,
-    "raw": "12 oz. t'loin, sliced into bite-size",
-    "ingredient": {
-     "id": "turkey-breast",
-     "name": "Turkey breast",
-     "aisle": "Meat & Seafood"
-    },
-    "grams": 340.2,
-    "prep": "sliced into bite-size",
-    "optional": false,
-    "confidence": "low"
-   },
-   {
-    "index": 2,
-    "raw": "1/2 t. minced garlic",
-    "ingredient": {
-     "id": "garlic",
-     "name": "Garlic",
-     "aisle": "Produce"
-    },
-    "grams": 1.4,
-    "prep": "minced",
-    "optional": false,
-    "confidence": "high"
-   },
-   {
-    "index": 3,
-    "raw": "1/4 c. soy sauce",
-    "ingredient": {
-     "id": "soy-sauce",
-     "name": "Soy sauce",
-     "aisle": "Oils, Vinegars & Condiments"
-    },
-    "grams": 64,
-    "prep": null,
-    "optional": false,
-    "confidence": "high"
-   },
-   {
-    "index": 4,
-    "raw": "2 T sugar",
-    "ingredient": {
-     "id": "sugar",
-     "name": "Sugar",
-     "aisle": "Baking"
-    },
-    "grams": 25.2,
-    "prep": null,
-    "optional": false,
-    "confidence": "high"
-   },
-   {
-    "index": 5,
-    "raw": "1 t. rice wine",
-    "ingredient": {
-     "id": "mirin",
-     "name": "Mirin",
-     "aisle": "Oils, Vinegars & Condiments"
-    },
-    "grams": 4.9,
-    "prep": null,
-    "optional": false,
-    "confidence": "high"
-   },
-   {
-    "index": 6,
-    "raw": "1/4 c. sliced green onions (only green)",
-    "ingredient": {
-     "id": "green-onion",
-     "name": "Green onions",
-     "aisle": "Produce"
-    },
-    "grams": 25,
-    "prep": "sliced, only green parts",
-    "optional": false,
-    "confidence": "high"
-   },
-   {
-    "index": 7,
-    "raw": "1/2 t. sesame oil",
-    "ingredient": {
-     "id": "sesame-oil",
-     "name": "Sesame oil",
-     "aisle": "Oils, Vinegars & Condiments"
-    },
-    "grams": 2.3,
-    "prep": null,
-    "optional": false,
-    "confidence": "high"
-   },
-   {
-    "index": 8,
-    "raw": "white rice",
-    "ingredient": {
-     "id": "rice-white",
-     "name": "White rice",
-     "aisle": "Pasta, Rice & Grains"
-    },
-    "grams": null,
-    "prep": null,
-    "optional": false,
-    "confidence": "low"
-   }
-  ],
-  "mealTypes": [
-   "lunch",
-   "dinner"
-  ],
-  "cuisines": [
-   "Chinese-American",
-   "Asian"
-  ],
-  "mainProtein": "turkey",
-  "allergens": [
-   "gluten",
-   "sesame",
-   "soy"
-  ],
-  "activeMinutes": 16,
-  "totalMinutes": 20,
-  "storage": {
-   "fridgeDays": 3,
-   "freezerDays": 60,
-   "reheat": "Reheat gently in a skillet over medium-low heat with a splash of water to loosen the glaze without drying out the tenderloin.",
-   "notes": [],
-   "reheatsWell": true
-  },
-  "preference": {
-   "rating": null,
-   "favorite": false,
-   "recentCount": 0
-  },
-  "cost": 11.25,
-  "component": "protein",
-  "nutritionCheck": {
-   "coverage": 0.77,
-   "aiPerServing": {
-    "kcal": 490,
-    "protein": 41,
-    "carbs": 37,
-    "fat": 19,
-    "fiber": 1
-   },
-   "disagreesWithAi": false
-  }
- },
- {
   "recipeId": "888b6d7d-9c95-4350-9b38-94d8a30e8ae0",
   "title": "High-Protein Anti-Inflammatory Veggie Soup",
   "servings": 6,
@@ -2184,6 +2010,142 @@
     "carbs": 36,
     "fat": 17,
     "fiber": 13
+   },
+   "disagreesWithAi": false
+  }
+ },
+ {
+  "recipeId": "2f5fe932-edbb-4d16-99b6-b36720e6b4cf",
+  "title": "Chiles Rellenos (\"Mexican Quiche\")",
+  "servings": 8,
+  "perServing": {
+   "kcal": 606,
+   "protein": 34.4,
+   "carbs": 16.3,
+   "fat": 44.8,
+   "fiber": 1
+  },
+  "confidence": "high",
+  "nutritionSource": "usda",
+  "lines": [
+   {
+    "index": 0,
+    "raw": "3 (4.5 oz) cans chopped, mild (green) chiles ; \"El Paso\" brand",
+    "ingredient": {
+     "id": "green-chiles",
+     "name": "Canned green chiles",
+     "aisle": "Canned & Jarred"
+    },
+    "grams": 382.7,
+    "prep": "chopped, mild",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 1,
+    "raw": "2 lbs. Mexican Blend Grated cheese OR 1 lb. block of cheddar + 1 lb. block of Monterey Jack [= 8 cups grated cheese]",
+    "ingredient": {
+     "id": "cheddar",
+     "name": "Cheddar cheese",
+     "aisle": "Dairy & Eggs"
+    },
+    "grams": 907.2,
+    "prep": "grated",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 2,
+    "raw": "5 eggs",
+    "ingredient": {
+     "id": "egg",
+     "name": "Eggs",
+     "aisle": "Dairy & Eggs"
+    },
+    "grams": 220,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 3,
+    "raw": "3 ½ cups whole milk",
+    "ingredient": {
+     "id": "milk",
+     "name": "Milk",
+     "aisle": "Dairy & Eggs"
+    },
+    "grams": 854,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 4,
+    "raw": "½ cup flour",
+    "ingredient": {
+     "id": "flour",
+     "name": "All-purpose flour",
+     "aisle": "Baking"
+    },
+    "grams": 62.5,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 5,
+    "raw": "½ tsp. salt",
+    "ingredient": {
+     "id": "salt",
+     "name": "Salt",
+     "aisle": "Spices & Seasonings"
+    },
+    "grams": 3,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   }
+  ],
+  "mealTypes": [
+   "breakfast",
+   "lunch",
+   "dinner"
+  ],
+  "cuisines": [
+   "Mexican",
+   "American"
+  ],
+  "mainProtein": "eggs",
+  "allergens": [
+   "dairy",
+   "egg",
+   "gluten"
+  ],
+  "activeMinutes": 37,
+  "totalMinutes": 55,
+  "storage": {
+   "fridgeDays": 3,
+   "freezerDays": 60,
+   "reheat": "Reheat individual slices in a 350°F oven for 10-15 minutes or microwave gently, though the oven helps maintain a better texture.",
+   "notes": [],
+   "reheatsWell": true
+  },
+  "preference": {
+   "rating": null,
+   "favorite": false,
+   "recentCount": 0
+  },
+  "cost": 21.25,
+  "component": "complete",
+  "nutritionCheck": {
+   "coverage": 1,
+   "aiPerServing": {
+    "kcal": 603,
+    "protein": 39,
+    "carbs": 10,
+    "fat": 46,
+    "fiber": 1
    },
    "disagreesWithAi": false
   }
@@ -2802,119 +2764,130 @@
   }
  },
  {
-  "recipeId": "2f5fe932-edbb-4d16-99b6-b36720e6b4cf",
-  "title": "Chiles Rellenos (\"Mexican Quiche\")",
-  "servings": 8,
+  "recipeId": "fc0d3800-252f-4ace-93dc-e7cae1928739",
+  "title": "Italian Sausage & Cheese Quiche",
+  "servings": 6,
   "perServing": {
-   "kcal": 606,
-   "protein": 34.4,
-   "carbs": 16.3,
-   "fat": 44.8,
-   "fiber": 1
+   "kcal": 347,
+   "protein": 18.6,
+   "carbs": 6.6,
+   "fat": 27.4,
+   "fiber": 0.1
   },
   "confidence": "high",
   "nutritionSource": "usda",
   "lines": [
    {
     "index": 0,
-    "raw": "3 (4.5 oz) cans chopped, mild (green) chiles ; \"El Paso\" brand",
+    "raw": "3/4 lb sausage",
     "ingredient": {
-     "id": "green-chiles",
-     "name": "Canned green chiles",
-     "aisle": "Canned & Jarred"
+     "id": "sausage",
+     "name": "Sausage",
+     "aisle": "Meat & Seafood"
     },
-    "grams": 382.7,
-    "prep": "chopped, mild",
+    "grams": 340.2,
+    "prep": "casing removed, crumbled",
     "optional": false,
     "confidence": "high"
    },
    {
     "index": 1,
-    "raw": "2 lbs. Mexican Blend Grated cheese OR 1 lb. block of cheddar + 1 lb. block of Monterey Jack [= 8 cups grated cheese]",
+    "raw": "2/3 c ricotta cheese",
     "ingredient": {
-     "id": "cheddar",
-     "name": "Cheddar cheese",
+     "id": "ricotta",
+     "name": "Ricotta",
      "aisle": "Dairy & Eggs"
     },
-    "grams": 907.2,
-    "prep": "grated",
+    "grams": 163.7,
+    "prep": "whole milk preferred",
     "optional": false,
     "confidence": "high"
    },
    {
     "index": 2,
-    "raw": "5 eggs",
+    "raw": "1/3 c parm. cheese",
     "ingredient": {
-     "id": "egg",
-     "name": "Eggs",
+     "id": "parmesan",
+     "name": "Parmesan",
      "aisle": "Dairy & Eggs"
     },
-    "grams": 220,
-    "prep": null,
+    "grams": 33,
+    "prep": "grated",
     "optional": false,
     "confidence": "high"
    },
    {
     "index": 3,
-    "raw": "3 ½ cups whole milk",
+    "raw": "3 Tbl parsley",
     "ingredient": {
-     "id": "milk",
-     "name": "Milk",
-     "aisle": "Dairy & Eggs"
+     "id": "parsley",
+     "name": "Parsley",
+     "aisle": "Produce"
     },
-    "grams": 854,
-    "prep": null,
+    "grams": 11.3,
+    "prep": "chopped",
     "optional": false,
     "confidence": "high"
    },
    {
     "index": 4,
-    "raw": "½ cup flour",
+    "raw": "4 eggs",
     "ingredient": {
-     "id": "flour",
-     "name": "All-purpose flour",
-     "aisle": "Baking"
+     "id": "egg",
+     "name": "Eggs",
+     "aisle": "Dairy & Eggs"
     },
-    "grams": 62.5,
-    "prep": null,
+    "grams": 200,
+    "prep": "beaten",
     "optional": false,
     "confidence": "high"
    },
    {
     "index": 5,
-    "raw": "½ tsp. salt",
+    "raw": "1 1/2 c milk or light cream",
     "ingredient": {
-     "id": "salt",
-     "name": "Salt",
-     "aisle": "Spices & Seasonings"
+     "id": "milk",
+     "name": "Milk",
+     "aisle": "Dairy & Eggs"
     },
-    "grams": 3,
+    "grams": 366,
     "prep": null,
+    "optional": false,
+    "confidence": "medium"
+   },
+   {
+    "index": 6,
+    "raw": "2 Tbl butter (melted)",
+    "ingredient": {
+     "id": "butter-unsalted",
+     "name": "Unsalted butter",
+     "aisle": "Dairy & Eggs"
+    },
+    "grams": 28.4,
+    "prep": "melted",
     "optional": false,
     "confidence": "high"
    }
   ],
   "mealTypes": [
-   "breakfast",
-   "lunch",
-   "dinner"
+   "breakfast"
   ],
   "cuisines": [
-   "Mexican",
-   "American"
+   "Italian-American",
+   "French"
   ],
-  "mainProtein": "dairy",
+  "mainProtein": "pork",
   "allergens": [
    "dairy",
    "egg",
    "gluten"
   ],
-  "activeMinutes": 37,
-  "totalMinutes": 55,
+  "activeMinutes": 31,
+  "totalMinutes": 45,
   "storage": {
    "fridgeDays": 3,
    "freezerDays": 60,
-   "reheat": "Reheat individual slices in a 350°F oven for 10-15 minutes or microwave gently, though the oven helps maintain a better texture.",
+   "reheat": "Microwave covered until steaming hot all the way through (165°F), 2–3 minutes, stirring halfway.",
    "notes": [],
    "reheatsWell": true
   },
@@ -2923,15 +2896,15 @@
    "favorite": false,
    "recentCount": 0
   },
-  "cost": 21.25,
+  "cost": 15,
   "component": "complete",
   "nutritionCheck": {
    "coverage": 1,
    "aiPerServing": {
-    "kcal": 603,
-    "protein": 39,
-    "carbs": 10,
-    "fat": 46,
+    "kcal": 415,
+    "protein": 18,
+    "carbs": 14,
+    "fat": 32,
     "fiber": 1
    },
    "disagreesWithAi": false
@@ -3198,8 +3171,8 @@
     "index": 1,
     "raw": "Everything But The Bagel seasoning",
     "ingredient": {
-     "id": "salt",
-     "name": "Salt",
+     "id": "sesame-seeds",
+     "name": "Sesame seeds",
      "aisle": "Spices & Seasonings"
     },
     "grams": null,
@@ -3304,9 +3277,9 @@
     "index": 3,
     "raw": "20g sugar free choc chips (optional)",
     "ingredient": {
-     "id": "tortilla-chips",
-     "name": "Tortilla chips",
-     "aisle": "Snacks"
+     "id": "chocolate-chips",
+     "name": "Chocolate chips",
+     "aisle": "Baking"
     },
     "grams": 20,
     "prep": null,

@@ -23,7 +23,7 @@ const DROP_WORDS = new Set([
   "for", "to", "taste", "garnish", "serving", "drained", "rinsed", "and", "patted", "dry", "dried", "frozen", "thawed",
   "cut", "into", "pieces", "piece", "inch", "chunks", "wedges", "rings", "strips", "bite", "sized", "size", "leftover",
   "brand", "your", "favorite", "choice", "any", "kind", "type", "unsalted", "salted", "boneless", "skinless", "skin",
-  "on", "bone", "in", "regular", "original", "classic", "shredded", "ground", "toasted",
+  "on", "bone", "in", "regular", "original", "classic", "shredded", "toasted",
   "roasted", "cooked", "canned", "jarred", "bottled", "tinned", "stick", "sticks", "can", "jar", "package", "bag",
 ]);
 // Fat and sugar words ("light", "fat free", "sugar free") are kept: they
@@ -36,7 +36,7 @@ function stripDiacritics(s: string): string {
 /** Singular form of one word ("tomatoes" -> "tomato", "leaves" -> "leaf", "berries" -> "berry") */
 export function singular(w: string): string {
   if (w.length <= 3) return w;
-  if (/(ss|us|is|as)$/.test(w)) return w; // grass, couscous, hummus, molasses...
+  if (/(ss|us|is|as|sses)$/.test(w)) return w; // grass, couscous, hummus, molasses...
   if (w.endsWith("ies")) return w.slice(0, -3) + "y";
   if (w.endsWith("oes")) return w.slice(0, -2);
   if (w.endsWith("ves") && !/(olives|chives|cloves)$/.test(w)) return w.slice(0, -3) + "f";

@@ -28,6 +28,8 @@ const DEFAULTS = {
   bulkCatalog: { model: "gemini-3.1-flash-lite", thinkingLevel: "minimal" },
   /** Bulk intake: matching card backs to their fronts from short text notes */
   bulkPairing: { model: "gemini-3.1-flash-lite", thinkingLevel: "low" },
+  /** Meal prep: pick the canonical ingredient for an unusual item name from a shortlist */
+  ingredientMatch: { model: "gemini-3.5-flash-lite" },
   /** Short helper answers (substitutions, generated steps) */
   quickText: { model: "gemini-3.5-flash-lite" },
   /** Dish photo for recipes without one */

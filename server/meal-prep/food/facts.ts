@@ -120,27 +120,48 @@ export function computeRecipeFacts(r: RecipeInput, catalog: Catalog, opts: Facts
   const src = r.normalizedIngredients ?? [];
   src.forEach((n, index) => {
     if (!n || n.isToolOrConsumable) return;
-    const optional = !!n.isOptional || /\boptional\b/i.test(n.raw ?? "");
+    const raw = (n.raw ?? "").trim();
+    // Sub-headings ("For the sauce:", 'Mom's "Taratoor" (makes 1 1/2 c.):') aren't ingredients
+    if (/:\s*$/.test(raw)) return;
+    // Alternatives ("Or ...", "Option 2: ...") are left out of the totals, like optional lines
+    const optional = !!n.isOptional || /\(optional[^)]*\)|,\s*optional\b|^optional\b|\boptional\s*$/i.test(raw) || /^(or\b|option\s*[2-9]|alternatively|for hummus)/i.test(raw);
     const resolved = catalog.resolve(n.item || "");
     const ing = resolved?.ingredient ?? null;
     let grams: number | null = null;
     let gramConf: Confidence = "low";
+    let unitKind = "none";
     if (ing) {
-      const g = toGrams(n.quantity ?? null, parseUnit(n.unit, n.raw, n.quantity), catalog.gramFacts(ing));
+      const parsed = parseUnit(n.unit, n.raw, n.quantity);
+      unitKind = parsed.statedGrams ? "mass" : parsed.unit.kind;
+      const g = toGrams(n.quantity ?? null, parsed, catalog.gramFacts(ing));
       grams = g.grams != null ? round1(g.grams) : null;
       gramConf = g.confidence;
     }
     const matchConf = resolved?.confidence ?? 0;
-    const confidence: Confidence = ing && grams != null && matchConf >= 0.9 && gramConf === "high" ? "high"
+    let confidence: Confidence = ing && grams != null && matchConf >= 0.9 && gramConf === "high" ? "high"
       : ing && grams != null && matchConf >= 0.7 ? "medium" : "low";
+
+    let computed = !optional && ing && grams != null ? macrosFor(ing, grams) : null;
+    const ai = n.nutrition && typeof n.nutrition.calories === "number" ? n.nutrition : null;
+    // Cross-check each line against the AI's own estimate for it. A 3x gap of
+    // 200+ kcal usually means a wrong piece size or unit ("12 pcs" puff pastry
+    // as 12 sheets). If our grams were a guess, use the AI's line instead;
+    // if they came from a stated weight or a known portion, keep ours but stop
+    // calling the line certain (the AI's line values are often the wrong ones).
+    if (computed && ai && ai.calories! >= 0) {
+      const gap = Math.abs(computed.kcal - ai.calories!);
+      const ratio = (Math.max(computed.kcal, ai.calories!) + 1) / (Math.min(computed.kcal, ai.calories!) + 1);
+      if (gap > 200 && ratio > 3) {
+        if (gramConf !== "high") { computed = null; confidence = "low"; }
+        else if (confidence === "high") confidence = "medium";
+      }
+    }
     lines.push({
       index, raw: n.raw, ingredient: ing ? catalog.ref(ing.id) : null, grams,
       prep: n.preparation?.trim().toLowerCase() || null, optional, confidence,
     });
     if (optional) return;
 
-    const computed = ing && grams != null ? macrosFor(ing, grams) : null;
-    const ai = n.nutrition && typeof n.nutrition.calories === "number" ? n.nutrition : null;
     // How much this line matters: its calories (ours, else the AI's; salt and water weigh nothing)
     const weight = Math.max(computed?.kcal ?? ai?.calories ?? 40, 0);
     weightAll += weight;
@@ -194,12 +215,7 @@ export function computeRecipeFacts(r: RecipeInput, catalog: Catalog, opts: Facts
   // Two independent estimates that disagree: show it as less certain
   if (disagreesWithAi && confidence === "high") confidence = "medium";
 
-  // Main protein: the kind supplying the most protein, if it's a real share of the dish
-  let mainProtein: string | null = null;
-  const totalProtein = usda.protein;
-  let best = 0;
-  for (const [kind, p] of Array.from(proteinByKind)) if (p > best) { best = p; mainProtein = kind; }
-  if (best < 5 || best < totalProtein * 0.3) mainProtein = null;
+  const mainProtein = mainProteinFor(r.title, proteinByKind, usda.protein);
 
   const share = (pred: (i: CatalogIngredient) => boolean) => {
     if (!totalGrams) return 0;
@@ -240,6 +256,38 @@ export function computeRecipeFacts(r: RecipeInput, catalog: Catalog, opts: Facts
     component: componentFor(kinds, mainProtein, share, mealTypes),
     nutritionCheck: { coverage: round2(coverage), aiPerServing: aiPerServing ? roundMacros(aiPerServing) : null, disagreesWithAi },
   };
+}
+
+// Title words name the dish's protein more reliably than a fuzzy ingredient match ("Mongolian Beef")
+const TITLE_PROTEIN: Array<[RegExp, string]> = [
+  [/\b(beef|steak|brisket|burgers?|meatballs?|short ribs?|pot roast|bolognese|sloppy joes?)\b/i, "beef"],
+  [/\b(chicken|poultry)\b/i, "chicken"],
+  [/\bturkey\b/i, "turkey"],
+  [/\b(pork|ham|bacon|carnitas|sausage|prosciutto)\b/i, "pork"],
+  [/\blamb\b/i, "lamb"],
+  [/\b(salmon|tuna|cod|fish|halibut|tilapia|trout|mahi|sea bass|snapper|anchov\w*|sardines?)\b/i, "fish"],
+  [/\b(shrimp|prawns?|crab|lobster|scallops?|clams?|mussels?|oysters?|calamari|seafood)\b/i, "shellfish"],
+  [/\b(tofu|tempeh)\b/i, "tofu"],
+  [/\b(lentils?|beans?|chickpeas?|dal|hummus)\b/i, "beans"],
+  [/\b(eggs?|omelet\w*|frittata|quiche|shakshuka)\b/i, "eggs"],
+];
+
+/**
+ * Main protein, for variety. A protein named in the title wins when the
+ * ingredients back it up (or name nothing better); otherwise it's the kind
+ * supplying the most protein, if that's a real share of the dish.
+ */
+export function mainProteinFor(title: string, proteinByKind: Map<string, number>, totalProtein: number): string | null {
+  for (const [re, kind] of TITLE_PROTEIN) {
+    if (!re.test(title)) continue;
+    // "Chicken" in the title of a dish whose ingredients have no chicken at all (e.g. "Chicken-Fried Steak") isn't trusted
+    if ((proteinByKind.get(kind) ?? 0) > 0 || proteinByKind.size === 0 || !Array.from(proteinByKind.keys()).some((k) => k !== "dairy")) return kind;
+  }
+  let main: string | null = null;
+  let best = 0;
+  proteinByKind.forEach((p, kind) => { if (p > best) { best = p; main = kind; } });
+  if (best < 5 || best < totalProtein * 0.3) return null;
+  return main;
 }
 
 function componentFor(kinds: string[], mainProtein: string | null, share: (p: (i: CatalogIngredient) => boolean) => number, slots: MealSlot[]): RecipeFacts["component"] {
