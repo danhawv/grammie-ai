@@ -183,7 +183,7 @@ function GoalsStep({ setup, onChange, personId }: StepProps & { personId: string
   return (
     <div className="space-y-6">
       <ChoiceGroup<"targets" | "normal">
-        legend={`What should ${person.name || "they"} aim for?`}
+        legend={setup.people[0]?.id === person.id ? "What should you aim for?" : `What should ${person.name || "they"} aim for?`}
         value={t ? "targets" : "normal"}
         onChange={(v) => update(v === "normal" ? null : { kcal: 2000, protein: 100 })}
         options={[
@@ -339,7 +339,7 @@ function AvoidStep({ setup, onChange }: StepProps) {
 
 // ---------- Kitchen ----------
 
-const APPLIANCES = ["Instant Pot", "Slow cooker", "Air fryer", "Rice cooker"];
+const APPLIANCES = ["Instant Pot", "Slow cooker", "Air fryer", "Rice cooker", "Grill"];
 
 function KitchenStep({ setup, onChange }: StepProps) {
   const k = setup.kitchen;
