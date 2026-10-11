@@ -1,10 +1,12 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, real, jsonb, boolean, timestamp, serial, unique, uniqueIndex, primaryKey, index, bigint, customType } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, real, jsonb, boolean, timestamp, date, serial, unique, uniqueIndex, primaryKey, index, bigint, customType } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { relations } from "drizzle-orm";
 import type { UserPreferences } from "./food-profile";
 import type { IntakeStatus, PhotoCatalog } from "./bulk-intake";
+import type { PrepPlan, PrepSession, PrepSetup, ShoppingList, MealSlot } from "./meal-prep/contract";
+import type { CheckinOutcome, PrepBuildStatus, PrepPlanStatus, PrepProfileDefaults, PrepSubstitution, WishesResult } from "./meal-prep/api";
 
 // Constant maps for comprehensive recipe enrichment
 export const DIETARY_FLAGS = {
@@ -2125,3 +2127,84 @@ export function deriveNutritionFlags(nutrition: {
     isLowSugar: nutrition.sugar != null && nutrition.sugar < 5, // < 5g per serving (approximate guideline)
   };
 }
+
+// ============================================================================
+// MEAL PREP (migrations/2026-10-meal-prep-api.sql, server/meal-prep/store.ts)
+// ============================================================================
+
+/** Saved walkthrough answers, one row per owner */
+export const prepProfiles = pgTable("prep_profiles", {
+  ownerUserId: varchar("owner_user_id").primaryKey().references(() => users.id, { onDelete: 'cascade' }),
+  defaults: jsonb("defaults").$type<PrepProfileDefaults>().notNull().default(sql`'{}'::jsonb`),
+  walkthroughDone: boolean("walkthrough_done").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const prepPlans = pgTable("prep_plans", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  ownerUserId: varchar("owner_user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  status: varchar("status", { length: 20 }).$type<PrepPlanStatus>().notNull().default('draft'),
+  buildStatus: varchar("build_status", { length: 20 }).$type<PrepBuildStatus>().notNull().default('building'),
+  buildError: text("build_error"),
+  setup: jsonb("setup").$type<PrepSetup>().notNull(),
+  plan: jsonb("plan").$type<PrepPlan>(),
+  shopping: jsonb("shopping").$type<ShoppingList>(),
+  session: jsonb("session").$type<PrepSession>(),
+  explanation: text("explanation"),
+  explanationAi: boolean("explanation_ai").notNull().default(false),
+  wishesResult: jsonb("wishes_result").$type<WishesResult>(),
+  recipeTitles: jsonb("recipe_titles").$type<Record<string, string>>().notNull().default(sql`'{}'::jsonb`),
+  swapOptions: jsonb("swap_options").$type<{ forRecipeId: string; options: Array<{ recipeId: string; plan: PrepPlan }> }>(),
+  substitutions: jsonb("substitutions").$type<PrepSubstitution[]>().notNull().default(sql`'[]'::jsonb`),
+  sessionDate: date("session_date", { mode: "string" }),
+  calendarMealPlanId: varchar("calendar_meal_plan_id").references(() => mealPlans.id, { onDelete: 'set null' }),
+  groceryListId: varchar("grocery_list_id").references(() => groceryLists.id, { onDelete: 'set null' }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  approvedAt: timestamp("approved_at"),
+}, (table) => ({
+  ownerIdx: index("prep_plans_owner_idx").on(table.ownerUserId, table.createdAt),
+}));
+
+export type PrepPlanRow = typeof prepPlans.$inferSelect;
+
+/** Cook links; only the SHA-256 of the token is kept */
+export const prepPlanShares = pgTable("prep_plan_shares", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  planId: varchar("plan_id").notNull().references(() => prepPlans.id, { onDelete: 'cascade' }),
+  tokenHash: varchar("token_hash", { length: 64 }).notNull(),
+  role: varchar("role", { length: 20 }).$type<'cook'>().notNull().default('cook'),
+  label: varchar("label", { length: 100 }),
+  expiresAt: timestamp("expires_at").notNull(),
+  revokedAt: timestamp("revoked_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  tokenIdx: uniqueIndex("prep_plan_shares_token_idx").on(table.tokenHash),
+  planIdx: index("prep_plan_shares_plan_idx").on(table.planId),
+}));
+
+export type PrepPlanShareRow = typeof prepPlanShares.$inferSelect;
+
+export const prepTaskProgress = pgTable("prep_task_progress", {
+  planId: varchar("plan_id").notNull().references(() => prepPlans.id, { onDelete: 'cascade' }),
+  taskId: varchar("task_id", { length: 100 }).notNull(),
+  doneAt: timestamp("done_at").defaultNow().notNull(),
+  doneBy: varchar("done_by", { length: 20 }).$type<'owner' | 'cook'>().notNull(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.planId, table.taskId] }),
+}));
+
+export const prepCheckins = pgTable("prep_checkins", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  planId: varchar("plan_id").notNull().references(() => prepPlans.id, { onDelete: 'cascade' }),
+  personId: varchar("person_id", { length: 100 }).notNull(),
+  day: integer("day").notNull(),
+  slot: varchar("slot", { length: 20 }).$type<MealSlot>().notNull(),
+  outcome: varchar("outcome", { length: 20 }).$type<CheckinOutcome>().notNull(),
+  note: text("note"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  plateIdx: uniqueIndex("prep_checkins_plate_idx").on(table.planId, table.personId, table.day, table.slot),
+}));

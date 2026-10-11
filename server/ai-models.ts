@@ -28,6 +28,10 @@ const DEFAULTS = {
   bulkCatalog: { model: "gemini-3.1-flash-lite", thinkingLevel: "minimal" },
   /** Bulk intake: matching card backs to their fronts from short text notes */
   bulkPairing: { model: "gemini-3.1-flash-lite", thinkingLevel: "low" },
+  /** Meal prep: free-text wishes -> recipe ids to favor / avoid (no numbers) */
+  prepWishes: { model: "gemini-3.5-flash-lite" },
+  /** Meal prep: 2-4 sentence plan explanation from numbers code worked out */
+  prepExplain: { model: "gemini-3.5-flash-lite" },
   /** Short helper answers (substitutions, generated steps) */
   quickText: { model: "gemini-3.5-flash-lite" },
   /** Dish photo for recipes without one */

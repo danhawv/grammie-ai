@@ -192,6 +192,13 @@ export interface FoodData {
   adjusters(): Promise<Adjuster[]>;
   /** package sizes for buying, grams per package; empty if unknown */
   packagesFor(ingredientIds: string[]): Promise<Record<string, Array<{ label: string; grams: number; price?: number }>>>;
+  /**
+   * Optional (added for the API's cook substitutions): nutrition per gram for
+   * free-text ingredient names ("sour cream", "greek yogurt"), keyed by the
+   * name as given; null when unknown. Without it, a swap marks the affected
+   * labels low-confidence instead of recomputing them.
+   */
+  ingredientNutrition?(names: string[]): Promise<Record<string, { ingredient: CanonicalIngredientRef; perGram: Macros } | null>>;
 }
 
 // ---------- Plan (part 2 produces) ----------
