@@ -1,0 +1,480 @@
+[
+ {
+  "id": "rice-cooked",
+  "name": "Cooked white rice",
+  "ingredient": {
+   "id": "rice-white-cooked",
+   "name": "Cooked white rice",
+   "aisle": "Pasta, Rice & Grains"
+  },
+  "perGram": {
+   "kcal": 1.3,
+   "protein": 0.0269,
+   "carbs": 0.2817,
+   "fat": 0.0028000000000000004,
+   "fiber": 0.004
+  },
+  "stepGrams": 25,
+  "maxGrams": 250,
+  "slots": [
+   "lunch",
+   "dinner"
+  ],
+  "needsCooking": true,
+  "storage": {
+   "fridgeDays": 4,
+   "freezerDays": 180,
+   "reheat": "Sprinkle with a little water, cover and microwave 1–2 minutes until steaming hot.",
+   "notes": [
+    "Cool and refrigerate within 1 hour of cooking."
+   ],
+   "reheatsWell": true
+  }
+ },
+ {
+  "id": "brown-rice-cooked",
+  "name": "Cooked brown rice",
+  "ingredient": {
+   "id": "rice-brown-cooked",
+   "name": "Cooked brown rice",
+   "aisle": "Pasta, Rice & Grains"
+  },
+  "perGram": {
+   "kcal": 1.23,
+   "protein": 0.0274,
+   "carbs": 0.25579999999999997,
+   "fat": 0.0097,
+   "fiber": 0.016
+  },
+  "stepGrams": 25,
+  "maxGrams": 250,
+  "slots": [
+   "lunch",
+   "dinner"
+  ],
+  "needsCooking": true,
+  "storage": {
+   "fridgeDays": 4,
+   "freezerDays": 180,
+   "reheat": "Sprinkle with a little water, cover and microwave 1–2 minutes until steaming hot.",
+   "notes": [
+    "Cool and refrigerate within 1 hour of cooking."
+   ],
+   "reheatsWell": true
+  }
+ },
+ {
+  "id": "quinoa-cooked",
+  "name": "Cooked quinoa",
+  "ingredient": {
+   "id": "quinoa-cooked",
+   "name": "Cooked quinoa",
+   "aisle": "Pasta, Rice & Grains"
+  },
+  "perGram": {
+   "kcal": 1.2,
+   "protein": 0.044000000000000004,
+   "carbs": 0.213,
+   "fat": 0.0192,
+   "fiber": 0.027999999999999997
+  },
+  "stepGrams": 25,
+  "maxGrams": 220,
+  "slots": [
+   "lunch",
+   "dinner"
+  ],
+  "needsCooking": true,
+  "storage": {
+   "fridgeDays": 4,
+   "freezerDays": 180,
+   "reheat": "Microwave covered 1–2 minutes until steaming hot (165°F).",
+   "notes": [
+    "Good cold in salads too."
+   ],
+   "reheatsWell": true
+  }
+ },
+ {
+  "id": "chicken-breast-cooked",
+  "name": "Cooked chicken breast",
+  "ingredient": {
+   "id": "chicken-cooked",
+   "name": "Cooked chicken",
+   "aisle": "Meat & Seafood"
+  },
+  "perGram": {
+   "kcal": 1.65,
+   "protein": 0.3102,
+   "carbs": 0,
+   "fat": 0.035699999999999996,
+   "fiber": 0
+  },
+  "stepGrams": 25,
+  "maxGrams": 200,
+  "slots": [
+   "lunch",
+   "dinner"
+  ],
+  "needsCooking": true,
+  "storage": {
+   "fridgeDays": 4,
+   "freezerDays": 60,
+   "reheat": "Microwave covered 1–2 minutes until steaming hot (165°F).",
+   "notes": [
+    "Cook to 165°F inside.",
+    "Slice after cooling so it stays juicy."
+   ],
+   "reheatsWell": true
+  }
+ },
+ {
+  "id": "eggs-hard-boiled",
+  "name": "Hard-boiled eggs",
+  "ingredient": {
+   "id": "egg-hard-boiled",
+   "name": "Hard-boiled eggs",
+   "aisle": "Dairy & Eggs"
+  },
+  "perGram": {
+   "kcal": 1.55,
+   "protein": 0.1258,
+   "carbs": 0.011200000000000002,
+   "fat": 0.1061,
+   "fiber": 0
+  },
+  "stepGrams": 50,
+  "maxGrams": 150,
+  "slots": [
+   "breakfast",
+   "lunch",
+   "snack"
+  ],
+  "needsCooking": true,
+  "storage": {
+   "fridgeDays": 7,
+   "freezerDays": null,
+   "reheat": "Serve cold. No reheating needed.",
+   "notes": [
+    "Keep in the shell until eating."
+   ],
+   "reheatsWell": false
+  }
+ },
+ {
+  "id": "greek-yogurt",
+  "name": "Nonfat Greek yogurt",
+  "ingredient": {
+   "id": "greek-yogurt-nonfat",
+   "name": "Nonfat Greek yogurt",
+   "aisle": "Dairy & Eggs"
+  },
+  "perGram": {
+   "kcal": 0.61,
+   "protein": 0.10300000000000001,
+   "carbs": 0.0364,
+   "fat": 0.0037,
+   "fiber": 0
+  },
+  "stepGrams": 50,
+  "maxGrams": 300,
+  "slots": [
+   "breakfast",
+   "snack"
+  ],
+  "needsCooking": false,
+  "storage": {
+   "fridgeDays": 7,
+   "freezerDays": null,
+   "reheat": "Serve cold. No reheating needed.",
+   "notes": [],
+   "reheatsWell": false
+  }
+ },
+ {
+  "id": "cottage-cheese",
+  "name": "Low-fat cottage cheese",
+  "ingredient": {
+   "id": "cottage-cheese-lowfat",
+   "name": "Low-fat cottage cheese",
+   "aisle": "Dairy & Eggs"
+  },
+  "perGram": {
+   "kcal": 0.81,
+   "protein": 0.1045,
+   "carbs": 0.047599999999999996,
+   "fat": 0.0227,
+   "fiber": 0
+  },
+  "stepGrams": 50,
+  "maxGrams": 250,
+  "slots": [
+   "breakfast",
+   "lunch",
+   "snack"
+  ],
+  "needsCooking": false,
+  "storage": {
+   "fridgeDays": 7,
+   "freezerDays": null,
+   "reheat": "Serve cold. No reheating needed.",
+   "notes": [],
+   "reheatsWell": false
+  }
+ },
+ {
+  "id": "olive-oil",
+  "name": "Olive oil",
+  "ingredient": {
+   "id": "olive-oil",
+   "name": "Olive oil",
+   "aisle": "Oils, Vinegars & Condiments"
+  },
+  "perGram": {
+   "kcal": 8.84,
+   "protein": 0,
+   "carbs": 0,
+   "fat": 1,
+   "fiber": 0
+  },
+  "stepGrams": 5,
+  "maxGrams": 20,
+  "slots": [
+   "lunch",
+   "dinner"
+  ],
+  "needsCooking": false,
+  "storage": {
+   "fridgeDays": 30,
+   "freezerDays": null,
+   "reheat": "Drizzle on after reheating.",
+   "notes": [
+    "Keeps in the pantry."
+   ],
+   "reheatsWell": true
+  }
+ },
+ {
+  "id": "avocado",
+  "name": "Avocado",
+  "ingredient": {
+   "id": "avocado",
+   "name": "Avocado",
+   "aisle": "Produce"
+  },
+  "perGram": {
+   "kcal": 1.6,
+   "protein": 0.02,
+   "carbs": 0.08529999999999999,
+   "fat": 0.1466,
+   "fiber": 0.067
+  },
+  "stepGrams": 25,
+  "maxGrams": 100,
+  "slots": [
+   "breakfast",
+   "lunch",
+   "dinner"
+  ],
+  "needsCooking": false,
+  "storage": {
+   "fridgeDays": 3,
+   "freezerDays": null,
+   "reheat": "Serve cold. No reheating needed.",
+   "notes": [
+    "Cut just before eating so it doesn't brown."
+   ],
+   "reheatsWell": false
+  }
+ },
+ {
+  "id": "roasted-veg",
+  "name": "Roasted vegetables",
+  "ingredient": {
+   "id": "mixed-veg-roasted",
+   "name": "Roasted vegetables",
+   "aisle": "Produce"
+  },
+  "perGram": {
+   "kcal": 0.6,
+   "protein": 0.013999999999999999,
+   "carbs": 0.075,
+   "fat": 0.032,
+   "fiber": 0.022000000000000002
+  },
+  "stepGrams": 50,
+  "maxGrams": 250,
+  "slots": [
+   "lunch",
+   "dinner"
+  ],
+  "needsCooking": true,
+  "storage": {
+   "fridgeDays": 4,
+   "freezerDays": 60,
+   "reheat": "Microwave covered 1–2 minutes until steaming hot (165°F).",
+   "notes": [],
+   "reheatsWell": true
+  }
+ },
+ {
+  "id": "broccoli-steamed",
+  "name": "Steamed broccoli",
+  "ingredient": {
+   "id": "broccoli-steamed",
+   "name": "Steamed broccoli",
+   "aisle": "Produce"
+  },
+  "perGram": {
+   "kcal": 0.35,
+   "protein": 0.023799999999999998,
+   "carbs": 0.0718,
+   "fat": 0.0040999999999999995,
+   "fiber": 0.033
+  },
+  "stepGrams": 50,
+  "maxGrams": 250,
+  "slots": [
+   "lunch",
+   "dinner"
+  ],
+  "needsCooking": true,
+  "storage": {
+   "fridgeDays": 4,
+   "freezerDays": 60,
+   "reheat": "Microwave covered 1 minute; don't overcook.",
+   "notes": [],
+   "reheatsWell": true
+  }
+ },
+ {
+  "id": "tortilla-whole-wheat",
+  "name": "Whole-wheat tortilla",
+  "ingredient": {
+   "id": "tortilla-whole-wheat",
+   "name": "Whole-wheat tortillas",
+   "aisle": "Bakery"
+  },
+  "perGram": {
+   "kcal": 3.1,
+   "protein": 0.09759999999999999,
+   "carbs": 0.45890000000000003,
+   "fat": 0.09759999999999999,
+   "fiber": 0.098
+  },
+  "stepGrams": 45,
+  "maxGrams": 90,
+  "slots": [
+   "breakfast",
+   "lunch",
+   "dinner"
+  ],
+  "needsCooking": false,
+  "storage": {
+   "fridgeDays": 7,
+   "freezerDays": 180,
+   "reheat": "Warm in a dry pan 20 seconds a side.",
+   "notes": [
+    "Keep in the bag, not in the meal container."
+   ],
+   "reheatsWell": true
+  }
+ },
+ {
+  "id": "potatoes-baked",
+  "name": "Baked potatoes",
+  "ingredient": {
+   "id": "potato-baked",
+   "name": "Baked potato",
+   "aisle": "Produce"
+  },
+  "perGram": {
+   "kcal": 0.93,
+   "protein": 0.025,
+   "carbs": 0.2115,
+   "fat": 0.0013,
+   "fiber": 0.022000000000000002
+  },
+  "stepGrams": 50,
+  "maxGrams": 300,
+  "slots": [
+   "breakfast",
+   "lunch",
+   "dinner"
+  ],
+  "needsCooking": true,
+  "storage": {
+   "fridgeDays": 4,
+   "freezerDays": null,
+   "reheat": "Microwave covered 1–2 minutes until steaming hot (165°F).",
+   "notes": [
+    "Refrigerate within 2 hours; don't keep foil-wrapped at room temperature."
+   ],
+   "reheatsWell": true
+  }
+ },
+ {
+  "id": "black-beans",
+  "name": "Black beans",
+  "ingredient": {
+   "id": "black-beans-cooked",
+   "name": "Cooked black beans",
+   "aisle": "Canned & Jarred"
+  },
+  "perGram": {
+   "kcal": 1.32,
+   "protein": 0.0886,
+   "carbs": 0.2371,
+   "fat": 0.0054,
+   "fiber": 0.087
+  },
+  "stepGrams": 40,
+  "maxGrams": 200,
+  "slots": [
+   "lunch",
+   "dinner"
+  ],
+  "needsCooking": false,
+  "storage": {
+   "fridgeDays": 4,
+   "freezerDays": 180,
+   "reheat": "Microwave covered 1–2 minutes until steaming hot (165°F).",
+   "notes": [
+    "Rinse and drain canned beans."
+   ],
+   "reheatsWell": true
+  }
+ },
+ {
+  "id": "salad-greens",
+  "name": "Salad greens",
+  "ingredient": {
+   "id": "salad-greens",
+   "name": "Salad greens",
+   "aisle": "Produce"
+  },
+  "perGram": {
+   "kcal": 0.15,
+   "protein": 0.013600000000000001,
+   "carbs": 0.0287,
+   "fat": 0.0015,
+   "fiber": 0.013000000000000001
+  },
+  "stepGrams": 30,
+  "maxGrams": 120,
+  "slots": [
+   "lunch",
+   "dinner"
+  ],
+  "needsCooking": false,
+  "storage": {
+   "fridgeDays": 3,
+   "freezerDays": null,
+   "reheat": "Serve cold. No reheating needed.",
+   "notes": [
+    "Keep dry and separate; dress just before eating."
+   ],
+   "reheatsWell": false
+  }
+ }
+]

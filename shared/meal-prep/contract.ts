@@ -167,6 +167,17 @@ export interface RecipeFacts {
   cost: number | null;
   /** components this recipe can be split into for mix-and-match plates */
   component?: "protein" | "grain" | "veg" | "sauce" | "complete";
+  /** how the numbers were checked (filled by food data) */
+  nutritionCheck?: NutritionCheck;
+}
+
+export interface NutritionCheck {
+  /** calorie-weighted share of the ingredient lines computed from USDA data, 0..1 */
+  coverage: number;
+  /** the stored AI estimate per serving, for comparison */
+  aiPerServing: Macros | null;
+  /** computed and AI calories differ by more than 25% */
+  disagreesWithAi: boolean;
 }
 
 /** Single-ingredient add-ons with clean data used to tune plates */
@@ -192,6 +203,8 @@ export interface FoodData {
   adjusters(): Promise<Adjuster[]>;
   /** package sizes for buying, grams per package; empty if unknown */
   packagesFor(ingredientIds: string[]): Promise<Record<string, Array<{ label: string; grams: number; price?: number }>>>;
+  /** canonical ingredient and macros per gram for free-text names (e.g. a mid-session swap); null if unknown */
+  ingredientNutrition?(names: string[]): Promise<Record<string, { ingredient: CanonicalIngredientRef; perGram: Macros } | null>>;
 }
 
 // ---------- Plan (part 2 produces) ----------
