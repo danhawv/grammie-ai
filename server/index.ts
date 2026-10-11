@@ -174,6 +174,12 @@ app.use((req, res, next) => {
     // Start periodic watchdog for stuck jobs (every 5 minutes)
     jobQueue.startStuckJobWatchdog();
 
+    // Bulk intake (a whole box of cards): first looks, pairing, feeding imports.
+    // Idles until migrations/2026-10-bulk-intake.sql has run.
+    import("./bulk-intake/worker")
+      .then((m) => m.startBulkIntakeWorker())
+      .catch((err) => console.error("[Bulk intake] Worker didn't start:", err));
+
     // Download print fonts now so the first PDF after a deploy is fast
     import("./lib/pdf/generator")
       .then((m) => m.warmPdfFonts())

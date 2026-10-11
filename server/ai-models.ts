@@ -24,6 +24,10 @@ const DEFAULTS = {
   enrichContent: { model: "gemini-3.5-flash-lite" },
   /** Reading recipe cards and cookbook pages from photos (handwriting) */
   vision: { model: "gemini-3.6-flash", thinkingLevel: "minimal" },
+  /** Bulk intake first look: which way up, front or back, title (one cheap call per photo) */
+  bulkCatalog: { model: "gemini-3.1-flash-lite", thinkingLevel: "minimal" },
+  /** Bulk intake: matching card backs to their fronts from short text notes */
+  bulkPairing: { model: "gemini-3.1-flash-lite", thinkingLevel: "low" },
   /** Short helper answers (substitutions, generated steps) */
   quickText: { model: "gemini-3.5-flash-lite" },
   /** Dish photo for recipes without one */

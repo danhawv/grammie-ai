@@ -13,7 +13,8 @@ export type CardRotation = 0 | 90 | 180 | 270;
 const ROTATIONS: CardRotation[] = [0, 90, 180, 270];
 const PANEL = 448;
 
-async function fourWays(image: Buffer): Promise<Buffer> {
+/** The photo turned 0/90/180/270°, side by side and numbered 1-4 (also used by the bulk intake first look) */
+export async function fourWays(image: Buffer): Promise<Buffer> {
   const base = await sharp(image).rotate().resize(PANEL, PANEL, { fit: "inside" }).toBuffer();
   const panels = await Promise.all(ROTATIONS.map(async (deg, i) => {
     const turned = await sharp(base).rotate(deg).resize(PANEL, PANEL, { fit: "contain", background: "#ffffff" }).toBuffer();

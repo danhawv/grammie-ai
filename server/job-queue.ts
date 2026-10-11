@@ -202,7 +202,13 @@ class JobQueue {
     this.startImageWorkers();
   }
 
-  async addExtractionJob(recipeId: string, imageBase64: string) {
+  /**
+   * Reads a recipe card photo. `bulk: true` marks the recipe as part of a
+   * bulk import (server/bulk-intake/): its extraction waits behind everyone
+   * else's single uploads. The Gemini Batch API lane (branch cost-savings)
+   * uses the same flag to batch its dish photo and extras.
+   */
+  async addExtractionJob(recipeId: string, imageBase64: string, options: { bulk?: boolean } = {}) {
     if (this.isJobQueued(recipeId, 'extraction')) {
       console.log(`[Queue] Skipping duplicate extraction job for ${recipeId}`);
       return;
@@ -218,8 +224,10 @@ class JobQueue {
     };
 
     // PRIORITY: Add extraction jobs to FRONT of queue so new uploads aren't blocked by enrichments
-    // This prevents the 60+ second queue wait when enrichment jobs are running
-    this.fastQueue.unshift(job);
+    // This prevents the 60+ second queue wait when enrichment jobs are running.
+    // Bulk imports go to the back, so a box of cards never holds up a single photo.
+    if (options.bulk) this.fastQueue.push(job);
+    else this.fastQueue.unshift(job);
     console.log(`[Queue] Added extraction job for ${recipeId} to FRONT (fast queue: ${this.fastQueue.length}, image queue: ${this.imageQueue.length})`);
 
     // Start fast worker if we have capacity
@@ -268,7 +276,7 @@ class JobQueue {
     this.startFastWorkers();
   }
 
-  async addMultiImageExtractionJob(recipeId: string, imagesBase64: string[]) {
+  async addMultiImageExtractionJob(recipeId: string, imagesBase64: string[], options: { bulk?: boolean } = {}) {
     const job: MultiImageExtractionJob = {
       type: 'multi-extraction',
       id: `multi-extract-${recipeId}`,
@@ -279,7 +287,9 @@ class JobQueue {
     };
 
     // PRIORITY: Add extraction jobs to FRONT of queue so new uploads aren't blocked by enrichments
-    this.fastQueue.unshift(job);
+    // (bulk imports go to the back, as in addExtractionJob)
+    if (options.bulk) this.fastQueue.push(job);
+    else this.fastQueue.unshift(job);
     console.log(`[Queue] Added multi-extraction job for ${recipeId} with ${imagesBase64.length} images to FRONT (fast queue: ${this.fastQueue.length})`);
 
     // Start fast worker if we have capacity
