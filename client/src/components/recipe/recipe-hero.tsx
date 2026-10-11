@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Recipe } from "@shared/schema";
-import { AlertTriangle, ImageIcon, Loader2, Sparkles } from "lucide-react";
+import { AlertTriangle, ImageIcon, Loader2, Sparkles, Wand2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { RecipeImageCarousel } from "@/components/recipe-image-manager";
 import { isPlaceholderImage } from "./recipe-utils";
@@ -10,7 +10,16 @@ import grammieImage from "@assets/image_1763329917086.png";
 // numbers and "Start cooking" are visible on a phone without scrolling, plus
 // plain-language status for background work on this recipe.
 
-export function RecipeHero({ recipe }: { recipe: Recipe }) {
+export function RecipeHero({
+  recipe,
+  onRemakePhoto,
+  remakingPhoto = false,
+}: {
+  recipe: Recipe;
+  /** Owner only: make a new photo from the whole recipe */
+  onRemakePhoto?: () => void;
+  remakingPhoto?: boolean;
+}) {
   const [displayImage, setDisplayImage] = useState<string | null>(null);
 
   // Show the thumbnail first, then swap in the full image once it has loaded
@@ -42,6 +51,25 @@ export function RecipeHero({ recipe }: { recipe: Recipe }) {
   return (
     <div className="relative h-[30vh] max-h-[26rem] min-h-[11rem] sm:h-[35vh] w-full overflow-hidden rounded-lg bg-muted">
       <RecipeImageCarousel dishImages={recipe.dishImages || []} currentImage={displayImage} />
+      {onRemakePhoto && !isPlaceholderImage(recipe.dishImage) && (
+        <Button
+          size="sm"
+          variant="secondary"
+          className="absolute right-3 top-3 z-20 min-h-11 bg-background/85 backdrop-blur-sm"
+          onClick={onRemakePhoto}
+          disabled={remakingPhoto}
+          title="Photo doesn't look right? Grammie makes a new one from the full recipe."
+          data-testid="button-remake-photo"
+        >
+          {remakingPhoto ? <Loader2 className="motion-safe:animate-spin" aria-hidden /> : <Wand2 aria-hidden />}
+          {remakingPhoto ? "Making…" : "Remake photo"}
+        </Button>
+      )}
+      {remakingPhoto && (
+        <div role="status" className="absolute inset-x-0 bottom-0 z-20 bg-background/85 p-3 text-center text-sm backdrop-blur-sm" data-testid="status-remaking-photo">
+          Making a new photo from the ingredients and steps. This takes about 10 seconds.
+        </div>
+      )}
     </div>
   );
 }

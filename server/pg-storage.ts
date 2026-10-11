@@ -1392,9 +1392,14 @@ export class PostgresStorage implements IStorage {
       }
     }
     // If no userId provided, allow update (for system/background jobs)
-    
+
+    // A new dish photo needs a new print copy, or printed books keep the old one
+    const printReset = 'dishImage' in updates && updates.dishImage !== recipe.dishImage && !('dishImagePrint' in updates)
+      ? { dishImagePrint: null }
+      : {};
+
     const [updated] = await db.update(recipes)
-      .set({ ...updates as any, updatedAt: new Date() })
+      .set({ ...updates as any, ...printReset, updatedAt: new Date() })
       .where(eq(recipes.id, id))
       .returning();
     return updated;
