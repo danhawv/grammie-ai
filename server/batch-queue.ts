@@ -15,8 +15,7 @@ import { getSharedPool } from "./pg-pool";
 import { storage } from "./storage";
 import { modelFor } from "./ai-models";
 import { getCurrentProvider, contentEnrichmentPrompt, parseGeminiJsonText } from "./ai-service";
-import { dishImagePrompt } from "./gemini";
-import { buildImagePrompt } from "./openai";
+import { buildFullRecipePhotoPrompt } from "./lib/dish-photo";
 import {
   BATCH_GIVE_UP_MS,
   batchLaneConfig,
@@ -127,18 +126,12 @@ export async function queueForBatch(recipeId: string, job: BatchJob): Promise<bo
     let extra: Record<string, unknown> | null = null;
 
     if (job === "dishImage") {
-      // Same prompt the real-time photo uses (job-queue processImageJob)
-      const ingredientNames = recipe.normalizedIngredients?.map((i) => i.item) || recipe.ingredients;
-      const context = {
-        instructions: recipe.instructions,
-        cookingMethods: recipe.cookingMethods || undefined,
-        cuisines: recipe.cuisines || undefined,
-        mealType: recipe.mealType || undefined,
-        skillLevel: recipe.skillLevel || undefined,
-      };
-      prompt = dishImagePrompt(recipe.title, context.cuisines || [], context.cookingMethods || [], context);
-      // Saved with the photo so it can be edited later, as in real time
-      extra = { imagePrompt: buildImagePrompt(recipe.title, ingredientNames, context) };
+      // The full-recipe prompt (ingredients and finishing steps), as "Remake
+      // photo" uses. By now core enrichment is done, so the recipe is complete,
+      // and it keeps the cheaper bulk model from inventing details: in a test
+      // it fixed both dishes the short title-only prompt got wrong.
+      prompt = buildFullRecipePhotoPrompt(recipe);
+      extra = { imagePrompt: prompt };
     } else {
       const { contentEnrichmentInput } = await import("./job-queue");
       prompt = contentEnrichmentPrompt(contentEnrichmentInput(recipe));
