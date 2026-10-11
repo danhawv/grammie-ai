@@ -132,3 +132,52 @@ For links and pasted text, the review page now shows the recipe it has read (tit
 - The page noticing: 0.5s
 
 Going further would need streaming or a much faster inference host, which is past the point of diminishing returns.
+
+## Bulk imports through the Batch API (October 2026)
+
+Gemini's Batch API costs half as much and finishes within 24 hours, usually in minutes. A batch not run within 48 hours expires. Bulk imports use it for the work nobody is waiting on.
+
+**What goes where:**
+
+| Step | Bulk import | Why |
+|---|---|---|
+| Reading the card (`vision`) | Real time | People see their recipe titles in seconds. It's only ~0.5¢ a card. |
+| Core enrichment and nutrition (`enrichCore`, `enrichNutrition`) | Real time | Makes the recipe usable and editable. It's many small calls with retries, which don't suit a batch. |
+| Tips, pairings, history (`enrichContent`) | Batch | Optional extras. They already load after the recipe is usable. |
+| Dish photo | Batch, on `dishImageBulk` (`gemini-3.1-flash-lite-image`) | The biggest cost. The card photo shows until it arrives. |
+
+**Bulk photo model.** `gemini-3.1-flash-lite-image` (Nano Banana 2 Lite) took 3.2s and cost about 3.4¢ a photo in real time. Quality was about 90% of `gemini-3.1-flash-image`, and all 10 test photos succeeded. Batched, a photo costs about 1.7¢. Real-time photos still use `dishImage`.
+
+**Cost per card:**
+- Real time: about 9¢.
+- Bulk: about 3.7¢.
+  - Photo: about 1.7¢ instead of 6.9¢.
+  - Extras: about half price.
+  - Reading and core enrichment: unchanged.
+
+**What counts as bulk:**
+- A recipe whose upload session has `GEMINI_BATCH_MIN_RECIPES` or more files (default 20).
+- A recipe queued with `jobQueue.addExtractionJob(id, image, { bulk: true })`.
+- A recipe passed to `markBulkImport(ids)` (`server/batch-queue.ts`).
+
+**How it works:**
+- Requests are stored in `gemini_batch_requests` (`migrations/2026-10-gemini-batch.sql`).
+- A poller sends them every minute, once 200 are waiting or the oldest has waited 3 minutes.
+- Photos go as an uploaded JSONL file, so the answers are streamed one at a time. Text goes inline.
+- Answers are saved through the same code as real time (`saveDishImage`, `saveContentEnrichment` in `job-queue.ts`).
+- A request whose batch fails, expires or doesn't answer it is redone in real time.
+- A recipe waiting on a batch shows "Photo coming soon" (`imageGenerationStatus = 'queued'`) and "Tips, pairings and the dish's story are coming soon" (`contentEnrichmentStatus = 'queued'`).
+
+**Settings:**
+
+| Variable | Default | Effect |
+|---|---|---|
+| `GEMINI_BATCH` | on | `off` sends new work through real time. Batches already sent still finish. |
+| `GEMINI_BATCH_MIN_RECIPES` | 20 | Smallest upload session treated as bulk. |
+| `GEMINI_BATCH_JOBS` | `dishImage,enrichContent` | Which steps are batched. |
+| `GEMINI_BATCH_POLL_MS` | 60000 | How often the poller runs. |
+| `GEMINI_BATCH_FLUSH_MS` | 180000 | Longest a request waits for others to join its batch. |
+| `GEMINI_BATCH_MAX_REQUESTS` | 200 | Most requests in one batch. |
+| `GEMINI_MODEL_DISHIMAGEBULK` | `gemini-3.1-flash-lite-image` | Bulk photo model. |
+
+Until the migration is applied, the lane stays off on its own.

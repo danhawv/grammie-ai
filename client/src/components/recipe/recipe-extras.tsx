@@ -238,6 +238,13 @@ function ExtrasContent({ recipe }: { recipe: Recipe }) {
         </CardContent>
       </Card>
 
+        {/* Bulk imports: tips and pairings are made in a Gemini batch, later */}
+        {recipe.contentEnrichmentStatus === 'queued' && (
+          <p className="text-base text-muted-foreground" role="status" data-testid="text-content-queued">
+            Tips, pairings and the dish's story are coming soon.
+          </p>
+        )}
+
         {/* Content enrichment loading skeleton — shown while Group 3 content loads in background */}
         {recipe.contentEnrichmentStatus === 'enriching' && !recipe.beveragePairings && !recipe.culturalSignificance && !recipe.celebrityChefReviews && (
           <Card className="border-dashed">

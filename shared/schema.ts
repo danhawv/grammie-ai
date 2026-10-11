@@ -444,7 +444,7 @@ export const recipes = pgTable("recipes", {
   enrichmentStartedAt: timestamp("enrichment_started_at"),
   
   // Image generation job tracking
-  imageGenerationStatus: text("image_generation_status").$type<'pending' | 'generating' | 'ready' | 'failed'>().default('pending'),
+  imageGenerationStatus: text("image_generation_status").$type<'pending' | 'queued' | 'generating' | 'ready' | 'failed'>().default('pending'),
   imageGenerationError: text("image_generation_error"),
   imageGenerationStartedAt: timestamp("image_generation_started_at"),
   
@@ -1529,7 +1529,7 @@ export type UploadSessionWithRecipes = UploadSession & {
     id: string;
     title: string;
     enrichmentStatus: 'extracting' | 'enriching' | 'ready' | 'failed';
-    imageGenerationStatus: 'pending' | 'generating' | 'ready' | 'failed';
+    imageGenerationStatus: 'pending' | 'queued' | 'generating' | 'ready' | 'failed';
     sourceImageIndex: number | null;
   }>;
 };

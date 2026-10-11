@@ -106,7 +106,9 @@ export default function RecipeDetail() {
         data.contentEnrichmentStatus === "enriching" ||
         data.imageGenerationStatus === "pending" ||
         data.imageGenerationStatus === "generating";
-      return busy ? 3000 : false;
+      // Bulk imports: photo or extras waiting on a batch (minutes to hours)
+      const batched = data.imageGenerationStatus === "queued" || data.contentEnrichmentStatus === "queued";
+      return busy ? 3000 : batched ? 60_000 : false;
     },
   });
 

@@ -1177,14 +1177,12 @@ Estimate based on typical US grocery prices. Return ONLY valid JSON.`;
   };
 }
 
-// Group 3: Creative content & reviews (tips, variations, cultural significance, chef reviews)
-async function enrichGroup3Content(
-  rawRecipe: ExtractedRecipeRaw,
-  provider: AIProvider
-): Promise<GroupResult<Partial<EnrichedRecipeData>>> {
-  const startTime = Date.now();
-  
-  const prompt = `Generate creative content for this recipe. Return JSON with these fields ONLY:
+/**
+ * Group 3 prompt (tips, pairings, history, chef reviews). Shared with the
+ * batch lane (server/batch-lane.ts), so batched content matches real-time.
+ */
+export function contentEnrichmentPrompt(rawRecipe: ExtractedRecipeRaw): string {
+  return `Generate creative content for this recipe. Return JSON with these fields ONLY:
 
 RECIPE DATA:
 ${JSON.stringify(rawRecipe, null, 2)}
@@ -1214,6 +1212,16 @@ REQUIRED FIELDS:
 8. aiEnrichmentFields: string[] (list all fields you enriched)
 
 Return ONLY valid JSON.`;
+}
+
+// Group 3: Creative content & reviews (tips, variations, cultural significance, chef reviews)
+async function enrichGroup3Content(
+  rawRecipe: ExtractedRecipeRaw,
+  provider: AIProvider
+): Promise<GroupResult<Partial<EnrichedRecipeData>>> {
+  const startTime = Date.now();
+  
+  const prompt = contentEnrichmentPrompt(rawRecipe);
 
   const result = await callAIForJSON(prompt, provider, "enrichContent");
   
@@ -1229,6 +1237,18 @@ async function callAIForJSON(prompt: string, provider: AIProvider, job: AIJob): 
     return callGeminiForJSON(prompt, job);
   }
   return callOpenAIForJSON(prompt);
+}
+
+/** A Gemini JSON-mode answer -> object (code fences removed). Also used by the batch lane. */
+export function parseGeminiJsonText(responseText: string): any {
+  let cleaned = responseText.trim();
+  if (cleaned.includes("```json")) {
+    cleaned = cleaned.replace(/```json\n?/g, "").replace(/```\n?/g, "");
+  }
+  if (cleaned.includes("```")) {
+    cleaned = cleaned.replace(/```\n?/g, "");
+  }
+  return parseModelJson(cleaned);
 }
 
 async function callGeminiForJSON(prompt: string, job: AIJob): Promise<any> {
@@ -1257,17 +1277,8 @@ async function callGeminiForJSON(prompt: string, job: AIJob): Promise<any> {
     throw error;
   }
   
-  // Clean markdown code blocks if present
-  let cleaned = responseText.trim();
-  if (cleaned.includes("```json")) {
-    cleaned = cleaned.replace(/```json\n?/g, "").replace(/```\n?/g, "");
-  }
-  if (cleaned.includes("```")) {
-    cleaned = cleaned.replace(/```\n?/g, "");
-  }
-  
   try {
-    return parseModelJson(cleaned);
+    return parseGeminiJsonText(responseText);
   } catch (parseError: any) {
     console.error(`[AI Service] Gemini JSON parse error:`, parseError.message);
     console.error(`[AI Service] Response preview:`, responseText.substring(0, 300));

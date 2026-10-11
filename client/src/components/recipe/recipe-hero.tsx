@@ -70,7 +70,16 @@ export function RecipeStatus({
 
   if (recipe.enrichmentStatus === "extracting") items.push(busy("extracting", "badge-extracting", "Reading the recipe…"));
   if (recipe.enrichmentStatus === "enriching") items.push(busy("enriching", "badge-enriching", "Adding details like times and nutrition…"));
-  if (isPlaceholderImage(recipe.dishImage) || recipe.imageGenerationStatus === "generating") {
+  // Bulk imports: the photo is made in a Gemini batch, minutes to hours
+  // later. Say so calmly instead of spinning.
+  if (recipe.imageGenerationStatus === "queued") {
+    items.push(
+      <p key="image-queued" role="status" className="flex items-center gap-2 text-sm text-muted-foreground" data-testid="badge-image-queued">
+        <ImageIcon className="h-4 w-4" aria-hidden />
+        Photo coming soon
+      </p>,
+    );
+  } else if (isPlaceholderImage(recipe.dishImage) || recipe.imageGenerationStatus === "generating") {
     items.push(busy("image", "badge-image-generating", "Making a photo of the dish…"));
   }
 

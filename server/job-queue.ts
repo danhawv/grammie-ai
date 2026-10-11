@@ -11,7 +11,8 @@ import {
   generateRecipeImageUnified,
   generateMissingInstructions,
   getCurrentProvider,
-  type ExtractedRecipeRaw
+  type ExtractedRecipeRaw,
+  type EnrichedRecipeData,
 } from "./ai-service";
 import { generateThumbnail } from "./thumbnail";
 import {
@@ -21,8 +22,11 @@ import {
   deriveLegacyCuisine,
   deriveLegacyEquipment,
   deriveNutritionFlags,
+  type Recipe,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
+import { markBulkImport, queueForBatch, useBatchLane } from "./batch-queue";
+import type { BatchJob } from "./lib/batch-lane";
 
 interface ImageGenerationJob {
   type: 'image';
@@ -83,10 +87,13 @@ async function updateSessionProgress(recipeId: string) {
     
     for (const r of sessionWithRecipes.recipes) {
       const isEnrichmentDone = r.enrichmentStatus === 'ready' || r.enrichmentStatus === 'failed';
-      const isImageDone = r.imageGenerationStatus === 'ready' || r.imageGenerationStatus === 'failed';
+      // A photo waiting on a Gemini batch (bulk imports) counts as done: the
+      // recipe is usable and the photo arrives later
+      const imageReady = r.imageGenerationStatus === 'ready' || r.imageGenerationStatus === 'queued';
+      const isImageDone = imageReady || r.imageGenerationStatus === 'failed';
       
       if (isEnrichmentDone && isImageDone) {
-        if (r.enrichmentStatus === 'ready' && r.imageGenerationStatus === 'ready') {
+        if (r.enrichmentStatus === 'ready' && imageReady) {
           completed++;
         } else {
           failed++;
@@ -106,6 +113,114 @@ async function updateSessionProgress(recipeId: string) {
     console.error(`Failed to update session progress for recipe ${recipeId}:`, error);
     // Don't throw - session progress is nice-to-have, not critical
   }
+}
+
+// ============ Saving results (shared with the batch lane) ============
+// server/batch-queue.ts saves batched photos and content through these, so
+// both lanes write recipes the same way.
+
+/** Saves a dish photo: thumbnail, primary image, status ready, session progress */
+export async function saveDishImage(recipeId: string, imageBuffer: Buffer, mimeType: string, imagePrompt: string) {
+  const recipe = await storage.getRecipe(recipeId);
+  const isSvg = mimeType === "image/svg+xml";
+  const dishImageDataUrl = `data:${mimeType};base64,${imageBuffer.toString("base64")}`;
+
+  // Generate thumbnail (256x256, ~150KB)
+  let thumbnailDataUrl: string | null = null;
+  if (!isSvg) {
+    try {
+      thumbnailDataUrl = await generateThumbnail(dishImageDataUrl, 256);
+      console.log(`Generated thumbnail for recipe ${recipeId}`);
+    } catch (error) {
+      console.error(`Failed to generate thumbnail for recipe ${recipeId}:`, error);
+      // Continue without thumbnail - not critical
+    }
+  }
+
+  // Create the new image entry for dishImages array
+  const newDishImage = {
+    id: randomUUID(),
+    url: dishImageDataUrl,
+    thumbnailUrl: thumbnailDataUrl || undefined,
+    isAiGenerated: true,
+    order: 0,
+    createdAt: new Date().toISOString(),
+  };
+
+  // Get existing dishImages array and add new image at front (AI image becomes primary)
+  const existingImages = recipe?.dishImages || [];
+  const updatedImages = [newDishImage, ...existingImages.map((img, idx) => ({ ...img, order: idx + 1 }))].slice(0, 5);
+
+  // Update the recipe with the generated image, thumbnail, prompt, and images array
+  await storage.updateRecipe(recipeId, {
+    dishImage: dishImageDataUrl,
+    dishImageThumbnail: thumbnailDataUrl,
+    imagePrompt: imagePrompt,
+    dishImages: updatedImages,
+    imageGenerationStatus: 'ready',
+    imageGenerationError: null,
+  });
+
+  console.log(
+    `Successfully generated and saved dish image${thumbnailDataUrl ? ' with thumbnail' : ''} for recipe ${recipeId}`
+  );
+
+  // Update session progress if part of multi-upload
+  await updateSessionProgress(recipeId);
+}
+
+/** The recipe as content enrichment (Group 3) sees it */
+export function contentEnrichmentInput(recipe: Recipe): ExtractedRecipeRaw {
+  return {
+    title: recipe.title,
+    description: recipe.description || undefined,
+    prepTime: recipe.prepTime,
+    cookTime: recipe.cookTime || undefined,
+    totalTime: recipe.totalTime,
+    coolingTime: recipe.coolingTime || undefined,
+    servings: recipe.servings || undefined,
+    servingUnit: recipe.servingUnit || undefined,
+    yield: recipe.yield || undefined,
+    ingredients: recipe.ingredients,
+    instructions: recipe.instructions || [],
+    equipment: recipe.equipment || undefined,
+    dietType: recipe.dietType || undefined,
+    cuisine: recipe.cuisine || undefined,
+    mealType: recipe.mealType || undefined,
+    calories: recipe.calories || undefined,
+    protein: recipe.protein || undefined,
+    carbohydrates: recipe.carbohydrates || undefined,
+    fat: recipe.fat || undefined,
+    fiber: recipe.fiber || undefined,
+    sugar: recipe.sugar || undefined,
+    sodium: recipe.sodium || undefined,
+    cholesterol: recipe.cholesterol || undefined,
+  };
+}
+
+/** Saves Group 3 content (tips, pairings, history, reviews) and marks it ready */
+export async function saveContentEnrichment(recipeId: string, contentData: Partial<EnrichedRecipeData>) {
+  const recipe = await storage.getRecipe(recipeId);
+  // Update ONLY the Group 3 fields in the database
+  await storage.updateRecipe(recipeId, {
+    tips: contentData.tips,
+    variations: contentData.variations,
+    servingSuggestions: contentData.servingSuggestions,
+    beveragePairings: contentData.beveragePairings,
+    recipeVariations: contentData.recipeVariations,
+    culturalSignificance: contentData.culturalSignificance,
+    celebrityChefReviews: contentData.celebrityChefReviews,
+
+    // Merge aiEnrichmentFields with existing
+    aiEnrichmentFields: [
+      ...(recipe?.aiEnrichmentFields || []),
+      ...(contentData.aiEnrichmentFields || []),
+      'contentEnriched',
+    ],
+
+    // Mark content enrichment as complete
+    contentEnrichmentStatus: 'ready',
+  });
 }
 
 // Rate limit error detection helper
@@ -202,7 +317,15 @@ class JobQueue {
     this.startImageWorkers();
   }
 
-  async addExtractionJob(recipeId: string, imageBase64: string) {
+  /**
+   * Reads a recipe card photo. `bulk: true` marks the recipe as part of a
+   * bulk import: it's still read right away, but its dish photo and extra
+   * content go through the Gemini Batch API (server/batch-queue.ts). Recipes
+   * in an upload session of GEMINI_BATCH_MIN_RECIPES+ files count as bulk
+   * without the flag.
+   */
+  async addExtractionJob(recipeId: string, imageBase64: string, options: { bulk?: boolean } = {}) {
+    if (options.bulk) markBulkImport([recipeId]);
     if (this.isJobQueued(recipeId, 'extraction')) {
       console.log(`[Queue] Skipping duplicate extraction job for ${recipeId}`);
       return;
@@ -268,7 +391,8 @@ class JobQueue {
     this.startFastWorkers();
   }
 
-  async addMultiImageExtractionJob(recipeId: string, imagesBase64: string[]) {
+  async addMultiImageExtractionJob(recipeId: string, imagesBase64: string[], options: { bulk?: boolean } = {}) {
+    if (options.bulk) markBulkImport([recipeId]);
     const job: MultiImageExtractionJob = {
       type: 'multi-extraction',
       id: `multi-extract-${recipeId}`,
@@ -399,6 +523,15 @@ class JobQueue {
 
           await storage.updateRecipe(job.recipeId, updateData);
           await updateSessionProgress(job.recipeId);
+
+          // Bulk imports hold the photo until enrichment is done; if it
+          // never is, make the photo now so the recipe isn't left without one
+          if (job.type === 'enrichment') {
+            const recipe = await storage.getRecipe(job.recipeId);
+            if (recipe && recipe.imageGenerationStatus === 'pending' && recipe.title && recipe.ingredients?.length) {
+              this.addImageGenerationJob(job.recipeId, recipe.title, recipe.ingredients);
+            }
+          }
         }
       }
     } finally {
@@ -536,49 +669,7 @@ class JobQueue {
       // Check if it's an SVG (placeholder) or real image
       const isSvg = dishImageBuffer.toString("utf8").startsWith("<svg");
       const mimeType = isSvg ? "image/svg+xml" : (imageResult.format === "png" ? "image/png" : "image/webp");
-      const dishImageDataUrl = `data:${mimeType};base64,${dishImageBuffer.toString("base64")}`;
-
-      // Generate thumbnail (256x256, ~150KB)
-      let thumbnailDataUrl: string | null = null;
-      if (!isSvg) {
-        try {
-          thumbnailDataUrl = await generateThumbnail(dishImageDataUrl, 256);
-          console.log(`Generated thumbnail for recipe ${job.recipeId}`);
-        } catch (error) {
-          console.error(`Failed to generate thumbnail for recipe ${job.recipeId}:`, error);
-          // Continue without thumbnail - not critical
-        }
-      }
-
-      // Create the new image entry for dishImages array
-      const newDishImage = {
-        id: randomUUID(),
-        url: dishImageDataUrl,
-        thumbnailUrl: thumbnailDataUrl || undefined,
-        isAiGenerated: true,
-        order: 0,
-        createdAt: new Date().toISOString(),
-      };
-
-      // Get existing dishImages array and add new image at front (AI image becomes primary)
-      const existingImages = recipe?.dishImages || [];
-      const updatedImages = [newDishImage, ...existingImages.map((img, idx) => ({ ...img, order: idx + 1 }))].slice(0, 5);
-
-      // Update the recipe with the generated image, thumbnail, prompt, and images array
-      await storage.updateRecipe(job.recipeId, {
-        dishImage: dishImageDataUrl,
-        dishImageThumbnail: thumbnailDataUrl,
-        imagePrompt: imagePrompt,
-        dishImages: updatedImages,
-        imageGenerationStatus: 'ready',
-      });
-
-      console.log(
-        `Successfully generated and saved dish image${thumbnailDataUrl ? ' with thumbnail' : ''} for recipe ${job.recipeId}`
-      );
-      
-      // Update session progress if part of multi-upload
-      await updateSessionProgress(job.recipeId);
+      await saveDishImage(job.recipeId, dishImageBuffer, mimeType, imagePrompt);
     } catch (error) {
       // Mark as failed with error message
       const errorMessage = error instanceof Error ? error.message : 'Unknown error during image generation';
@@ -682,9 +773,13 @@ class JobQueue {
 
       console.log(`Recipe ${job.recipeId} extracted, queuing enrichment and photo...`);
 
-      // Enrichment and the dish photo run side by side
+      // Enrichment and the dish photo run side by side. Bulk imports skip
+      // the photo here: it's batched after enrichment (better prompt, and
+      // nobody is waiting on it)
       this.addEnrichmentJob(job.recipeId);
-      this.addImageGenerationJob(job.recipeId, rawRecipe.title, rawRecipe.ingredients);
+      if (!(await useBatchLane(job.recipeId, 'dishImage'))) {
+        this.addImageGenerationJob(job.recipeId, rawRecipe.title, rawRecipe.ingredients);
+      }
     } catch (error) {
       // Mark extraction as failed but don't update imageGenerationStatus yet
       // (retries might still succeed, and we need imageGenerationStatus='pending' for that)
@@ -776,9 +871,11 @@ class JobQueue {
 
       console.log(`Recipe ${job.recipeId} extracted from ${job.imagesBase64.length} images, queuing enrichment and photo...`);
 
-      // Enrichment and the dish photo run side by side
+      // Enrichment and the dish photo run side by side (bulk: photo batched after enrichment)
       this.addEnrichmentJob(job.recipeId);
-      this.addImageGenerationJob(job.recipeId, rawRecipe.title!, rawRecipe.ingredients);
+      if (!(await useBatchLane(job.recipeId, 'dishImage'))) {
+        this.addImageGenerationJob(job.recipeId, rawRecipe.title!, rawRecipe.ingredients);
+      }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error during multi-image extraction';
       await storage.updateRecipe(job.recipeId, {
@@ -1032,7 +1129,10 @@ class JobQueue {
       console.log(`Successfully enriched recipe ${job.recipeId} (essential, attempt ${currentRetryCount + 1})`);
 
       // Queue content enrichment (Group 3) as a separate background job
-      this.addContentEnrichmentJob(job.recipeId);
+      // (bulk imports: in the next Gemini batch)
+      if (!(await this.queueBatchedIfBulk(job.recipeId, 'enrichContent'))) {
+        this.addContentEnrichmentJob(job.recipeId);
+      }
 
       // Update session progress if part of multi-upload
       await updateSessionProgress(job.recipeId);
@@ -1042,7 +1142,9 @@ class JobQueue {
       if (updatedRecipe && updatedRecipe.imageGenerationStatus === 'pending') {
         console.log(`Queuing image generation for recipe ${job.recipeId} (immediately after essential enrichment)...`);
         const ingredientNames = updatedRecipe.normalizedIngredients?.map(i => i.item) || updatedRecipe.ingredients;
-        this.addImageGenerationJob(job.recipeId, updatedRecipe.title, ingredientNames);
+        if (!(await this.queueBatchedIfBulk(job.recipeId, 'dishImage'))) {
+          this.addImageGenerationJob(job.recipeId, updatedRecipe.title, ingredientNames);
+        }
       }
     } catch (error) {
       // Mark as failed with error message
@@ -1070,32 +1172,7 @@ class JobQueue {
         throw new Error(`Recipe ${job.recipeId} not found`);
       }
 
-      // Build ExtractedRecipeRaw from the saved recipe
-      const raw: ExtractedRecipeRaw = {
-        title: recipe.title,
-        description: recipe.description || undefined,
-        prepTime: recipe.prepTime,
-        cookTime: recipe.cookTime || undefined,
-        totalTime: recipe.totalTime,
-        coolingTime: recipe.coolingTime || undefined,
-        servings: recipe.servings || undefined,
-        servingUnit: recipe.servingUnit || undefined,
-        yield: recipe.yield || undefined,
-        ingredients: recipe.ingredients,
-        instructions: recipe.instructions || [],
-        equipment: recipe.equipment || undefined,
-        dietType: recipe.dietType || undefined,
-        cuisine: recipe.cuisine || undefined,
-        mealType: recipe.mealType || undefined,
-        calories: recipe.calories || undefined,
-        protein: recipe.protein || undefined,
-        carbohydrates: recipe.carbohydrates || undefined,
-        fat: recipe.fat || undefined,
-        fiber: recipe.fiber || undefined,
-        sugar: recipe.sugar || undefined,
-        sodium: recipe.sodium || undefined,
-        cholesterol: recipe.cholesterol || undefined,
-      };
+      const raw = contentEnrichmentInput(recipe);
 
       const provider = getCurrentProvider();
       console.log(`[Job Queue] Content enrichment for "${recipe.title}" using ${provider.toUpperCase()}`);
@@ -1109,26 +1186,7 @@ class JobQueue {
       const contentMs = Date.now() - contentStart;
       console.log(`[Timing] Content enrichment: ${contentMs}ms (${provider})`);
 
-      // Update ONLY the Group 3 fields in the database
-      await storage.updateRecipe(job.recipeId, {
-        tips: contentData.tips,
-        variations: contentData.variations,
-        servingSuggestions: contentData.servingSuggestions,
-        beveragePairings: contentData.beveragePairings,
-        recipeVariations: contentData.recipeVariations,
-        culturalSignificance: contentData.culturalSignificance,
-        celebrityChefReviews: contentData.celebrityChefReviews,
-
-        // Merge aiEnrichmentFields with existing
-        aiEnrichmentFields: [
-          ...(recipe.aiEnrichmentFields || []),
-          ...(contentData.aiEnrichmentFields || []),
-          'contentEnriched',
-        ],
-
-        // Mark content enrichment as complete
-        contentEnrichmentStatus: 'ready',
-      });
+      await saveContentEnrichment(job.recipeId, contentData);
 
       console.log(`Successfully completed content enrichment for recipe ${job.recipeId}`);
     } catch (error) {
@@ -1287,6 +1345,11 @@ class JobQueue {
       });
       throw error;
     }
+  }
+
+  /** Bulk imports: queue `job` for the next Gemini batch. False = run it now as usual */
+  private async queueBatchedIfBulk(recipeId: string, job: BatchJob): Promise<boolean> {
+    return (await useBatchLane(recipeId, job)) && (await queueForBatch(recipeId, job));
   }
 
   getQueueLength(): number {

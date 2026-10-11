@@ -28,6 +28,13 @@ const DEFAULTS = {
   quickText: { model: "gemini-3.5-flash-lite" },
   /** Dish photo for recipes without one */
   dishImage: { model: "gemini-3.1-flash-image" },
+  /**
+   * Dish photo for bulk imports, sent through the Batch API (server/lib/
+   * batch-lane.ts). Nano Banana 2 Lite: ~90% of dishImage's quality at about
+   * half the price (~3.4¢ real-time, ~1.7¢ batched); all 10 test photos
+   * succeeded. A batch that fails is redone in real time with dishImage.
+   */
+  dishImageBulk: { model: "gemini-3.1-flash-lite-image" },
   /** Tried when dishImage is rate-limited or erroring (separate quota) */
   dishImageBackup: { model: "gemini-nano-banana-2.1" },
 } satisfies Record<string, ModelChoice>;

@@ -174,6 +174,11 @@ app.use((req, res, next) => {
     // Start periodic watchdog for stuck jobs (every 5 minutes)
     jobQueue.startStuckJobWatchdog();
 
+    // Collect bulk-import photos and extras from Gemini batches (every minute)
+    import("./batch-queue")
+      .then((m) => m.startBatchPoller())
+      .catch((err) => console.error("[Batch] poller failed to start:", err));
+
     // Download print fonts now so the first PDF after a deploy is fast
     import("./lib/pdf/generator")
       .then((m) => m.warmPdfFonts())

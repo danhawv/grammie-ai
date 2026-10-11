@@ -594,16 +594,16 @@ export interface GeminiImageContext {
   description?: string;
 }
 
-export async function generateRecipeImageWithGemini(
+/**
+ * The dish photo prompt. Shared by the real-time call below and the batch
+ * lane (server/batch-lane.ts), so both make the same photo.
+ */
+export function dishImagePrompt(
   recipeName: string,
   cuisines: string[],
   cookingMethods: string[],
   context?: GeminiImageContext
-): Promise<string> {
-  if (!genAI) {
-    throw new Error("Gemini API not configured");
-  }
-
+): string {
   const cuisineStr = cuisines.length > 0 ? cuisines.join(" and ") : "";
   const methodsStr = cookingMethods.length > 0 ? `, ${cookingMethods.join(" and ")}` : "";
 
@@ -628,17 +628,35 @@ export async function generateRecipeImageWithGemini(
 
   const cuisinePresentation = cuisineStr ? ` Authentic ${cuisineStr} presentation.` : "";
 
-  const prompt = `Generate a professional food photograph of the FINISHED, FULLY COOKED ${recipeName}${methodsStr}${mealContext}. Show ONLY the final plated result — the complete dish as it would arrive at the table, ready to eat.${cuisinePresentation} ${platingStyle} plating on appropriate dinnerware. Soft natural side lighting, shallow depth of field, appetizing warm colors. Photorealistic, high-resolution, food magazine cover quality. CRITICAL: Do NOT show any raw ingredients, cutting boards, prep bowls, cooking process, or individual uncooked components. Show ONLY the finished, assembled, ready-to-serve dish.`;
+  return `Generate a professional food photograph of the FINISHED, FULLY COOKED ${recipeName}${methodsStr}${mealContext}. Show ONLY the final plated result — the complete dish as it would arrive at the table, ready to eat.${cuisinePresentation} ${platingStyle} plating on appropriate dinnerware. Soft natural side lighting, shallow depth of field, appetizing warm colors. Photorealistic, high-resolution, food magazine cover quality. CRITICAL: Do NOT show any raw ingredients, cutting boards, prep bowls, cooking process, or individual uncooked components. Show ONLY the finished, assembled, ready-to-serve dish.`;
+}
+
+/** generateContent body for a dish photo */
+export function dishImageRequest(prompt: string) {
+  return {
+    contents: [{ role: "user", parts: [{ text: prompt }] }],
+    generationConfig: { responseModalities: ["TEXT", "IMAGE"] } as any,
+  };
+}
+
+export async function generateRecipeImageWithGemini(
+  recipeName: string,
+  cuisines: string[],
+  cookingMethods: string[],
+  context?: GeminiImageContext
+): Promise<string> {
+  if (!genAI) {
+    throw new Error("Gemini API not configured");
+  }
+
+  const prompt = dishImagePrompt(recipeName, cuisines, cookingMethods, context);
 
   const startTime = Date.now();
 
   try {
     console.log(`[Gemini] Generating image for: ${recipeName}`);
 
-    const request = {
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
-      generationConfig: { responseModalities: ["TEXT", "IMAGE"] } as any,
-    };
+    const request = dishImageRequest(prompt);
     // A busy, failing or stalled image model (429/5xx, or no answer in 30s;
     // normally ~10s) falls back to the backup model, which has its own
     // quota, instead of leaving the recipe waiting for a photo
