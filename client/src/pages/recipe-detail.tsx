@@ -94,7 +94,7 @@ export default function RecipeDetail() {
   const [selectedCookbookId, setSelectedCookbookId] = useState<string | undefined>();
   const [cookingModeOpen, setCookingModeOpen] = useState(false);
   const [cookingStartStep, setCookingStartStep] = useState<number | null>(null);
-  const [extrasOpen, setExtrasOpen] = useState(false);
+  const [extrasOpen, setExtrasOpen] = useState(true);
   const [unitSystem, setUnitSystem] = useUnitSystem();
   const timers = useCookingTimers(recipeId);
 
@@ -140,10 +140,10 @@ export default function RecipeDetail() {
     if (recipe) setServings(recipe.servings);
   }, [recipe]);
 
-  // A different recipe starts with nothing checked and the extras closed
+  // A different recipe starts with nothing checked and the extras open
   useEffect(() => {
     setCheckedIngredients(new Set());
-    setExtrasOpen(false);
+    setExtrasOpen(true);
   }, [recipeId]);
 
   const isOwner = !!(user && recipe && user.id === recipe.ownerUserId);
@@ -421,6 +421,7 @@ export default function RecipeDetail() {
             servings={servings}
             onServingsChange={handleServingsChange}
             scaling={scaleMutation.isPending}
+            nutrition={{ calories: recipe.calories, protein: recipe.protein, carbs: recipe.carbohydrates, fat: recipe.fat }}
           />
 
           <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">

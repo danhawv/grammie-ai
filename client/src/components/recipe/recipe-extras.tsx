@@ -31,8 +31,8 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 
-// Everything beyond the recipe itself, in one collapsed "More from Grammie"
-// section below the steps and notes (docs/DESIGN_PRINCIPLES.md rule 1).
+// Everything beyond the recipe itself, in one "More from Grammie" section
+// (open by default, can be folded) below the steps and notes (docs/DESIGN_PRINCIPLES.md rule 1).
 // The section contents are unchanged from the previous page; they were only
 // moved here.
 

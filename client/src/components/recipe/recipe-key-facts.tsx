@@ -2,8 +2,8 @@ import { Loader2, Minus, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatMinutes } from "@shared/recipe-display";
 
-// The numbers a cook checks first: prep, cook and total time, and a
-// servings stepper that rescales the ingredients.
+// The numbers a cook checks first: prep, cook and total time, the basic
+// nutrition per serving, and a servings stepper that rescales the ingredients.
 
 export function RecipeKeyFacts({
   prepMinutes,
@@ -12,6 +12,7 @@ export function RecipeKeyFacts({
   servings,
   onServingsChange,
   scaling,
+  nutrition,
 }: {
   prepMinutes?: number | null;
   cookMinutes?: number | null;
@@ -19,12 +20,22 @@ export function RecipeKeyFacts({
   servings: number;
   onServingsChange: (n: number) => void;
   scaling: boolean;
+  /** per serving; any missing value is left out */
+  nutrition?: { calories?: number | null; protein?: number | null; carbs?: number | null; fat?: number | null };
 }) {
   const times = [
     { label: "Prep", value: formatMinutes(prepMinutes), testId: "text-prep-time" },
     { label: "Cook", value: formatMinutes(cookMinutes), testId: "text-cook-time" },
     { label: "Total", value: formatMinutes(totalMinutes), testId: "text-total-time" },
   ].filter((t) => t.value);
+
+  const per = nutrition ?? {};
+  const facts = [
+    { label: "Calories", value: per.calories, unit: "", testId: "text-key-calories" },
+    { label: "Protein", value: per.protein, unit: " g", testId: "text-key-protein" },
+    { label: "Carbs", value: per.carbs, unit: " g", testId: "text-key-carbs" },
+    { label: "Fat", value: per.fat, unit: " g", testId: "text-key-fat" },
+  ].filter((f) => f.value != null && Number.isFinite(f.value));
 
   return (
     <section aria-label="Times and servings" className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 rounded-lg border bg-card px-4 py-3">
@@ -37,6 +48,20 @@ export function RecipeKeyFacts({
             </div>
           ))}
         </dl>
+      )}
+
+      {facts.length > 0 && (
+        <div className="w-full border-t pt-3">
+          <p className="mb-1 text-sm text-muted-foreground">Per serving</p>
+          <dl className="grid grid-cols-4 gap-2">
+            {facts.map((f) => (
+              <div key={f.label}>
+                <dt className="text-sm text-muted-foreground">{f.label}</dt>
+                <dd className="text-lg font-semibold tabular-nums" data-testid={f.testId}>{Math.round(f.value!)}{f.unit}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
       )}
 
       <div className="flex items-center gap-3">
