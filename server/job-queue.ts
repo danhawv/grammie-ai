@@ -24,6 +24,7 @@ import {
   deriveNutritionFlags,
   type Recipe,
 } from "@shared/schema";
+import { withNewPrimaryPhoto } from "./lib/dish-photo";
 import { randomUUID } from "crypto";
 import { markBulkImport, queueForBatch, useBatchLane } from "./batch-queue";
 import type { BatchJob } from "./lib/batch-lane";
@@ -147,9 +148,15 @@ export async function saveDishImage(recipeId: string, imageBuffer: Buffer, mimeT
     createdAt: new Date().toISOString(),
   };
 
-  // Get existing dishImages array and add new image at front (AI image becomes primary)
-  const existingImages = recipe?.dishImages || [];
-  const updatedImages = [newDishImage, ...existingImages.map((img, idx) => ({ ...img, order: idx + 1 }))].slice(0, 5);
+  // New photo first; earlier ones stay so the owner can switch back (a photo
+  // from before photo lists existed counts too). When that's more than 5, the
+  // oldest AI photo goes, never a scanned card or family photo.
+  const existingImages = recipe?.dishImages?.length
+    ? recipe.dishImages
+    : recipe?.dishImage && !recipe.dishImage.startsWith("data:image/svg")
+      ? [{ id: randomUUID(), url: recipe.dishImage, thumbnailUrl: recipe.dishImageThumbnail || undefined, isAiGenerated: true, order: 0, createdAt: new Date().toISOString() }]
+      : [];
+  const updatedImages = withNewPrimaryPhoto(existingImages, newDishImage);
 
   // Update the recipe with the generated image, thumbnail, prompt, and images array
   await storage.updateRecipe(recipeId, {
