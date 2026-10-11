@@ -167,6 +167,17 @@ export interface RecipeFacts {
   cost: number | null;
   /** components this recipe can be split into for mix-and-match plates */
   component?: "protein" | "grain" | "veg" | "sauce" | "complete";
+  /** how the numbers were checked (filled by food data) */
+  nutritionCheck?: NutritionCheck;
+}
+
+export interface NutritionCheck {
+  /** calorie-weighted share of the ingredient lines computed from USDA data, 0..1 */
+  coverage: number;
+  /** the stored AI estimate per serving, for comparison */
+  aiPerServing: Macros | null;
+  /** computed and AI calories differ by more than 25% */
+  disagreesWithAi: boolean;
 }
 
 /** Single-ingredient add-ons with clean data used to tune plates */

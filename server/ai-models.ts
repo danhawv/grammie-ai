@@ -32,6 +32,8 @@ const DEFAULTS = {
   prepWishes: { model: "gemini-3.5-flash-lite" },
   /** Meal prep: 2-4 sentence plan explanation from numbers code worked out */
   prepExplain: { model: "gemini-3.5-flash-lite" },
+  /** Meal prep: pick the canonical ingredient for an unusual item name from a shortlist */
+  ingredientMatch: { model: "gemini-3.5-flash-lite" },
   /** Short helper answers (substitutions, generated steps) */
   quickText: { model: "gemini-3.5-flash-lite" },
   /** Dish photo for recipes without one */

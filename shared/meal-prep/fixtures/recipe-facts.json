@@ -1,0 +1,4182 @@
+[
+ {
+  "recipeId": "434d4c94-c93a-44ed-b7f8-e29b875c1f69",
+  "title": "Apricot-Pineapple Chicken",
+  "servings": 4,
+  "perServing": {
+   "kcal": 547,
+   "protein": 43.9,
+   "carbs": 66.8,
+   "fat": 11.2,
+   "fiber": 3.8
+  },
+  "confidence": "high",
+  "nutritionSource": "usda",
+  "lines": [
+   {
+    "index": 0,
+    "raw": "1 c. Rice",
+    "ingredient": {
+     "id": "rice-white",
+     "name": "White rice",
+     "aisle": "Pasta, Rice & Grains"
+    },
+    "grams": 185,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 1,
+    "raw": "2 T butter",
+    "ingredient": {
+     "id": "butter",
+     "name": "Butter",
+     "aisle": "Dairy & Eggs"
+    },
+    "grams": 28.4,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 2,
+    "raw": "1 c. diced celery",
+    "ingredient": {
+     "id": "celery",
+     "name": "Celery",
+     "aisle": "Produce"
+    },
+    "grams": 101,
+    "prep": "diced",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 3,
+    "raw": "1 1/4 c. Water + juice from pineapple",
+    "ingredient": {
+     "id": "juice",
+     "name": "Fruit juice",
+     "aisle": "Beverages"
+    },
+    "grams": 310,
+    "prep": "combined",
+    "optional": false,
+    "confidence": "medium"
+   },
+   {
+    "index": 4,
+    "raw": "* 20 oz. can pineapple chunks (separate)",
+    "ingredient": {
+     "id": "pineapple",
+     "name": "Pineapple",
+     "aisle": "Produce"
+    },
+    "grams": 567,
+    "prep": "drained, juice reserved",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 5,
+    "raw": "1 T. crushed red pepper flakes",
+    "ingredient": {
+     "id": "cayenne",
+     "name": "Cayenne pepper",
+     "aisle": "Spices & Seasonings"
+    },
+    "grams": 5.4,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 6,
+    "raw": "1/2 c. sliced green onion",
+    "ingredient": {
+     "id": "green-onion",
+     "name": "Green onions",
+     "aisle": "Produce"
+    },
+    "grams": 50,
+    "prep": "sliced",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 7,
+    "raw": "4 5 oz. boneless breasts",
+    "ingredient": {
+     "id": "chicken-breast",
+     "name": "Chicken breast",
+     "aisle": "Meat & Seafood"
+    },
+    "grams": 696,
+    "prep": "5 oz each",
+    "optional": false,
+    "confidence": "high"
+   }
+  ],
+  "mealTypes": [
+   "lunch",
+   "dinner"
+  ],
+  "cuisines": [
+   "American",
+   "Tropical"
+  ],
+  "mainProtein": "chicken",
+  "allergens": [
+   "dairy"
+  ],
+  "activeMinutes": 28,
+  "totalMinutes": 40,
+  "storage": {
+   "fridgeDays": 4,
+   "freezerDays": 60,
+   "reheat": "Microwave covered until steaming hot all the way through (165°F), 2–3 minutes, stirring halfway.",
+   "notes": [
+    "Store the chicken and pineapple garnish in an airtight container separate from the rice to prevent the rice from absorbing all the moisture and becoming mushy."
+   ],
+   "reheatsWell": true
+  },
+  "preference": {
+   "rating": null,
+   "favorite": false,
+   "recentCount": 0
+  },
+  "cost": 2.44,
+  "component": "complete",
+  "nutritionCheck": {
+   "coverage": 1,
+   "aiPerServing": {
+    "kcal": 549,
+    "protein": 48,
+    "carbs": 61.8,
+    "fat": 10.9,
+    "fiber": 1.8
+   },
+   "disagreesWithAi": false
+  }
+ },
+ {
+  "recipeId": "17c22ec5-1bae-4011-8b9b-43b444ac2313",
+  "title": "Artichoke and Chicken Rice Casserole",
+  "servings": 6,
+  "perServing": {
+   "kcal": 543,
+   "protein": 27.3,
+   "carbs": 65.2,
+   "fat": 18.6,
+   "fiber": 4
+  },
+  "confidence": "high",
+  "nutritionSource": "usda",
+  "lines": [
+   {
+    "index": 0,
+    "raw": "1 1/2 Tb chopped hot cherry peppers",
+    "ingredient": {
+     "id": "pickles",
+     "name": "Pickles",
+     "aisle": "Canned & Jarred"
+    },
+    "grams": 13.4,
+    "prep": "chopped",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 1,
+    "raw": "1/3 cup grated parmesan cheese",
+    "ingredient": {
+     "id": "parmesan",
+     "name": "Parmesan",
+     "aisle": "Dairy & Eggs"
+    },
+    "grams": 33,
+    "prep": "grated",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 2,
+    "raw": "1/3 cup Real mayonnaise",
+    "ingredient": {
+     "id": "mayonnaise",
+     "name": "Mayonnaise",
+     "aisle": "Oils, Vinegars & Condiments"
+    },
+    "grams": 72.9,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 3,
+    "raw": "1/4 cup milk",
+    "ingredient": {
+     "id": "milk",
+     "name": "Milk",
+     "aisle": "Dairy & Eggs"
+    },
+    "grams": 61,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 4,
+    "raw": "1 med onion chopped",
+    "ingredient": {
+     "id": "onion-yellow",
+     "name": "Yellow onion",
+     "aisle": "Produce"
+    },
+    "grams": 110,
+    "prep": "chopped",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 5,
+    "raw": "1 10 oz can cream of chicken soup",
+    "ingredient": {
+     "id": "soup-cream",
+     "name": "Condensed cream soup",
+     "aisle": "Canned & Jarred"
+    },
+    "grams": 283.5,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 6,
+    "raw": "2 cups minute rice",
+    "ingredient": {
+     "id": "rice-white",
+     "name": "White rice",
+     "aisle": "Pasta, Rice & Grains"
+    },
+    "grams": 370,
+    "prep": "uncooked",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 7,
+    "raw": "1/8 tsp hot pepper sauce",
+    "ingredient": {
+     "id": "hot-sauce",
+     "name": "Hot sauce",
+     "aisle": "Oils, Vinegars & Condiments"
+    },
+    "grams": 0.6,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 8,
+    "raw": "1 14 oz can artichokes in water - drain",
+    "ingredient": {
+     "id": "artichoke-hearts",
+     "name": "Artichoke hearts",
+     "aisle": "Canned & Jarred"
+    },
+    "grams": 396.9,
+    "prep": "drained and chopped",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 9,
+    "raw": "1 lb chicken breast - seasoned cook in strips",
+    "ingredient": {
+     "id": "chicken-breast",
+     "name": "Chicken breast",
+     "aisle": "Meat & Seafood"
+    },
+    "grams": 453.6,
+    "prep": "cooked in strips",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 10,
+    "raw": "1/3 cup breadcrumbs",
+    "ingredient": {
+     "id": "breadcrumbs",
+     "name": "Breadcrumbs",
+     "aisle": "Bakery"
+    },
+    "grams": 35.6,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 11,
+    "raw": "1 Tb melted butter",
+    "ingredient": {
+     "id": "butter",
+     "name": "Butter",
+     "aisle": "Dairy & Eggs"
+    },
+    "grams": 14.2,
+    "prep": "melted",
+    "optional": false,
+    "confidence": "high"
+   }
+  ],
+  "mealTypes": [
+   "lunch",
+   "dinner"
+  ],
+  "cuisines": [
+   "American",
+   "Fusion"
+  ],
+  "mainProtein": "chicken",
+  "allergens": [
+   "dairy",
+   "egg",
+   "gluten"
+  ],
+  "activeMinutes": 39,
+  "totalMinutes": 55,
+  "storage": {
+   "fridgeDays": 3,
+   "freezerDays": 60,
+   "reheat": "Reheat individual portions in the microwave with a splash of milk to keep the rice from drying out.",
+   "notes": [
+    "You can assemble the casserole up to 12 hours in advance, but keep the breadcrumb topping separate until just before baking."
+   ],
+   "reheatsWell": true
+  },
+  "preference": {
+   "rating": null,
+   "favorite": false,
+   "recentCount": 0
+  },
+  "cost": 20,
+  "component": "complete",
+  "nutritionCheck": {
+   "coverage": 1,
+   "aiPerServing": {
+    "kcal": 465,
+    "protein": 31,
+    "carbs": 35,
+    "fat": 23,
+    "fiber": 3
+   },
+   "disagreesWithAi": false
+  }
+ },
+ {
+  "recipeId": "d84b0ccb-e715-4fae-966b-d3d4f2dc9b71",
+  "title": "Barefoot Contessa Chicken Salad",
+  "servings": 4,
+  "perServing": {
+   "kcal": 678,
+   "protein": 31.7,
+   "carbs": 29,
+   "fat": 52.2,
+   "fiber": 15.2
+  },
+  "confidence": "high",
+  "nutritionSource": "usda",
+  "lines": [
+   {
+    "index": 0,
+    "raw": "2 bone-in, skin-on chicken breast",
+    "ingredient": {
+     "id": "chicken-breast",
+     "name": "Chicken breast",
+     "aisle": "Meat & Seafood"
+    },
+    "grams": 348,
+    "prep": "bone-in, skin-on",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 1,
+    "raw": "EVOO",
+    "ingredient": {
+     "id": "olive-oil",
+     "name": "Olive oil",
+     "aisle": "Oils, Vinegars & Condiments"
+    },
+    "grams": 13.5,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 2,
+    "raw": "S & P",
+    "ingredient": {
+     "id": "salt",
+     "name": "Salt",
+     "aisle": "Spices & Seasonings"
+    },
+    "grams": null,
+    "prep": "to taste",
+    "optional": false,
+    "confidence": "low"
+   },
+   {
+    "index": 3,
+    "raw": "1/2 c. ea pecans & walnuts, chopped",
+    "ingredient": {
+     "id": "pecans",
+     "name": "Pecans",
+     "aisle": "Snacks"
+    },
+    "grams": 54.5,
+    "prep": "chopped",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 4,
+    "raw": "1/2 c. ea pecans & walnuts, chopped",
+    "ingredient": {
+     "id": "walnuts",
+     "name": "Walnuts",
+     "aisle": "Snacks"
+    },
+    "grams": 58.5,
+    "prep": "chopped",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 5,
+    "raw": "1/2 c. mayo",
+    "ingredient": {
+     "id": "mayonnaise",
+     "name": "Mayonnaise",
+     "aisle": "Oils, Vinegars & Condiments"
+    },
+    "grams": 110.4,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 6,
+    "raw": "1/2 c. sour cream",
+    "ingredient": {
+     "id": "sour-cream",
+     "name": "Sour cream",
+     "aisle": "Dairy & Eggs"
+    },
+    "grams": 96,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 7,
+    "raw": "2 t. salt",
+    "ingredient": {
+     "id": "salt",
+     "name": "Salt",
+     "aisle": "Spices & Seasonings"
+    },
+    "grams": 12,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 8,
+    "raw": "1/2 t p",
+    "ingredient": {
+     "id": "black-pepper",
+     "name": "Black pepper",
+     "aisle": "Spices & Seasonings"
+    },
+    "grams": 1.2,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 9,
+    "raw": "2 T. tarragon",
+    "ingredient": {
+     "id": "tarragon",
+     "name": "Tarragon",
+     "aisle": "Produce"
+    },
+    "grams": 3.6,
+    "prep": "chopped",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 10,
+    "raw": "1/2 c. halved grapes",
+    "ingredient": {
+     "id": "grapes",
+     "name": "Grapes",
+     "aisle": "Produce"
+    },
+    "grams": 75.5,
+    "prep": "halved",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 11,
+    "raw": "lettuce cups",
+    "ingredient": {
+     "id": "lettuce-romaine",
+     "name": "Romaine lettuce",
+     "aisle": "Produce"
+    },
+    "grams": 2400,
+    "prep": null,
+    "optional": false,
+    "confidence": "medium"
+   }
+  ],
+  "mealTypes": [
+   "lunch",
+   "dinner"
+  ],
+  "cuisines": [
+   "American"
+  ],
+  "mainProtein": "chicken",
+  "allergens": [
+   "dairy",
+   "egg",
+   "tree-nut"
+  ],
+  "activeMinutes": 46,
+  "totalMinutes": 90,
+  "storage": {
+   "fridgeDays": 1,
+   "freezerDays": null,
+   "reheat": "Serve cold. No reheating needed.",
+   "notes": [
+    "Eat cold."
+   ],
+   "reheatsWell": false
+  },
+  "preference": {
+   "rating": null,
+   "favorite": false,
+   "recentCount": 0
+  },
+  "cost": 4.5,
+  "component": "complete",
+  "nutritionCheck": {
+   "coverage": 1,
+   "aiPerServing": {
+    "kcal": 702,
+    "protein": 35.5,
+    "carbs": 11.4,
+    "fat": 58.2,
+    "fiber": 3.1
+   },
+   "disagreesWithAi": false
+  }
+ },
+ {
+  "recipeId": "31511a1b-c0a3-4d41-adcc-6c37d0cb8a77",
+  "title": "Breasts w/ Artichoke sauce (4)",
+  "servings": 4,
+  "perServing": {
+   "kcal": 473,
+   "protein": 45.7,
+   "carbs": 7.8,
+   "fat": 28.4,
+   "fiber": 2.3
+  },
+  "confidence": "high",
+  "nutritionSource": "usda",
+  "lines": [
+   {
+    "index": 0,
+    "raw": "8 T. crumbled feta (2 T/breast)",
+    "ingredient": {
+     "id": "feta",
+     "name": "Feta",
+     "aisle": "Dairy & Eggs"
+    },
+    "grams": 75,
+    "prep": "crumbled",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 1,
+    "raw": "4 t. chopped scallions (1 t \" )",
+    "ingredient": {
+     "id": "green-onion",
+     "name": "Green onions",
+     "aisle": "Produce"
+    },
+    "grams": 8.3,
+    "prep": "chopped",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 2,
+    "raw": "chopped Kalamata olives",
+    "ingredient": {
+     "id": "olives",
+     "name": "Olives",
+     "aisle": "Canned & Jarred"
+    },
+    "grams": null,
+    "prep": "chopped",
+    "optional": false,
+    "confidence": "low"
+   },
+   {
+    "index": 3,
+    "raw": "4 boneless breast halves (w/ or w/out skin)",
+    "ingredient": {
+     "id": "chicken-breast",
+     "name": "Chicken breast",
+     "aisle": "Meat & Seafood"
+    },
+    "grams": 696,
+    "prep": "boneless, with or without skin",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 4,
+    "raw": "Sauce: 1/4 c. EVOO",
+    "ingredient": {
+     "id": "olive-oil",
+     "name": "Olive oil",
+     "aisle": "Oils, Vinegars & Condiments"
+    },
+    "grams": 54,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 5,
+    "raw": "3 T lemon juice + zest",
+    "ingredient": {
+     "id": "lemon",
+     "name": "Lemon",
+     "aisle": "Produce"
+    },
+    "grams": 39.8,
+    "prep": "juiced and zested",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 6,
+    "raw": "3 garlic cloves",
+    "ingredient": {
+     "id": "garlic",
+     "name": "Garlic",
+     "aisle": "Produce"
+    },
+    "grams": 9,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 7,
+    "raw": "1 T chopped fresh oregano (1 t. dried)",
+    "ingredient": {
+     "id": "oregano-fresh",
+     "name": "Fresh oregano",
+     "aisle": "Produce"
+    },
+    "grams": 3,
+    "prep": "chopped",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 8,
+    "raw": "10 art. hearts, qtrd.",
+    "ingredient": {
+     "id": "artichoke-hearts",
+     "name": "Artichoke hearts",
+     "aisle": "Canned & Jarred"
+    },
+    "grams": null,
+    "prep": "quartered",
+    "optional": false,
+    "confidence": "low"
+   },
+   {
+    "index": 9,
+    "raw": "8 pitted Kalamatas",
+    "ingredient": {
+     "id": "olives",
+     "name": "Olives",
+     "aisle": "Canned & Jarred"
+    },
+    "grams": 32,
+    "prep": "pitted",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 10,
+    "raw": "1/2 c. feta",
+    "ingredient": {
+     "id": "feta",
+     "name": "Feta",
+     "aisle": "Dairy & Eggs"
+    },
+    "grams": 75,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   }
+  ],
+  "mealTypes": [
+   "lunch",
+   "dinner"
+  ],
+  "cuisines": [
+   "Mediterranean",
+   "Greek"
+  ],
+  "mainProtein": "chicken",
+  "allergens": [
+   "dairy"
+  ],
+  "activeMinutes": 8,
+  "totalMinutes": 33,
+  "storage": {
+   "fridgeDays": 4,
+   "freezerDays": 60,
+   "reheat": "Reheat leftover chicken gently in a covered skillet over medium-low heat with a splash of chicken broth or water to keep the meat from drying out.",
+   "notes": [
+    "You can stuff the chicken breasts and mix the artichoke sauce up to 4 hours in advance, keeping them covered separately in the refrigerator until you are ready to pour the sauce over and bake."
+   ],
+   "reheatsWell": true
+  },
+  "preference": {
+   "rating": null,
+   "favorite": false,
+   "recentCount": 0
+  },
+  "cost": 18.25,
+  "component": "protein",
+  "nutritionCheck": {
+   "coverage": 0.94,
+   "aiPerServing": {
+    "kcal": 420,
+    "protein": 38,
+    "carbs": 6,
+    "fat": 26,
+    "fiber": 2
+   },
+   "disagreesWithAi": false
+  }
+ },
+ {
+  "recipeId": "ef6489c5-8c82-428f-9f1e-09f826bdd26c",
+  "title": "Bacardi Beef Stew",
+  "servings": 6,
+  "perServing": {
+   "kcal": 605,
+   "protein": 34,
+   "carbs": 30,
+   "fat": 33.5,
+   "fiber": 4.2
+  },
+  "confidence": "high",
+  "nutritionSource": "usda",
+  "lines": [
+   {
+    "index": 0,
+    "raw": "2 Tsp Butter",
+    "ingredient": {
+     "id": "butter",
+     "name": "Butter",
+     "aisle": "Dairy & Eggs"
+    },
+    "grams": 9.5,
+    "prep": "at room temperature",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 1,
+    "raw": "1 jar small white onions (Jar)",
+    "ingredient": {
+     "id": "onion-yellow",
+     "name": "Yellow onion",
+     "aisle": "Produce"
+    },
+    "grams": null,
+    "prep": "drained",
+    "optional": false,
+    "confidence": "low"
+   },
+   {
+    "index": 2,
+    "raw": "1/2 Lb sliced mushrooms",
+    "ingredient": {
+     "id": "mushroom",
+     "name": "Mushrooms",
+     "aisle": "Produce"
+    },
+    "grams": 226.8,
+    "prep": "sliced",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 3,
+    "raw": "2 Lb Beef",
+    "ingredient": {
+     "id": "beef-chuck",
+     "name": "Beef chuck roast",
+     "aisle": "Meat & Seafood"
+    },
+    "grams": 907.2,
+    "prep": "cut into 1-inch cubes",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 4,
+    "raw": "1/4 cup flour - salt - pepper",
+    "ingredient": {
+     "id": "flour",
+     "name": "All-purpose flour",
+     "aisle": "Baking"
+    },
+    "grams": 31.3,
+    "prep": "mixed with salt and pepper",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 5,
+    "raw": "1/2 Tsp marjoram",
+    "ingredient": {
+     "id": "oregano",
+     "name": "Dried oregano",
+     "aisle": "Spices & Seasonings"
+    },
+    "grams": 0.5,
+    "prep": "dried",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 6,
+    "raw": "1/2 Tsp Tyme",
+    "ingredient": {
+     "id": "thyme",
+     "name": "Thyme",
+     "aisle": "Produce"
+    },
+    "grams": 0.4,
+    "prep": "dried",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 7,
+    "raw": "2 Tbs cooking oil",
+    "ingredient": {
+     "id": "vegetable-oil",
+     "name": "Vegetable oil",
+     "aisle": "Oils, Vinegars & Condiments"
+    },
+    "grams": 27.2,
+    "prep": "for searing",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 8,
+    "raw": "1 Cup beef Boulion",
+    "ingredient": {
+     "id": "broth-beef",
+     "name": "Beef broth",
+     "aisle": "Canned & Jarred"
+    },
+    "grams": 240,
+    "prep": "reconstituted",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 9,
+    "raw": "1/2 cup dark Bacardi Rum",
+    "ingredient": {
+     "id": "spirits",
+     "name": "Spirits",
+     "aisle": "Beverages"
+    },
+    "grams": 111.2,
+    "prep": "liquid",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 10,
+    "raw": "2 Tlb cream sherry",
+    "ingredient": {
+     "id": "wine-white",
+     "name": "White wine",
+     "aisle": "Beverages"
+    },
+    "grams": 29.4,
+    "prep": "liquid",
+    "optional": false,
+    "confidence": "medium"
+   },
+   {
+    "index": 11,
+    "raw": "CARROTS - sliced",
+    "ingredient": {
+     "id": "carrot",
+     "name": "Carrots",
+     "aisle": "Produce"
+    },
+    "grams": 216,
+    "prep": "sliced",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 12,
+    "raw": "Potatoes - diced",
+    "ingredient": {
+     "id": "potato",
+     "name": "Potatoes",
+     "aisle": "Produce"
+    },
+    "grams": 639,
+    "prep": "diced",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 13,
+    "raw": "1 clove garlic",
+    "ingredient": {
+     "id": "garlic",
+     "name": "Garlic",
+     "aisle": "Produce"
+    },
+    "grams": 3,
+    "prep": "minced",
+    "optional": false,
+    "confidence": "high"
+   }
+  ],
+  "mealTypes": [
+   "lunch",
+   "dinner"
+  ],
+  "cuisines": [
+   "Caribbean-Fusion",
+   "American",
+   "Contemporary"
+  ],
+  "mainProtein": "beef",
+  "allergens": [
+   "dairy",
+   "gluten",
+   "sulfites"
+  ],
+  "activeMinutes": 128,
+  "totalMinutes": 200,
+  "storage": {
+   "fridgeDays": 4,
+   "freezerDays": 60,
+   "reheat": "Microwave covered until steaming hot all the way through (165°F), 2–3 minutes, stirring halfway.",
+   "notes": [],
+   "reheatsWell": true
+  },
+  "preference": {
+   "rating": null,
+   "favorite": false,
+   "recentCount": 0
+  },
+  "cost": 35,
+  "component": "complete",
+  "nutritionCheck": {
+   "coverage": 0.98,
+   "aiPerServing": {
+    "kcal": 598,
+    "protein": 34,
+    "carbs": 32,
+    "fat": 33,
+    "fiber": 4
+   },
+   "disagreesWithAi": false
+  }
+ },
+ {
+  "recipeId": "43909630-ceab-42c3-8956-bab1dbce5162",
+  "title": "Chili Pie",
+  "servings": 6,
+  "perServing": {
+   "kcal": 423,
+   "protein": 25,
+   "carbs": 14.6,
+   "fat": 29.1,
+   "fiber": 3.1
+  },
+  "confidence": "high",
+  "nutritionSource": "usda",
+  "lines": [
+   {
+    "index": 0,
+    "raw": "1 lb hamburg",
+    "ingredient": {
+     "id": "beef-ground",
+     "name": "Ground beef",
+     "aisle": "Meat & Seafood"
+    },
+    "grams": 453.6,
+    "prep": "browned and drained",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 1,
+    "raw": "1 env. taco seasoning",
+    "ingredient": {
+     "id": "chili-powder",
+     "name": "Chili powder",
+     "aisle": "Spices & Seasonings"
+    },
+    "grams": null,
+    "prep": "mixed with water per package",
+    "optional": false,
+    "confidence": "low"
+   },
+   {
+    "index": 2,
+    "raw": "1 can refried beans",
+    "ingredient": {
+     "id": "refried-beans",
+     "name": "Refried beans",
+     "aisle": "Canned & Jarred"
+    },
+    "grams": 454,
+    "prep": null,
+    "optional": false,
+    "confidence": "medium"
+   },
+   {
+    "index": 3,
+    "raw": "1 small (8 oz) sour cream",
+    "ingredient": {
+     "id": "sour-cream",
+     "name": "Sour cream",
+     "aisle": "Dairy & Eggs"
+    },
+    "grams": 226.8,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 4,
+    "raw": "1-2 c shredded cheddar cheese",
+    "ingredient": {
+     "id": "cheddar",
+     "name": "Cheddar cheese",
+     "aisle": "Dairy & Eggs"
+    },
+    "grams": 157.5,
+    "prep": "shredded",
+    "optional": false,
+    "confidence": "high"
+   }
+  ],
+  "mealTypes": [
+   "lunch",
+   "dinner"
+  ],
+  "cuisines": [
+   "Tex-Mex",
+   "American"
+  ],
+  "mainProtein": "beef",
+  "allergens": [
+   "dairy",
+   "gluten"
+  ],
+  "activeMinutes": 22,
+  "totalMinutes": 30,
+  "storage": {
+   "fridgeDays": 3,
+   "freezerDays": null,
+   "reheat": "Microwave covered until steaming hot all the way through (165°F), 2–3 minutes, stirring halfway.",
+   "notes": [
+    "Doesn't freeze well; keep it in the fridge."
+   ],
+   "reheatsWell": true
+  },
+  "preference": {
+   "rating": null,
+   "favorite": false,
+   "recentCount": 0
+  },
+  "cost": 15,
+  "component": "protein",
+  "nutritionCheck": {
+   "coverage": 0.98,
+   "aiPerServing": {
+    "kcal": 463,
+    "protein": 30,
+    "carbs": 15,
+    "fat": 30,
+    "fiber": 3
+   },
+   "disagreesWithAi": false
+  }
+ },
+ {
+  "recipeId": "95bb3c02-33e7-43bc-8291-fb6013b3b2c2",
+  "title": "Boneless Pork Loin with Artichoke-Leek Stuffing and Red Bell Pepper Sauce",
+  "servings": 6,
+  "perServing": {
+   "kcal": 424,
+   "protein": 54.7,
+   "carbs": 12.1,
+   "fat": 16.9,
+   "fiber": 3.7
+  },
+  "confidence": "high",
+  "nutritionSource": "usda",
+  "lines": [
+   {
+    "index": 0,
+    "raw": "1- Leeks",
+    "ingredient": {
+     "id": "leek",
+     "name": "Leek",
+     "aisle": "Produce"
+    },
+    "grams": null,
+    "prep": "thinly sliced and cleaned",
+    "optional": false,
+    "confidence": "low"
+   },
+   {
+    "index": 1,
+    "raw": "1 can artichoke hearts - drained",
+    "ingredient": {
+     "id": "artichoke-hearts",
+     "name": "Artichoke hearts",
+     "aisle": "Canned & Jarred"
+    },
+    "grams": 396.9,
+    "prep": "drained and roughly chopped",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 2,
+    "raw": "1/4 cup mayonaise",
+    "ingredient": {
+     "id": "mayonnaise",
+     "name": "Mayonnaise",
+     "aisle": "Oils, Vinegars & Condiments"
+    },
+    "grams": 55.2,
+    "prep": "none",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 3,
+    "raw": "1 cup grated parmesean cheese",
+    "ingredient": {
+     "id": "parmesan",
+     "name": "Parmesan",
+     "aisle": "Dairy & Eggs"
+    },
+    "grams": 100,
+    "prep": "grated",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 4,
+    "raw": "1 tsp fresh basil",
+    "ingredient": {
+     "id": "basil",
+     "name": "Basil",
+     "aisle": "Produce"
+    },
+    "grams": 0.9,
+    "prep": "minced",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 5,
+    "raw": "3 lb Boneless pork loin",
+    "ingredient": {
+     "id": "pork-tenderloin",
+     "name": "Pork tenderloin",
+     "aisle": "Meat & Seafood"
+    },
+    "grams": 1360.8,
+    "prep": "butterflied and seared",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 6,
+    "raw": "2 Red bell peppers",
+    "ingredient": {
+     "id": "bell-pepper-red",
+     "name": "Red bell pepper",
+     "aisle": "Produce"
+    },
+    "grams": 238,
+    "prep": "roasted, peeled, and blended",
+    "optional": false,
+    "confidence": "high"
+   }
+  ],
+  "mealTypes": [
+   "lunch",
+   "dinner"
+  ],
+  "cuisines": [
+   "Mediterranean",
+   "American",
+   "French-Technique"
+  ],
+  "mainProtein": "pork",
+  "allergens": [
+   "dairy",
+   "egg"
+  ],
+  "activeMinutes": 66,
+  "totalMinutes": 105,
+  "storage": {
+   "fridgeDays": 4,
+   "freezerDays": 60,
+   "reheat": "Microwave covered until steaming hot all the way through (165°F), 2–3 minutes, stirring halfway.",
+   "notes": [],
+   "reheatsWell": true
+  },
+  "preference": {
+   "rating": null,
+   "favorite": false,
+   "recentCount": 0
+  },
+  "cost": 35,
+  "component": "protein",
+  "nutritionCheck": {
+   "coverage": 0.98,
+   "aiPerServing": {
+    "kcal": 521,
+    "protein": 63,
+    "carbs": 9,
+    "fat": 30,
+    "fiber": 3
+   },
+   "disagreesWithAi": false
+  }
+ },
+ {
+  "recipeId": "67d4d5be-8e1f-4cfc-9eb5-1712ce47fe83",
+  "title": "Charred Chipotle Salmon Tacos with Creamy Avocado Slaw",
+  "servings": 3,
+  "perServing": {
+   "kcal": 829,
+   "protein": 45.7,
+   "carbs": 79.9,
+   "fat": 37.9,
+   "fiber": 14.7
+  },
+  "confidence": "high",
+  "nutritionSource": "usda",
+  "lines": [
+   {
+    "index": 0,
+    "raw": "1lb salmon cut into large cubes, preferably center cut",
+    "ingredient": {
+     "id": "salmon",
+     "name": "Salmon",
+     "aisle": "Meat & Seafood"
+    },
+    "grams": 453.6,
+    "prep": "cubed",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 1,
+    "raw": "1/2 tsp diamond crystal kosher salt",
+    "ingredient": {
+     "id": "salt",
+     "name": "Salt",
+     "aisle": "Spices & Seasonings"
+    },
+    "grams": 3,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 2,
+    "raw": "1 7 oz can chipotles in adobo",
+    "ingredient": {
+     "id": "chipotle",
+     "name": "Chipotle in adobo",
+     "aisle": "Canned & Jarred"
+    },
+    "grams": 198.4,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 3,
+    "raw": "2 tbsp honey",
+    "ingredient": {
+     "id": "honey",
+     "name": "Honey",
+     "aisle": "Oils, Vinegars & Condiments"
+    },
+    "grams": 42.4,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 4,
+    "raw": "1 tbsp light soy sauce",
+    "ingredient": {
+     "id": "soy-sauce",
+     "name": "Soy sauce",
+     "aisle": "Oils, Vinegars & Condiments"
+    },
+    "grams": 16,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 6,
+    "raw": "Zest from 1 lime",
+    "ingredient": {
+     "id": "lime-zest",
+     "name": "Lime zest",
+     "aisle": "Produce"
+    },
+    "grams": 1,
+    "prep": "zested",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 7,
+    "raw": "Juice from half a lime",
+    "ingredient": {
+     "id": "lime-juice",
+     "name": "Lime juice",
+     "aisle": "Produce"
+    },
+    "grams": 22,
+    "prep": "juiced",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 9,
+    "raw": "1/2 small head green cabbage, sliced as thinly as possible",
+    "ingredient": {
+     "id": "cabbage",
+     "name": "Cabbage",
+     "aisle": "Produce"
+    },
+    "grams": 624,
+    "prep": "thinly sliced",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 10,
+    "raw": "1/4 cup mild 0 percent Greek yogurt",
+    "ingredient": {
+     "id": "greek-yogurt-nonfat",
+     "name": "Nonfat Greek yogurt",
+     "aisle": "Dairy & Eggs"
+    },
+    "grams": 61.3,
+    "prep": null,
+    "optional": false,
+    "confidence": "medium"
+   },
+   {
+    "index": 11,
+    "raw": "1/2 to 1 whole deseeded jalapeño",
+    "ingredient": {
+     "id": "jalapeno",
+     "name": "Jalapeño",
+     "aisle": "Produce"
+    },
+    "grams": 10.5,
+    "prep": "deseeded",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 12,
+    "raw": "1 avocado, cubed",
+    "ingredient": {
+     "id": "avocado",
+     "name": "Avocado",
+     "aisle": "Produce"
+    },
+    "grams": 201,
+    "prep": "cubed",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 13,
+    "raw": "1/2 bunch cilantro, rough cut",
+    "ingredient": {
+     "id": "cilantro",
+     "name": "Cilantro",
+     "aisle": "Produce"
+    },
+    "grams": 25,
+    "prep": "rough cut",
+    "optional": false,
+    "confidence": "medium"
+   },
+   {
+    "index": 14,
+    "raw": "2 scallions, greens only, rough cut",
+    "ingredient": {
+     "id": "green-onion",
+     "name": "Green onions",
+     "aisle": "Produce"
+    },
+    "grams": 30,
+    "prep": "greens only, rough cut",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 15,
+    "raw": "6 tortillas",
+    "ingredient": {
+     "id": "tortilla-flour",
+     "name": "Flour tortillas",
+     "aisle": "Bakery"
+    },
+    "grams": 270,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   }
+  ],
+  "mealTypes": [
+   "lunch",
+   "dinner"
+  ],
+  "cuisines": [
+   "Mexican-inspired"
+  ],
+  "mainProtein": "fish",
+  "allergens": [
+   "dairy",
+   "fish",
+   "gluten",
+   "soy"
+  ],
+  "activeMinutes": 26,
+  "totalMinutes": 30,
+  "storage": {
+   "fridgeDays": 3,
+   "freezerDays": 90,
+   "reheat": "Microwave covered until steaming hot all the way through (165°F), 2–3 minutes, stirring halfway.",
+   "notes": [
+    "Store the salmon and the avocado slaw in separate airtight containers."
+   ],
+   "reheatsWell": true
+  },
+  "preference": {
+   "rating": null,
+   "favorite": false,
+   "recentCount": 0
+  },
+  "cost": 23,
+  "component": "complete",
+  "nutritionCheck": {
+   "coverage": 1,
+   "aiPerServing": {
+    "kcal": 675,
+    "protein": 35.3,
+    "carbs": 60,
+    "fat": 32,
+    "fiber": 10.7
+   },
+   "disagreesWithAi": false
+  }
+ },
+ {
+  "recipeId": "3fcd9c81-3186-4b1d-97dd-86a051e66f94",
+  "title": "Sherry Shrimp w/ Cream",
+  "servings": 4,
+  "perServing": {
+   "kcal": 409,
+   "protein": 19.4,
+   "carbs": 11.1,
+   "fat": 31.9,
+   "fiber": 1.6
+  },
+  "confidence": "high",
+  "nutritionSource": "usda",
+  "lines": [
+   {
+    "index": 0,
+    "raw": "4 T. butter",
+    "ingredient": {
+     "id": "butter",
+     "name": "Butter",
+     "aisle": "Dairy & Eggs"
+    },
+    "grams": 56.8,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 1,
+    "raw": "1 Lg. shallot (minced",
+    "ingredient": {
+     "id": "shallot",
+     "name": "Shallot",
+     "aisle": "Produce"
+    },
+    "grams": 32.5,
+    "prep": "minced",
+    "optional": false,
+    "confidence": "medium"
+   },
+   {
+    "index": 2,
+    "raw": "3 cloves garlic S & P",
+    "ingredient": {
+     "id": "garlic",
+     "name": "Garlic",
+     "aisle": "Produce"
+    },
+    "grams": 9,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 3,
+    "raw": "* 1/2 # sliced mushrooms",
+    "ingredient": {
+     "id": "mushroom",
+     "name": "Mushrooms",
+     "aisle": "Produce"
+    },
+    "grams": 226.8,
+    "prep": "sliced",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 4,
+    "raw": "2 T. flour - stir in",
+    "ingredient": {
+     "id": "flour",
+     "name": "All-purpose flour",
+     "aisle": "Baking"
+    },
+    "grams": 15.6,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 5,
+    "raw": "1/3 c. sherry",
+    "ingredient": {
+     "id": "wine-white",
+     "name": "White wine",
+     "aisle": "Beverages"
+    },
+    "grams": 78.3,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 6,
+    "raw": "3/4 c. cream",
+    "ingredient": {
+     "id": "heavy-cream",
+     "name": "Heavy cream",
+     "aisle": "Dairy & Eggs"
+    },
+    "grams": 180,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 7,
+    "raw": "nutmeg, 2 T fresh tarragon",
+    "ingredient": {
+     "id": "tarragon",
+     "name": "Tarragon",
+     "aisle": "Produce"
+    },
+    "grams": 3.6,
+    "prep": "fresh",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 8,
+    "raw": "20 lg shrimp",
+    "ingredient": {
+     "id": "shrimp",
+     "name": "Shrimp",
+     "aisle": "Meat & Seafood"
+    },
+    "grams": 300,
+    "prep": "large",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 9,
+    "raw": "1 T EVOO",
+    "ingredient": {
+     "id": "olive-oil",
+     "name": "Olive oil",
+     "aisle": "Oils, Vinegars & Condiments"
+    },
+    "grams": 13.5,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 10,
+    "raw": "juice of lemon",
+    "ingredient": {
+     "id": "lemon",
+     "name": "Lemon",
+     "aisle": "Produce"
+    },
+    "grams": 84,
+    "prep": "juiced",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 11,
+    "raw": "* opt. parsley",
+    "ingredient": {
+     "id": "parsley",
+     "name": "Parsley",
+     "aisle": "Produce"
+    },
+    "grams": null,
+    "prep": null,
+    "optional": true,
+    "confidence": "low"
+   }
+  ],
+  "mealTypes": [
+   "lunch",
+   "dinner"
+  ],
+  "cuisines": [
+   "American",
+   "French-inspired"
+  ],
+  "mainProtein": "shellfish",
+  "allergens": [
+   "dairy",
+   "gluten",
+   "shellfish"
+  ],
+  "activeMinutes": 19,
+  "totalMinutes": 25,
+  "storage": {
+   "fridgeDays": 3,
+   "freezerDays": 90,
+   "reheat": "Reheat gently over low heat on the stovetop with a splash of cream or chicken broth to prevent the shrimp from becoming rubbery.",
+   "notes": [],
+   "reheatsWell": true
+  },
+  "preference": {
+   "rating": null,
+   "favorite": false,
+   "recentCount": 0
+  },
+  "cost": 20,
+  "component": "complete",
+  "nutritionCheck": {
+   "coverage": 1,
+   "aiPerServing": {
+    "kcal": 355,
+    "protein": 18,
+    "carbs": 10,
+    "fat": 29,
+    "fiber": 1
+   },
+   "disagreesWithAi": false
+  }
+ },
+ {
+  "recipeId": "888b6d7d-9c95-4350-9b38-94d8a30e8ae0",
+  "title": "High-Protein Anti-Inflammatory Veggie Soup",
+  "servings": 6,
+  "perServing": {
+   "kcal": 426,
+   "protein": 14.5,
+   "carbs": 46.5,
+   "fat": 21.4,
+   "fiber": 7.8
+  },
+  "confidence": "high",
+  "nutritionSource": "usda",
+  "lines": [
+   {
+    "index": 0,
+    "raw": "5 tablespoons extra-virgin olive oil, divided",
+    "ingredient": {
+     "id": "olive-oil",
+     "name": "Olive oil",
+     "aisle": "Oils, Vinegars & Condiments"
+    },
+    "grams": 67.5,
+    "prep": "divided",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 1,
+    "raw": "1 medium yellow onion, chopped (about 1 1/2 cups)",
+    "ingredient": {
+     "id": "onion-yellow",
+     "name": "Yellow onion",
+     "aisle": "Produce"
+    },
+    "grams": 110,
+    "prep": "chopped",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 2,
+    "raw": "3 cloves garlic, minced",
+    "ingredient": {
+     "id": "garlic",
+     "name": "Garlic",
+     "aisle": "Produce"
+    },
+    "grams": 9,
+    "prep": "minced",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 3,
+    "raw": "2 teaspoons minced fresh ginger",
+    "ingredient": {
+     "id": "ginger",
+     "name": "Fresh ginger",
+     "aisle": "Produce"
+    },
+    "grams": 4,
+    "prep": "minced",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 4,
+    "raw": "1 teaspoon kosher salt, divided",
+    "ingredient": {
+     "id": "salt",
+     "name": "Salt",
+     "aisle": "Spices & Seasonings"
+    },
+    "grams": 6,
+    "prep": "divided",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 5,
+    "raw": "1 tablespoon curry powder",
+    "ingredient": {
+     "id": "curry-powder",
+     "name": "Curry powder",
+     "aisle": "Spices & Seasonings"
+    },
+    "grams": 6,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 6,
+    "raw": "1 tablespoon ground turmeric",
+    "ingredient": {
+     "id": "turmeric",
+     "name": "Turmeric",
+     "aisle": "Spices & Seasonings"
+    },
+    "grams": 9,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 7,
+    "raw": "8 cups lower-sodium vegetable broth",
+    "ingredient": {
+     "id": "broth-vegetable",
+     "name": "Vegetable broth",
+     "aisle": "Canned & Jarred"
+    },
+    "grams": 1760,
+    "prep": null,
+    "optional": false,
+    "confidence": "medium"
+   },
+   {
+    "index": 8,
+    "raw": "1 1/2 cups dry red lentils, rinsed",
+    "ingredient": {
+     "id": "lentils",
+     "name": "Lentils",
+     "aisle": "Pasta, Rice & Grains"
+    },
+    "grams": 288,
+    "prep": "rinsed",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 9,
+    "raw": "1 medium sweet potato, peeled and cubed (1/2-inch; about 2 cups)",
+    "ingredient": {
+     "id": "sweet-potato",
+     "name": "Sweet potato",
+     "aisle": "Produce"
+    },
+    "grams": 130,
+    "prep": "peeled and cubed",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 10,
+    "raw": "2 medium carrots, chopped (about 1 1/2 cups)",
+    "ingredient": {
+     "id": "carrot",
+     "name": "Carrots",
+     "aisle": "Produce"
+    },
+    "grams": 122,
+    "prep": "chopped",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 11,
+    "raw": "1 teaspoon paprika",
+    "ingredient": {
+     "id": "paprika",
+     "name": "Paprika",
+     "aisle": "Spices & Seasonings"
+    },
+    "grams": 2.3,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 12,
+    "raw": "1/2 teaspoon fennel seeds",
+    "ingredient": {
+     "id": "oregano",
+     "name": "Dried oregano",
+     "aisle": "Spices & Seasonings"
+    },
+    "grams": 0.5,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 13,
+    "raw": "2 (13.5-ounce) cans light coconut milk, well shaken and stirred",
+    "ingredient": {
+     "id": "coconut-milk-light",
+     "name": "Light coconut milk",
+     "aisle": "Canned & Jarred"
+    },
+    "grams": 765.4,
+    "prep": "well shaken and stirred",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 14,
+    "raw": "1 tablespoon lemon juice, plus more to taste",
+    "ingredient": {
+     "id": "lemon-juice",
+     "name": "Lemon juice",
+     "aisle": "Produce"
+    },
+    "grams": 15.3,
+    "prep": "plus more to taste",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 15,
+    "raw": "Chopped fresh cilantro, for garnish (optional)",
+    "ingredient": {
+     "id": "cilantro",
+     "name": "Cilantro",
+     "aisle": "Produce"
+    },
+    "grams": null,
+    "prep": "chopped, for garnish",
+    "optional": true,
+    "confidence": "low"
+   }
+  ],
+  "mealTypes": [
+   "lunch",
+   "dinner"
+  ],
+  "cuisines": [
+   "Indian-inspired"
+  ],
+  "mainProtein": "beans",
+  "allergens": [],
+  "activeMinutes": 49,
+  "totalMinutes": 75,
+  "storage": {
+   "fridgeDays": 4,
+   "freezerDays": 60,
+   "reheat": "Reheat on the stovetop over medium-low heat.",
+   "notes": [],
+   "reheatsWell": true
+  },
+  "preference": {
+   "rating": null,
+   "favorite": false,
+   "recentCount": 0
+  },
+  "cost": 15,
+  "component": "complete",
+  "nutritionCheck": {
+   "coverage": 1,
+   "aiPerServing": {
+    "kcal": 372,
+    "protein": 13,
+    "carbs": 36,
+    "fat": 17,
+    "fiber": 13
+   },
+   "disagreesWithAi": false
+  }
+ },
+ {
+  "recipeId": "2f5fe932-edbb-4d16-99b6-b36720e6b4cf",
+  "title": "Chiles Rellenos (\"Mexican Quiche\")",
+  "servings": 8,
+  "perServing": {
+   "kcal": 606,
+   "protein": 34.4,
+   "carbs": 16.3,
+   "fat": 44.8,
+   "fiber": 1
+  },
+  "confidence": "high",
+  "nutritionSource": "usda",
+  "lines": [
+   {
+    "index": 0,
+    "raw": "3 (4.5 oz) cans chopped, mild (green) chiles ; \"El Paso\" brand",
+    "ingredient": {
+     "id": "green-chiles",
+     "name": "Canned green chiles",
+     "aisle": "Canned & Jarred"
+    },
+    "grams": 382.7,
+    "prep": "chopped, mild",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 1,
+    "raw": "2 lbs. Mexican Blend Grated cheese OR 1 lb. block of cheddar + 1 lb. block of Monterey Jack [= 8 cups grated cheese]",
+    "ingredient": {
+     "id": "cheddar",
+     "name": "Cheddar cheese",
+     "aisle": "Dairy & Eggs"
+    },
+    "grams": 907.2,
+    "prep": "grated",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 2,
+    "raw": "5 eggs",
+    "ingredient": {
+     "id": "egg",
+     "name": "Eggs",
+     "aisle": "Dairy & Eggs"
+    },
+    "grams": 220,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 3,
+    "raw": "3 ½ cups whole milk",
+    "ingredient": {
+     "id": "milk",
+     "name": "Milk",
+     "aisle": "Dairy & Eggs"
+    },
+    "grams": 854,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 4,
+    "raw": "½ cup flour",
+    "ingredient": {
+     "id": "flour",
+     "name": "All-purpose flour",
+     "aisle": "Baking"
+    },
+    "grams": 62.5,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 5,
+    "raw": "½ tsp. salt",
+    "ingredient": {
+     "id": "salt",
+     "name": "Salt",
+     "aisle": "Spices & Seasonings"
+    },
+    "grams": 3,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   }
+  ],
+  "mealTypes": [
+   "breakfast",
+   "lunch",
+   "dinner"
+  ],
+  "cuisines": [
+   "Mexican",
+   "American"
+  ],
+  "mainProtein": "eggs",
+  "allergens": [
+   "dairy",
+   "egg",
+   "gluten"
+  ],
+  "activeMinutes": 37,
+  "totalMinutes": 55,
+  "storage": {
+   "fridgeDays": 3,
+   "freezerDays": 60,
+   "reheat": "Reheat individual slices in a 350°F oven for 10-15 minutes or microwave gently, though the oven helps maintain a better texture.",
+   "notes": [],
+   "reheatsWell": true
+  },
+  "preference": {
+   "rating": null,
+   "favorite": false,
+   "recentCount": 0
+  },
+  "cost": 21.25,
+  "component": "complete",
+  "nutritionCheck": {
+   "coverage": 1,
+   "aiPerServing": {
+    "kcal": 603,
+    "protein": 39,
+    "carbs": 10,
+    "fat": 46,
+    "fiber": 1
+   },
+   "disagreesWithAi": false
+  }
+ },
+ {
+  "recipeId": "dc1d77ab-a7c7-473b-b8d6-286f1d98b14a",
+  "title": "Fresh Pea Soup",
+  "servings": 6,
+  "perServing": {
+   "kcal": 301,
+   "protein": 12.2,
+   "carbs": 34.8,
+   "fat": 13.5,
+   "fiber": 8.5
+  },
+  "confidence": "high",
+  "nutritionSource": "usda",
+  "lines": [
+   {
+    "index": 0,
+    "raw": "4 T butter",
+    "ingredient": {
+     "id": "butter",
+     "name": "Butter",
+     "aisle": "Dairy & Eggs"
+    },
+    "grams": 56.8,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 1,
+    "raw": "2 c. coarse-chop onions",
+    "ingredient": {
+     "id": "onion-yellow",
+     "name": "Yellow onion",
+     "aisle": "Produce"
+    },
+    "grams": 320,
+    "prep": "coarse-chop",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 2,
+    "raw": "1 garlic clove, minced",
+    "ingredient": {
+     "id": "garlic",
+     "name": "Garlic",
+     "aisle": "Produce"
+    },
+    "grams": 3,
+    "prep": "minced",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 3,
+    "raw": "2 lbs frozen peas",
+    "ingredient": {
+     "id": "peas",
+     "name": "Peas",
+     "aisle": "Frozen"
+    },
+    "grams": 907.2,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 4,
+    "raw": "1 med potato, peel, dice small",
+    "ingredient": {
+     "id": "potato",
+     "name": "Potatoes",
+     "aisle": "Produce"
+    },
+    "grams": 213,
+    "prep": "peel, dice small",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 5,
+    "raw": "6 c. chicken broth",
+    "ingredient": {
+     "id": "broth-chicken",
+     "name": "Chicken broth",
+     "aisle": "Canned & Jarred"
+    },
+    "grams": 1494,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 6,
+    "raw": "1 c. lt. cream",
+    "ingredient": {
+     "id": "half-and-half",
+     "name": "Half-and-half",
+     "aisle": "Dairy & Eggs"
+    },
+    "grams": 241.6,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 7,
+    "raw": "S & P",
+    "ingredient": {
+     "id": "salt",
+     "name": "Salt",
+     "aisle": "Spices & Seasonings"
+    },
+    "grams": null,
+    "prep": null,
+    "optional": false,
+    "confidence": "low"
+   }
+  ],
+  "mealTypes": [
+   "lunch",
+   "dinner",
+   "snack"
+  ],
+  "cuisines": [
+   "American",
+   "French"
+  ],
+  "mainProtein": null,
+  "allergens": [
+   "dairy"
+  ],
+  "activeMinutes": 25,
+  "totalMinutes": 35,
+  "storage": {
+   "fridgeDays": 3,
+   "freezerDays": 60,
+   "reheat": "Reheat gently over low heat on the stovetop.",
+   "notes": [],
+   "reheatsWell": true
+  },
+  "preference": {
+   "rating": null,
+   "favorite": false,
+   "recentCount": 0
+  },
+  "cost": 11.5,
+  "component": "complete",
+  "nutritionCheck": {
+   "coverage": 1,
+   "aiPerServing": {
+    "kcal": 358,
+    "protein": 11,
+    "carbs": 44,
+    "fat": 15,
+    "fiber": 9
+   },
+   "disagreesWithAi": false
+  }
+ },
+ {
+  "recipeId": "05165f67-5f06-4153-a470-5df8e3320031",
+  "title": "Ginger-Carrot Soup",
+  "servings": 6,
+  "perServing": {
+   "kcal": 279,
+   "protein": 4.8,
+   "carbs": 20.9,
+   "fat": 20.8,
+   "fiber": 4.9
+  },
+  "confidence": "high",
+  "nutritionSource": "usda",
+  "lines": [
+   {
+    "index": 0,
+    "raw": "2 T. butter",
+    "ingredient": {
+     "id": "butter",
+     "name": "Butter",
+     "aisle": "Dairy & Eggs"
+    },
+    "grams": 28.4,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 1,
+    "raw": "2 onions, chopped",
+    "ingredient": {
+     "id": "onion-yellow",
+     "name": "Yellow onion",
+     "aisle": "Produce"
+    },
+    "grams": 220,
+    "prep": "chopped",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 2,
+    "raw": "6 c. chicken broth",
+    "ingredient": {
+     "id": "broth-chicken",
+     "name": "Chicken broth",
+     "aisle": "Canned & Jarred"
+    },
+    "grams": 1494,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 3,
+    "raw": "2# carrots, sliced",
+    "ingredient": {
+     "id": "carrot",
+     "name": "Carrots",
+     "aisle": "Produce"
+    },
+    "grams": 907.2,
+    "prep": "sliced",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 4,
+    "raw": "2 T. grated ginger",
+    "ingredient": {
+     "id": "ginger",
+     "name": "Fresh ginger",
+     "aisle": "Produce"
+    },
+    "grams": 12,
+    "prep": "grated",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 5,
+    "raw": "1 c. heavy cream",
+    "ingredient": {
+     "id": "heavy-cream",
+     "name": "Heavy cream",
+     "aisle": "Dairy & Eggs"
+    },
+    "grams": 240,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 6,
+    "raw": "s & p",
+    "ingredient": {
+     "id": "salt",
+     "name": "Salt",
+     "aisle": "Spices & Seasonings"
+    },
+    "grams": null,
+    "prep": "to taste",
+    "optional": false,
+    "confidence": "low"
+   },
+   {
+    "index": 7,
+    "raw": "sour cream",
+    "ingredient": {
+     "id": "sour-cream",
+     "name": "Sour cream",
+     "aisle": "Dairy & Eggs"
+    },
+    "grams": 48,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 8,
+    "raw": "parsley",
+    "ingredient": {
+     "id": "parsley",
+     "name": "Parsley",
+     "aisle": "Produce"
+    },
+    "grams": 3.8,
+    "prep": "chopped",
+    "optional": false,
+    "confidence": "high"
+   }
+  ],
+  "mealTypes": [
+   "lunch",
+   "dinner",
+   "snack"
+  ],
+  "cuisines": [
+   "American",
+   "Contemporary"
+  ],
+  "mainProtein": null,
+  "allergens": [
+   "dairy"
+  ],
+  "activeMinutes": 28,
+  "totalMinutes": 40,
+  "storage": {
+   "fridgeDays": 4,
+   "freezerDays": 60,
+   "reheat": "Reheat gently on the stovetop over medium-low heat, stirring frequently.",
+   "notes": [],
+   "reheatsWell": true
+  },
+  "preference": {
+   "rating": null,
+   "favorite": false,
+   "recentCount": 0
+  },
+  "cost": 11.75,
+  "component": "complete",
+  "nutritionCheck": {
+   "coverage": 1,
+   "aiPerServing": {
+    "kcal": 237,
+    "protein": 4,
+    "carbs": 16,
+    "fat": 19,
+    "fiber": 4
+   },
+   "disagreesWithAi": false
+  }
+ },
+ {
+  "recipeId": "47673f50-be99-4f45-a540-c13004c467d7",
+  "title": "Biscuits",
+  "servings": 6,
+  "perServing": {
+   "kcal": 235,
+   "protein": 5.1,
+   "carbs": 32.4,
+   "fat": 9.3,
+   "fiber": 1.1
+  },
+  "confidence": "high",
+  "nutritionSource": "usda",
+  "lines": [
+   {
+    "index": 0,
+    "raw": "2 C. self-rising flour (or AP + salt & 1 T bkg pwdr)",
+    "ingredient": {
+     "id": "flour-self-rising",
+     "name": "Self-rising flour",
+     "aisle": "Baking"
+    },
+    "grams": 250,
+    "prep": "or ap + salt & 1 t bkg pwdr",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 1,
+    "raw": "4 T shortening",
+    "ingredient": {
+     "id": "shortening",
+     "name": "Shortening",
+     "aisle": "Baking"
+    },
+    "grams": 51.2,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 2,
+    "raw": "3/4 C. buttermilk",
+    "ingredient": {
+     "id": "buttermilk",
+     "name": "Buttermilk",
+     "aisle": "Dairy & Eggs"
+    },
+    "grams": 183.8,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   }
+  ],
+  "mealTypes": [
+   "breakfast",
+   "snack"
+  ],
+  "cuisines": [
+   "American",
+   "Southern"
+  ],
+  "mainProtein": null,
+  "allergens": [
+   "dairy",
+   "gluten"
+  ],
+  "activeMinutes": 5,
+  "totalMinutes": 12,
+  "storage": {
+   "fridgeDays": 4,
+   "freezerDays": 60,
+   "reheat": "Reheat frozen or leftover biscuits in a 350 degree F oven for 5 to 8 minutes to restore their freshly baked crust.",
+   "notes": [],
+   "reheatsWell": true
+  },
+  "preference": {
+   "rating": null,
+   "favorite": false,
+   "recentCount": 0
+  },
+  "cost": 1.38,
+  "component": "veg",
+  "nutritionCheck": {
+   "coverage": 1,
+   "aiPerServing": {
+    "kcal": 192,
+    "protein": 4,
+    "carbs": 24,
+    "fat": 9,
+    "fiber": 1
+   },
+   "disagreesWithAi": false
+  }
+ },
+ {
+  "recipeId": "3f47d688-ff41-45c7-abcd-1142c51d5a90",
+  "title": "Blueberry Sugartop Muffins",
+  "servings": 12,
+  "perServing": {
+   "kcal": 297,
+   "protein": 3.7,
+   "carbs": 43.3,
+   "fat": 12.7,
+   "fiber": 1.2
+  },
+  "confidence": "high",
+  "nutritionSource": "usda",
+  "lines": [
+   {
+    "index": 0,
+    "raw": "1/2 c plus 2 Tbl oil",
+    "ingredient": {
+     "id": "vegetable-oil",
+     "name": "Vegetable oil",
+     "aisle": "Oils, Vinegars & Condiments"
+    },
+    "grams": 136,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 1,
+    "raw": "2 eggs",
+    "ingredient": {
+     "id": "egg",
+     "name": "Eggs",
+     "aisle": "Dairy & Eggs"
+    },
+    "grams": 88,
+    "prep": "large",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 2,
+    "raw": "2 tsp b.p.",
+    "ingredient": {
+     "id": "baking-powder",
+     "name": "Baking powder",
+     "aisle": "Baking"
+    },
+    "grams": 9.2,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 3,
+    "raw": "1/2 c milk",
+    "ingredient": {
+     "id": "milk",
+     "name": "Milk",
+     "aisle": "Dairy & Eggs"
+    },
+    "grams": 122,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 4,
+    "raw": "2 Tbl flour",
+    "ingredient": {
+     "id": "flour",
+     "name": "All-purpose flour",
+     "aisle": "Baking"
+    },
+    "grams": 15.6,
+    "prep": "for dusting berries",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 5,
+    "raw": "1 1/4 c sugar",
+    "ingredient": {
+     "id": "sugar",
+     "name": "Sugar",
+     "aisle": "Baking"
+    },
+    "grams": 252,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 6,
+    "raw": "2 c flour (scant)",
+    "ingredient": {
+     "id": "flour",
+     "name": "All-purpose flour",
+     "aisle": "Baking"
+    },
+    "grams": 250,
+    "prep": "scant",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 7,
+    "raw": "1/2 tsp salt",
+    "ingredient": {
+     "id": "salt",
+     "name": "Salt",
+     "aisle": "Spices & Seasonings"
+    },
+    "grams": 3,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 8,
+    "raw": "2 c (frozen) berries",
+    "ingredient": {
+     "id": "blueberries",
+     "name": "Blueberries",
+     "aisle": "Produce"
+    },
+    "grams": 296,
+    "prep": "crushed slightly",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 9,
+    "raw": "1 Tbl sugar",
+    "ingredient": {
+     "id": "sugar",
+     "name": "Sugar",
+     "aisle": "Baking"
+    },
+    "grams": 12.6,
+    "prep": "for topping",
+    "optional": false,
+    "confidence": "high"
+   }
+  ],
+  "mealTypes": [
+   "breakfast"
+  ],
+  "cuisines": [
+   "American"
+  ],
+  "mainProtein": null,
+  "allergens": [
+   "dairy",
+   "egg",
+   "gluten"
+  ],
+  "activeMinutes": 23,
+  "totalMinutes": 45,
+  "storage": {
+   "fridgeDays": 2,
+   "freezerDays": 60,
+   "reheat": "Microwave covered until steaming hot all the way through (165°F), 2–3 minutes, stirring halfway.",
+   "notes": [],
+   "reheatsWell": true
+  },
+  "preference": {
+   "rating": null,
+   "favorite": false,
+   "recentCount": 0
+  },
+  "cost": 4.75,
+  "component": "complete",
+  "nutritionCheck": {
+   "coverage": 1,
+   "aiPerServing": {
+    "kcal": 292,
+    "protein": 4,
+    "carbs": 42,
+    "fat": 13,
+    "fiber": 1
+   },
+   "disagreesWithAi": false
+  }
+ },
+ {
+  "recipeId": "fc0d3800-252f-4ace-93dc-e7cae1928739",
+  "title": "Italian Sausage & Cheese Quiche",
+  "servings": 6,
+  "perServing": {
+   "kcal": 347,
+   "protein": 18.6,
+   "carbs": 6.6,
+   "fat": 27.4,
+   "fiber": 0.1
+  },
+  "confidence": "high",
+  "nutritionSource": "usda",
+  "lines": [
+   {
+    "index": 0,
+    "raw": "3/4 lb sausage",
+    "ingredient": {
+     "id": "sausage",
+     "name": "Sausage",
+     "aisle": "Meat & Seafood"
+    },
+    "grams": 340.2,
+    "prep": "casing removed, crumbled",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 1,
+    "raw": "2/3 c ricotta cheese",
+    "ingredient": {
+     "id": "ricotta",
+     "name": "Ricotta",
+     "aisle": "Dairy & Eggs"
+    },
+    "grams": 163.7,
+    "prep": "whole milk preferred",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 2,
+    "raw": "1/3 c parm. cheese",
+    "ingredient": {
+     "id": "parmesan",
+     "name": "Parmesan",
+     "aisle": "Dairy & Eggs"
+    },
+    "grams": 33,
+    "prep": "grated",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 3,
+    "raw": "3 Tbl parsley",
+    "ingredient": {
+     "id": "parsley",
+     "name": "Parsley",
+     "aisle": "Produce"
+    },
+    "grams": 11.3,
+    "prep": "chopped",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 4,
+    "raw": "4 eggs",
+    "ingredient": {
+     "id": "egg",
+     "name": "Eggs",
+     "aisle": "Dairy & Eggs"
+    },
+    "grams": 200,
+    "prep": "beaten",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 5,
+    "raw": "1 1/2 c milk or light cream",
+    "ingredient": {
+     "id": "milk",
+     "name": "Milk",
+     "aisle": "Dairy & Eggs"
+    },
+    "grams": 366,
+    "prep": null,
+    "optional": false,
+    "confidence": "medium"
+   },
+   {
+    "index": 6,
+    "raw": "2 Tbl butter (melted)",
+    "ingredient": {
+     "id": "butter-unsalted",
+     "name": "Unsalted butter",
+     "aisle": "Dairy & Eggs"
+    },
+    "grams": 28.4,
+    "prep": "melted",
+    "optional": false,
+    "confidence": "high"
+   }
+  ],
+  "mealTypes": [
+   "breakfast"
+  ],
+  "cuisines": [
+   "Italian-American",
+   "French"
+  ],
+  "mainProtein": "pork",
+  "allergens": [
+   "dairy",
+   "egg",
+   "gluten"
+  ],
+  "activeMinutes": 31,
+  "totalMinutes": 45,
+  "storage": {
+   "fridgeDays": 3,
+   "freezerDays": 60,
+   "reheat": "Microwave covered until steaming hot all the way through (165°F), 2–3 minutes, stirring halfway.",
+   "notes": [],
+   "reheatsWell": true
+  },
+  "preference": {
+   "rating": null,
+   "favorite": false,
+   "recentCount": 0
+  },
+  "cost": 15,
+  "component": "complete",
+  "nutritionCheck": {
+   "coverage": 1,
+   "aiPerServing": {
+    "kcal": 415,
+    "protein": 18,
+    "carbs": 14,
+    "fat": 32,
+    "fiber": 1
+   },
+   "disagreesWithAi": false
+  }
+ },
+ {
+  "recipeId": "c3b7afe4-d594-45bd-b7e2-79f8687691ff",
+  "title": "2-Ingredient Cottage Cheese Tortillas",
+  "servings": 4,
+  "perServing": {
+   "kcal": 91,
+   "protein": 9.4,
+   "carbs": 2.1,
+   "fat": 4.8,
+   "fiber": 0
+  },
+  "confidence": "high",
+  "nutritionSource": "usda",
+  "lines": [
+   {
+    "index": 0,
+    "raw": "1 cup cottage cheese (225 g)",
+    "ingredient": {
+     "id": "cottage-cheese",
+     "name": "Cottage cheese",
+     "aisle": "Dairy & Eggs"
+    },
+    "grams": 225,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 1,
+    "raw": "2 large eggs",
+    "ingredient": {
+     "id": "egg",
+     "name": "Eggs",
+     "aisle": "Dairy & Eggs"
+    },
+    "grams": 100,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   }
+  ],
+  "mealTypes": [
+   "lunch"
+  ],
+  "cuisines": [
+   "Mexican-inspired"
+  ],
+  "mainProtein": "dairy",
+  "allergens": [
+   "dairy",
+   "egg"
+  ],
+  "activeMinutes": 7,
+  "totalMinutes": 14,
+  "storage": {
+   "fridgeDays": 4,
+   "freezerDays": null,
+   "reheat": "Warm them for 15-20 seconds in a dry skillet over medium heat to restore their pliability if they have been refrigerated.",
+   "notes": [
+    "Doesn't freeze well; keep it in the fridge."
+   ],
+   "reheatsWell": true
+  },
+  "preference": {
+   "rating": null,
+   "favorite": false,
+   "recentCount": 0
+  },
+  "cost": 2,
+  "component": "complete",
+  "nutritionCheck": {
+   "coverage": 1,
+   "aiPerServing": {
+    "kcal": 80,
+    "protein": 9,
+    "carbs": 2.5,
+    "fat": 4,
+    "fiber": 0
+   },
+   "disagreesWithAi": false
+  }
+ },
+ {
+  "recipeId": "838ef12e-1e0f-4222-b501-7f292a9b5d4a",
+  "title": "Bow Tie Pasta Salad",
+  "servings": 4,
+  "perServing": {
+   "kcal": 333,
+   "protein": 12.8,
+   "carbs": 50.7,
+   "fat": 9,
+   "fiber": 3.9
+  },
+  "confidence": "high",
+  "nutritionSource": "usda",
+  "lines": [
+   {
+    "index": 0,
+    "raw": "8 oz Bow Tie Pasta",
+    "ingredient": {
+     "id": "pasta",
+     "name": "Pasta",
+     "aisle": "Pasta, Rice & Grains"
+    },
+    "grams": 226.8,
+    "prep": "boiled until al dente",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 1,
+    "raw": "4 oz Feta Cheese",
+    "ingredient": {
+     "id": "feta",
+     "name": "Feta",
+     "aisle": "Dairy & Eggs"
+    },
+    "grams": 113.4,
+    "prep": "crumbled",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 2,
+    "raw": "1/2 Red onion",
+    "ingredient": {
+     "id": "onion-red",
+     "name": "Red onion",
+     "aisle": "Produce"
+    },
+    "grams": 55,
+    "prep": "diced",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 3,
+    "raw": "1/2 cup Black olives",
+    "ingredient": {
+     "id": "olives",
+     "name": "Olives",
+     "aisle": "Canned & Jarred"
+    },
+    "grams": 67.2,
+    "prep": "halved",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 4,
+    "raw": "3 Plum Tomatoes",
+    "ingredient": {
+     "id": "tomato",
+     "name": "Tomatoes",
+     "aisle": "Produce"
+    },
+    "grams": 369,
+    "prep": "diced",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 5,
+    "raw": "1 Green Pepper",
+    "ingredient": {
+     "id": "bell-pepper-green",
+     "name": "Green bell pepper",
+     "aisle": "Produce"
+    },
+    "grams": 119,
+    "prep": "diced",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 6,
+    "raw": "1 cup Cubed cooked chicken",
+    "ingredient": {
+     "id": "chicken-cooked",
+     "name": "Cooked chicken",
+     "aisle": "Meat & Seafood"
+    },
+    "grams": 140,
+    "prep": "cubed",
+    "optional": true,
+    "confidence": "high"
+   }
+  ],
+  "mealTypes": [
+   "lunch"
+  ],
+  "cuisines": [
+   "Italian-American",
+   "Mediterranean"
+  ],
+  "mainProtein": "dairy",
+  "allergens": [
+   "dairy",
+   "gluten"
+  ],
+  "activeMinutes": 18,
+  "totalMinutes": 55,
+  "storage": {
+   "fridgeDays": 3,
+   "freezerDays": null,
+   "reheat": "Serve cold. No reheating needed.",
+   "notes": [
+    "Eat cold."
+   ],
+   "reheatsWell": false
+  },
+  "preference": {
+   "rating": null,
+   "favorite": false,
+   "recentCount": 0
+  },
+  "cost": 11.5,
+  "component": "complete",
+  "nutritionCheck": {
+   "coverage": 1,
+   "aiPerServing": {
+    "kcal": 375,
+    "protein": 14,
+    "carbs": 48,
+    "fat": 16,
+    "fiber": 4
+   },
+   "disagreesWithAi": false
+  }
+ },
+ {
+  "recipeId": "fb300602-483f-4d1e-92a9-ee5f0ea0a891",
+  "title": "2 Ingredient Cottage Cheese Crisps",
+  "servings": 1,
+  "perServing": {
+   "kcal": 81,
+   "protein": 10.5,
+   "carbs": 4.8,
+   "fat": 2.3,
+   "fiber": 0
+  },
+  "confidence": "high",
+  "nutritionSource": "usda",
+  "lines": [
+   {
+    "index": 0,
+    "raw": "100 g low fat cottage cheese",
+    "ingredient": {
+     "id": "cottage-cheese-lowfat",
+     "name": "Low-fat cottage cheese",
+     "aisle": "Dairy & Eggs"
+    },
+    "grams": 100,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 1,
+    "raw": "Everything But The Bagel seasoning",
+    "ingredient": {
+     "id": "sesame-seeds",
+     "name": "Sesame seeds",
+     "aisle": "Spices & Seasonings"
+    },
+    "grams": null,
+    "prep": null,
+    "optional": false,
+    "confidence": "low"
+   }
+  ],
+  "mealTypes": [
+   "snack"
+  ],
+  "cuisines": [
+   "American"
+  ],
+  "mainProtein": "dairy",
+  "allergens": [
+   "dairy",
+   "sesame"
+  ],
+  "activeMinutes": 11,
+  "totalMinutes": 40,
+  "storage": {
+   "fridgeDays": 4,
+   "freezerDays": 60,
+   "reheat": "Microwave covered until steaming hot all the way through (165°F), 2–3 minutes, stirring halfway.",
+   "notes": [],
+   "reheatsWell": false
+  },
+  "preference": {
+   "rating": null,
+   "favorite": false,
+   "recentCount": 0
+  },
+  "cost": 0.85,
+  "component": "complete",
+  "nutritionCheck": {
+   "coverage": 1,
+   "aiPerServing": {
+    "kcal": 82,
+    "protein": 12,
+    "carbs": 4,
+    "fat": 1.5,
+    "fiber": 1
+   },
+   "disagreesWithAi": false
+  }
+ },
+ {
+  "recipeId": "efd7ac2a-6b51-4f12-a113-16e67f7fd091",
+  "title": "3 Ingredient Protein Cookies",
+  "servings": 5,
+  "perServing": {
+   "kcal": 181,
+   "protein": 11.5,
+   "carbs": 11.7,
+   "fat": 11,
+   "fiber": 3
+  },
+  "confidence": "high",
+  "nutritionSource": "usda",
+  "lines": [
+   {
+    "index": 0,
+    "raw": "150g mashed banana",
+    "ingredient": {
+     "id": "banana",
+     "name": "Banana",
+     "aisle": "Produce"
+    },
+    "grams": 150,
+    "prep": "mashed",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 1,
+    "raw": "100g tahini",
+    "ingredient": {
+     "id": "tahini",
+     "name": "Tahini",
+     "aisle": "Pantry"
+    },
+    "grams": 100,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 2,
+    "raw": "50g vanilla protein powder",
+    "ingredient": {
+     "id": "protein-powder",
+     "name": "Protein powder",
+     "aisle": "Pantry"
+    },
+    "grams": 50,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 3,
+    "raw": "20g sugar free choc chips (optional)",
+    "ingredient": {
+     "id": "chocolate-chips",
+     "name": "Chocolate chips",
+     "aisle": "Baking"
+    },
+    "grams": 20,
+    "prep": null,
+    "optional": true,
+    "confidence": "medium"
+   }
+  ],
+  "mealTypes": [
+   "snack"
+  ],
+  "cuisines": [
+   "Healthy",
+   "American"
+  ],
+  "mainProtein": "dairy",
+  "allergens": [
+   "dairy",
+   "sesame"
+  ],
+  "activeMinutes": 13,
+  "totalMinutes": 22,
+  "storage": {
+   "fridgeDays": 5,
+   "freezerDays": 90,
+   "reheat": "Microwave covered until steaming hot all the way through (165°F), 2–3 minutes, stirring halfway.",
+   "notes": [],
+   "reheatsWell": true
+  },
+  "preference": {
+   "rating": null,
+   "favorite": false,
+   "recentCount": 0
+  },
+  "cost": 4.75,
+  "component": "complete",
+  "nutritionCheck": {
+   "coverage": 1,
+   "aiPerServing": {
+    "kcal": 204,
+    "protein": 12,
+    "carbs": 13,
+    "fat": 13,
+    "fiber": 3.8
+   },
+   "disagreesWithAi": false
+  }
+ },
+ {
+  "recipeId": "c549731e-3a4c-4021-afe9-4fbc7d4f97b3",
+  "title": "83 Calorie Protein Crackly Top Fudge Brownie",
+  "servings": 12,
+  "perServing": {
+   "kcal": 86,
+   "protein": 8.5,
+   "carbs": 6,
+   "fat": 3.9,
+   "fiber": 1.8
+  },
+  "confidence": "high",
+  "nutritionSource": "usda",
+  "lines": [
+   {
+    "index": 0,
+    "raw": "2 Medium Eggs",
+    "ingredient": {
+     "id": "egg",
+     "name": "Eggs",
+     "aisle": "Dairy & Eggs"
+    },
+    "grams": 88,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 1,
+    "raw": "120g (½ Cup) Egg Whites",
+    "ingredient": {
+     "id": "egg-white",
+     "name": "Egg whites",
+     "aisle": "Dairy & Eggs"
+    },
+    "grams": 120,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 2,
+    "raw": "170g (¾ Cup) 0% Greek Yogurt",
+    "ingredient": {
+     "id": "greek-yogurt-nonfat",
+     "name": "Nonfat Greek yogurt",
+     "aisle": "Dairy & Eggs"
+    },
+    "grams": 170,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 3,
+    "raw": "30g (2 tbsp) Coconut Oil, melted",
+    "ingredient": {
+     "id": "coconut-oil",
+     "name": "Coconut oil",
+     "aisle": "Oils, Vinegars & Condiments"
+    },
+    "grams": 30,
+    "prep": "melted",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 4,
+    "raw": "5mL (1 tsp) Vanilla Extract (optional)",
+    "ingredient": {
+     "id": "vanilla",
+     "name": "Vanilla extract",
+     "aisle": "Baking"
+    },
+    "grams": 4.3,
+    "prep": null,
+    "optional": true,
+    "confidence": "high"
+   },
+   {
+    "index": 5,
+    "raw": "210–230g Granulated 1:1 Sugar Substitute",
+    "ingredient": {
+     "id": "sweetener-zero",
+     "name": "Zero-calorie sweetener",
+     "aisle": "Baking"
+    },
+    "grams": 220,
+    "prep": null,
+    "optional": false,
+    "confidence": "medium"
+   },
+   {
+    "index": 6,
+    "raw": "40g (⅓ Cup) All-Purpose Flour",
+    "ingredient": {
+     "id": "flour",
+     "name": "All-purpose flour",
+     "aisle": "Baking"
+    },
+    "grams": 40,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 7,
+    "raw": "50g (½ Cup + 2 tbsp) Cocoa Powder",
+    "ingredient": {
+     "id": "cocoa",
+     "name": "Cocoa powder",
+     "aisle": "Baking"
+    },
+    "grams": 50,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 8,
+    "raw": "60g (about 2 Scoop) Chocolate or Vanilla Protein Powder",
+    "ingredient": {
+     "id": "protein-powder",
+     "name": "Protein powder",
+     "aisle": "Pantry"
+    },
+    "grams": 60,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 9,
+    "raw": "3–4g (¾ tsp) Baking Powder",
+    "ingredient": {
+     "id": "baking-powder",
+     "name": "Baking powder",
+     "aisle": "Baking"
+    },
+    "grams": 3.5,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 10,
+    "raw": "Pinch of Salt",
+    "ingredient": {
+     "id": "salt",
+     "name": "Salt",
+     "aisle": "Spices & Seasonings"
+    },
+    "grams": 0.4,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 11,
+    "raw": "Chocolate Chips or Chunks to Taste (optional)",
+    "ingredient": {
+     "id": "chocolate-chips",
+     "name": "Chocolate chips",
+     "aisle": "Baking"
+    },
+    "grams": null,
+    "prep": null,
+    "optional": true,
+    "confidence": "low"
+   }
+  ],
+  "mealTypes": [
+   "snack"
+  ],
+  "cuisines": [
+   "American"
+  ],
+  "mainProtein": "dairy",
+  "allergens": [
+   "dairy",
+   "egg",
+   "gluten"
+  ],
+  "activeMinutes": 15,
+  "totalMinutes": 30,
+  "storage": {
+   "fridgeDays": 5,
+   "freezerDays": null,
+   "reheat": "Microwave covered until steaming hot all the way through (165°F), 2–3 minutes, stirring halfway.",
+   "notes": [
+    "Doesn't freeze well; keep it in the fridge."
+   ],
+   "reheatsWell": true
+  },
+  "preference": {
+   "rating": null,
+   "favorite": false,
+   "recentCount": 0
+  },
+  "cost": 0.95,
+  "component": "complete",
+  "nutritionCheck": {
+   "coverage": 1,
+   "aiPerServing": {
+    "kcal": 83,
+    "protein": 8.3,
+    "carbs": 5,
+    "fat": 2.5,
+    "fiber": 2
+   },
+   "disagreesWithAi": false
+  }
+ },
+ {
+  "recipeId": "06dcc688-eb83-4d1f-89e5-9a92d6b0ec76",
+  "title": "\"Backyard Bill's Rub\"",
+  "servings": 16,
+  "perServing": {
+   "kcal": 39,
+   "protein": 1.2,
+   "carbs": 8.7,
+   "fat": 0.8,
+   "fiber": 2.5
+  },
+  "confidence": "high",
+  "nutritionSource": "usda",
+  "lines": [
+   {
+    "index": 0,
+    "raw": "3/4 cup paprika",
+    "ingredient": {
+     "id": "paprika",
+     "name": "Paprika",
+     "aisle": "Spices & Seasonings"
+    },
+    "grams": 82.8,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 1,
+    "raw": "≤ 1/4 cup white sugar",
+    "ingredient": {
+     "id": "sugar",
+     "name": "Sugar",
+     "aisle": "Baking"
+    },
+    "grams": 50.4,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 2,
+    "raw": "1/4 cup black pepper (regular grind)",
+    "ingredient": {
+     "id": "black-pepper",
+     "name": "Black pepper",
+     "aisle": "Spices & Seasonings"
+    },
+    "grams": 27.6,
+    "prep": "regular grind",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 3,
+    "raw": "≤ 1/4 cup kosher salt",
+    "ingredient": {
+     "id": "salt",
+     "name": "Salt",
+     "aisle": "Spices & Seasonings"
+    },
+    "grams": 72,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 4,
+    "raw": "2 Tablespoons granulated, dried onion (\"minced\", not ground powder)",
+    "ingredient": {
+     "id": "onion-powder",
+     "name": "Onion powder",
+     "aisle": "Spices & Seasonings"
+    },
+    "grams": 14.4,
+    "prep": "granulated, minced",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 5,
+    "raw": "2 Tablespoons granulated, dried garlic \" \" \"",
+    "ingredient": {
+     "id": "garlic-powder",
+     "name": "Garlic powder",
+     "aisle": "Spices & Seasonings"
+    },
+    "grams": 18.6,
+    "prep": "granulated, dried",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 6,
+    "raw": "2 teaspoons Cayenne \"red\" pepper (regular grind)",
+    "ingredient": {
+     "id": "cayenne",
+     "name": "Cayenne pepper",
+     "aisle": "Spices & Seasonings"
+    },
+    "grams": 3.6,
+    "prep": "regular grind",
+    "optional": false,
+    "confidence": "high"
+   }
+  ],
+  "mealTypes": [],
+  "cuisines": [
+   "American",
+   "Barbecue"
+  ],
+  "mainProtein": null,
+  "allergens": [],
+  "activeMinutes": 5,
+  "totalMinutes": 5,
+  "storage": {
+   "fridgeDays": 4,
+   "freezerDays": 90,
+   "reheat": "Serve cold. No reheating needed.",
+   "notes": [
+    "Eat cold."
+   ],
+   "reheatsWell": false
+  },
+  "preference": {
+   "rating": null,
+   "favorite": false,
+   "recentCount": 0
+  },
+  "cost": 5,
+  "component": "sauce",
+  "nutritionCheck": {
+   "coverage": 1,
+   "aiPerServing": {
+    "kcal": 38,
+    "protein": 1,
+    "carbs": 7,
+    "fat": 1,
+    "fiber": 2
+   },
+   "disagreesWithAi": false
+  }
+ },
+ {
+  "recipeId": "bf652ae8-cddd-452e-904f-daeec3b73db4",
+  "title": "Asparagus in Phyllo Canape ?",
+  "servings": 14,
+  "perServing": {
+   "kcal": 34,
+   "protein": 1,
+   "carbs": 3,
+   "fat": 2,
+   "fiber": 0
+  },
+  "confidence": "low",
+  "nutritionSource": "ai_estimate",
+  "lines": [
+   {
+    "index": 0,
+    "raw": "Phyllo sheets",
+    "ingredient": {
+     "id": "puff-pastry",
+     "name": "Puff pastry",
+     "aisle": "Frozen"
+    },
+    "grams": null,
+    "prep": null,
+    "optional": false,
+    "confidence": "low"
+   },
+   {
+    "index": 1,
+    "raw": "Butter",
+    "ingredient": {
+     "id": "butter",
+     "name": "Butter",
+     "aisle": "Dairy & Eggs"
+    },
+    "grams": 56.8,
+    "prep": "melted",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 2,
+    "raw": "parmesan / Asiago",
+    "ingredient": {
+     "id": "parmesan",
+     "name": "Parmesan",
+     "aisle": "Dairy & Eggs"
+    },
+    "grams": 50,
+    "prep": "grated",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 3,
+    "raw": "spears of asparagus",
+    "ingredient": {
+     "id": "asparagus",
+     "name": "Asparagus",
+     "aisle": "Produce"
+    },
+    "grams": null,
+    "prep": "trimmed",
+    "optional": false,
+    "confidence": "low"
+   }
+  ],
+  "mealTypes": [
+   "snack"
+  ],
+  "cuisines": [
+   "French",
+   "Mediterranean",
+   "American"
+  ],
+  "mainProtein": "dairy",
+  "allergens": [
+   "dairy",
+   "gluten"
+  ],
+  "activeMinutes": 5,
+  "totalMinutes": 15,
+  "storage": {
+   "fridgeDays": 4,
+   "freezerDays": 60,
+   "reheat": "Reheat leftover canapes in a 350°F oven for 5 minutes to restore the crispy texture of the phyllo dough; avoid microwaving.",
+   "notes": [],
+   "reheatsWell": true
+  },
+  "preference": {
+   "rating": null,
+   "favorite": false,
+   "recentCount": 0
+  },
+  "cost": 7,
+  "component": "complete",
+  "nutritionCheck": {
+   "coverage": 0.59,
+   "aiPerServing": {
+    "kcal": 34,
+    "protein": 1,
+    "carbs": 3,
+    "fat": 2,
+    "fiber": 0
+   },
+   "disagreesWithAi": false
+  }
+ },
+ {
+  "recipeId": "5f05db76-d54e-4703-9f05-a4865d2962a5",
+  "title": "\"Steak on a Stick\"",
+  "servings": 6,
+  "perServing": {
+   "kcal": 321,
+   "protein": 35.1,
+   "carbs": 7,
+   "fat": 16.4,
+   "fiber": 0.3
+  },
+  "confidence": "medium",
+  "nutritionSource": "usda",
+  "lines": [
+   {
+    "index": 0,
+    "raw": "2 lbs flank steak",
+    "ingredient": {
+     "id": "beef-steak",
+     "name": "Beef steak",
+     "aisle": "Meat & Seafood"
+    },
+    "grams": 907.2,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 1,
+    "raw": "1/2 cup soy sauce",
+    "ingredient": {
+     "id": "soy-sauce",
+     "name": "Soy sauce",
+     "aisle": "Oils, Vinegars & Condiments"
+    },
+    "grams": 128,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 2,
+    "raw": "1/4 cup olive oil",
+    "ingredient": {
+     "id": "olive-oil",
+     "name": "Olive oil",
+     "aisle": "Oils, Vinegars & Condiments"
+    },
+    "grams": 54,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 3,
+    "raw": "1/4 cup water",
+    "ingredient": {
+     "id": "water",
+     "name": "Water",
+     "aisle": "Other"
+    },
+    "grams": 59.2,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 4,
+    "raw": "2 Tbs. molasses",
+    "ingredient": {
+     "id": "molasses",
+     "name": "Molasses",
+     "aisle": "Oils, Vinegars & Condiments"
+    },
+    "grams": 42.1,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 5,
+    "raw": "2 tsp. mustard powder",
+    "ingredient": {
+     "id": "dry-mustard",
+     "name": "Mustard powder",
+     "aisle": "Spices & Seasonings"
+    },
+    "grams": 4,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 6,
+    "raw": "1 tsp. ground ginger (dry)",
+    "ingredient": {
+     "id": "ginger-ground",
+     "name": "Ground ginger",
+     "aisle": "Spices & Seasonings"
+    },
+    "grams": 1.8,
+    "prep": "dry",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 7,
+    "raw": "1/2 tsp. garlic powder",
+    "ingredient": {
+     "id": "garlic-powder",
+     "name": "Garlic powder",
+     "aisle": "Spices & Seasonings"
+    },
+    "grams": 1.6,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 8,
+    "raw": "1/2 tsp. onion powder",
+    "ingredient": {
+     "id": "onion-powder",
+     "name": "Onion powder",
+     "aisle": "Spices & Seasonings"
+    },
+    "grams": 1.2,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   }
+  ],
+  "mealTypes": [
+   "lunch",
+   "dinner",
+   "snack"
+  ],
+  "cuisines": [
+   "American"
+  ],
+  "mainProtein": "beef",
+  "allergens": [
+   "dairy",
+   "gluten",
+   "soy"
+  ],
+  "activeMinutes": 485,
+  "totalMinutes": 488,
+  "storage": {
+   "fridgeDays": 3,
+   "freezerDays": 60,
+   "reheat": "Microwave covered until steaming hot all the way through (165°F), 2–3 minutes, stirring halfway.",
+   "notes": [],
+   "reheatsWell": true
+  },
+  "preference": {
+   "rating": null,
+   "favorite": false,
+   "recentCount": 0
+  },
+  "cost": 24,
+  "component": "protein",
+  "nutritionCheck": {
+   "coverage": 1,
+   "aiPerServing": {
+    "kcal": 442,
+    "protein": 35,
+    "carbs": 9,
+    "fat": 29,
+    "fiber": 1
+   },
+   "disagreesWithAi": true
+  }
+ },
+ {
+  "recipeId": "8555d2fe-bf82-4f63-a97a-02bc0634fa05",
+  "title": "\"Pizza\" Salad",
+  "servings": 4,
+  "perServing": {
+   "kcal": 340,
+   "protein": 9.2,
+   "carbs": 5.8,
+   "fat": 31.7,
+   "fiber": 1.4
+  },
+  "confidence": "high",
+  "nutritionSource": "usda",
+  "lines": [
+   {
+    "index": 0,
+    "raw": "6 Tbs. olive oil",
+    "ingredient": {
+     "id": "olive-oil",
+     "name": "Olive oil",
+     "aisle": "Oils, Vinegars & Condiments"
+    },
+    "grams": 81,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 1,
+    "raw": "2 Tbs. balsamic vinegar",
+    "ingredient": {
+     "id": "vinegar-balsamic",
+     "name": "Balsamic vinegar",
+     "aisle": "Oils, Vinegars & Condiments"
+    },
+    "grams": 32,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 2,
+    "raw": "1 minced garlic clove",
+    "ingredient": {
+     "id": "garlic",
+     "name": "Garlic",
+     "aisle": "Produce"
+    },
+    "grams": 3,
+    "prep": "minced",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 3,
+    "raw": "1 tsp minced fresh basil",
+    "ingredient": {
+     "id": "basil",
+     "name": "Basil",
+     "aisle": "Produce"
+    },
+    "grams": 0.9,
+    "prep": "minced",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 4,
+    "raw": "S & P to taste",
+    "ingredient": {
+     "id": "salt",
+     "name": "Salt",
+     "aisle": "Spices & Seasonings"
+    },
+    "grams": null,
+    "prep": "to taste",
+    "optional": false,
+    "confidence": "low"
+   },
+   {
+    "index": 5,
+    "raw": "6 cups \"greens\"",
+    "ingredient": {
+     "id": "salad-greens",
+     "name": "Salad greens",
+     "aisle": "Produce"
+    },
+    "grams": 216,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 6,
+    "raw": "1/2 cup halved cherry tomatoes",
+    "ingredient": {
+     "id": "tomato-cherry",
+     "name": "Cherry tomatoes",
+     "aisle": "Produce"
+    },
+    "grams": 74.5,
+    "prep": "halved",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 7,
+    "raw": "1/4 lb sliced fresh mozzarella",
+    "ingredient": {
+     "id": "mozzarella",
+     "name": "Mozzarella",
+     "aisle": "Dairy & Eggs"
+    },
+    "grams": 113.4,
+    "prep": "sliced",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 8,
+    "raw": "1/4 cup sliced black olives",
+    "ingredient": {
+     "id": "olives",
+     "name": "Olives",
+     "aisle": "Canned & Jarred"
+    },
+    "grams": 33.6,
+    "prep": "sliced",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 9,
+    "raw": "1/4 cup sliced pepperoni",
+    "ingredient": {
+     "id": "salami",
+     "name": "Salami / pepperoni",
+     "aisle": "Meat & Seafood"
+    },
+    "grams": 35,
+    "prep": "sliced",
+    "optional": false,
+    "confidence": "medium"
+   },
+   {
+    "index": 10,
+    "raw": "1/4 cup chopped fresh basil",
+    "ingredient": {
+     "id": "basil",
+     "name": "Basil",
+     "aisle": "Produce"
+    },
+    "grams": 10.6,
+    "prep": "chopped fresh",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 11,
+    "raw": "1 Tbs. minced fresh oregano",
+    "ingredient": {
+     "id": "oregano",
+     "name": "Dried oregano",
+     "aisle": "Spices & Seasonings"
+    },
+    "grams": 3,
+    "prep": "minced fresh",
+    "optional": false,
+    "confidence": "high"
+   }
+  ],
+  "mealTypes": [
+   "lunch",
+   "dinner"
+  ],
+  "cuisines": [
+   "Italian",
+   "American"
+  ],
+  "mainProtein": "dairy",
+  "allergens": [
+   "dairy"
+  ],
+  "activeMinutes": 5,
+  "totalMinutes": 5,
+  "storage": {
+   "fridgeDays": 3,
+   "freezerDays": null,
+   "reheat": "Serve cold. No reheating needed.",
+   "notes": [
+    "Store leftover undressed ingredients in separate airtight containers in the refrigerator for up to two days.",
+    "Eat cold."
+   ],
+   "reheatsWell": false
+  },
+  "preference": {
+   "rating": null,
+   "favorite": false,
+   "recentCount": 0
+  },
+  "cost": 11.25,
+  "component": "complete",
+  "nutritionCheck": {
+   "coverage": 1,
+   "aiPerServing": {
+    "kcal": 413,
+    "protein": 11,
+    "carbs": 7,
+    "fat": 39,
+    "fiber": 2
+   },
+   "disagreesWithAi": false
+  }
+ }
+]
