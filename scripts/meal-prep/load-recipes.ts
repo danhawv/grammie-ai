@@ -15,7 +15,8 @@ export async function loadRecipeRows(snapshot?: string): Promise<any[]> {
     await client.query("BEGIN READ ONLY");
     const { rows } = await client.query(`SELECT id, title, servings, ingredients, normalized_ingredients, meal_type, cuisines, cuisine,
       allergens, prep_time_minutes, cook_time_minutes, total_time_minutes, calories, protein, carbohydrates, fat, fiber, tips,
-      total_cost, cooking_methods, owner_user_id, updated_at FROM recipes ORDER BY created_at`);
+      total_cost, cooking_methods, equipment, standard_equipment, specialized_equipment, normalized_instructions,
+      owner_user_id, updated_at FROM recipes ORDER BY created_at`);
     await client.query("COMMIT");
     return rows;
   } finally {

@@ -3,6 +3,7 @@
 // little of the recipe could be matched) and a cross-check. Everything here
 // is pure so it can be tested and run without the database.
 
+import { appliancesIn } from "@shared/meal-prep/equipment";
 import type {
   Confidence, IngredientLine, Macros, MacroKey, MealSlot, RecipeFacts,
 } from "@shared/meal-prep/contract";
@@ -36,6 +37,11 @@ export interface RecipeInput {
   tips: Array<{ type: string; text: string }> | null;
   totalCost: number | null;
   cookingMethods: string[] | null;
+  /** equipment columns and the tools named in structured steps */
+  equipment?: string[] | null;
+  standardEquipment?: string[] | null;
+  specializedEquipment?: string[] | null;
+  stepTools?: string[] | null;
   updatedAt?: Date | string | null;
 }
 
@@ -255,7 +261,22 @@ export function computeRecipeFacts(r: RecipeInput, catalog: Catalog, opts: Facts
     cost: r.totalCost != null && r.totalCost > 0 ? Math.round(r.totalCost * 100) / 100 : null,
     component: componentFor(kinds, mainProtein, share, mealTypes),
     nutritionCheck: { coverage: round2(coverage), aiPerServing: aiPerServing ? roundMacros(aiPerServing) : null, disagreesWithAi },
+    equipment: equipmentFor(r),
   };
+}
+
+/**
+ * Appliances the recipe needs, from the equipment columns, the tools in its
+ * structured steps, and a title that names one ("Rice Cooker Gyudon",
+ * "Slow Cooker Chili"). A title saying "Grilled" doesn't count: a grill pan or
+ * the broiler does the job, and the equipment list says when a grill is needed.
+ */
+export function equipmentFor(r: RecipeInput): string[] {
+  const titleOnly = appliancesIn([r.title]).filter((k) => k !== "grill" && k !== "smoker");
+  return Array.from(new Set([
+    ...appliancesIn([...(r.equipment ?? []), ...(r.standardEquipment ?? []), ...(r.specializedEquipment ?? []), ...(r.stepTools ?? [])]),
+    ...titleOnly,
+  ]));
 }
 
 // Title words name the dish's protein more reliably than a fuzzy ingredient match ("Mongolian Beef")

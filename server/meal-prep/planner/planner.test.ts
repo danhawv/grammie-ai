@@ -257,6 +257,67 @@ describe("planner scenarios", () => {
   });
 });
 
+describe("balanced plates and kitchen equipment", () => {
+  it("keeps each plate near its meal's share of the day", async () => {
+    for (const name of ["one-lifter", "two-people", "seven-days-freezer"]) {
+      const s = byName(name);
+      const plan = await planner.plan(s.setup, s.facts, s.adjusters);
+      expect(plan.fitScore).toBe(100);
+      for (const p of plan.plates) {
+        const person = s.setup.people.find((x) => x.id === p.personId)!;
+        const fit = plan.fit.find((f) => f.personId === p.personId && f.day === p.day)!;
+        if (!fit.target) continue;
+        const share = { breakfast: 0.25, lunch: 0.3, dinner: 0.35, snack: 0.1 };
+        const total = personSlots(person).reduce((a, sl) => a + share[sl], 0);
+        const aim = (fit.target.kcal * share[p.slot]) / total;
+        expect(p.macros.kcal).toBeGreaterThanOrEqual(aim * 0.6);
+        expect(p.macros.kcal).toBeLessThanOrEqual(aim * 1.4);
+      }
+    }
+  });
+
+  it("skips dishes that need an appliance the kitchen doesn't have, unless nothing else fits", async () => {
+    const s = byName("one-lifter");
+    const facts = s.facts.map((f) => (f.recipeId === "turkey-chili" || f.recipeId === "carnitas" ? { ...f, equipment: ["slow cooker"] } : f));
+    const without = await planner.plan(s.setup, facts, s.adjusters);
+    const ids = without.batches.map((b) => b.recipeId);
+    expect(ids).not.toContain("turkey-chili");
+    expect(ids).not.toContain("carnitas");
+
+    const kitchen = { ...s.setup.kitchen, appliances: [{ kind: "Slow cooker", count: 1 }] };
+    const withIt = await planner.plan({ ...s.setup, kitchen }, facts, s.adjusters, { ...API_WEIGHTS, recipeBonus: { "turkey-chili": 1 } });
+    expect(withIt.batches.map((b) => b.recipeId)).toContain("turkey-chili");
+
+    const only = facts.filter((f) => ["turkey-chili", "carnitas"].includes(f.recipeId));
+    const forced = await planner.plan(s.setup, only, s.adjusters);
+    expect(forced.plates.length).toBeGreaterThan(0);
+    expect(forced.relaxed.some((r) => r.includes("needs a slow cooker"))).toBe(true);
+  });
+
+  it("treats a missing blender as a note, not a reason to skip", async () => {
+    const s = byName("one-lifter");
+    const facts = s.facts.map((f) => (f.recipeId === "turkey-chili" ? { ...f, equipment: ["blender"] } : f));
+    const plan = await planner.plan(s.setup, facts, s.adjusters, { ...API_WEIGHTS, recipeBonus: { "turkey-chili": 1 } });
+    expect(plan.batches.map((b) => b.recipeId)).toContain("turkey-chili");
+    expect(plan.notes.some((n) => n.includes("easiest with a blender"))).toBe(true);
+    expect(plan.relaxed.some((r) => r.includes("blender"))).toBe(false);
+  });
+});
+
+describe("library quirks", () => {
+  it("treats two saved copies of one recipe as one dish, and speaks to 'You'", async () => {
+    const s = byName("one-lifter");
+    const chili = s.facts.find((f) => f.recipeId === "turkey-chili")!;
+    const facts = [...s.facts, { ...chili, recipeId: "turkey-chili-copy", title: "Turkey chili!" }];
+    const setup = { ...s.setup, people: [{ ...s.setup.people[0], name: "You" }] };
+    const plan = await planner.plan(setup, facts, s.adjusters);
+    const ids = plan.batches.map((b) => b.recipeId);
+    expect(ids.includes("turkey-chili") && ids.includes("turkey-chili-copy")).toBe(false);
+    expect(plan.notes.some((n) => n.startsWith("Your prep covers"))).toBe(true);
+    expect(plan.notes.join(" ")).not.toMatch(/You's|for You\b/);
+  });
+});
+
 describe("swapOptions", () => {
   it("offers up to three replacements and keeps the other dishes", async () => {
     const s = byName("one-lifter");

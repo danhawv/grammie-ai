@@ -11,7 +11,8 @@ export function greedyStart(P: Prepared, B: Built): Array<[string, number]> {
   const W = P.weights;
   const score = (i: number) => {
     const r = R[i];
-    return (r.preference.rating ?? 3) + (r.preference.favorite ? 2 : 0) + (W.recipeBonus?.[r.recipeId] ?? 0) + (P.pinned.has(r.recipeId) ? 100 : 0);
+    const lacking = B.equipment.some((e) => e.recipeIdx === i && !e.soft) ? 50 : 0;
+    return (r.preference.rating ?? 3) + (r.preference.favorite ? 2 : 0) + (W.recipeBonus?.[r.recipeId] ?? 0) + (P.pinned.has(r.recipeId) ? 100 : 0) - lacking;
   };
   const usual = P.people.map((p, pi) => (P.aims[pi] ? usualQuarters(P.aims[pi]!, personSlots(p).length, R) : 4));
   const chosen = new Set<number>();

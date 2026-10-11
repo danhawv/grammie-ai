@@ -7,7 +7,7 @@ import type {
   CookBatch, DayFit, MacroKey, Macros, MealSlot, Plate, PlateItem, PrepPlan, RecipeFacts,
 } from "@shared/meal-prep/contract";
 import { addDays, ageOnDay, keepingFor, type Keeping } from "./eligibility";
-import { CONFIDENCE_WIDEN, PEN, SCALES, adjusterCost, personSlots, type Aim, type Built, type Prepared } from "./model";
+import { CONFIDENCE_WIDEN, PEN, PLATE_BAND, PLATE_FLOOR, SCALES, adjusterCost, personSlots, plateAim, type Aim, type Built, type Prepared } from "./model";
 
 const MACROS: MacroKey[] = ["kcal", "protein", "carbs", "fat"];
 /** protein counts as met within this much of the floor (rounding to quarter servings and steps) */
@@ -45,6 +45,11 @@ function list(items: string[]): string {
   return items.slice(0, -1).join(", ") + " and " + items[items.length - 1];
 }
 
+// The walkthrough names a single cook "You": "Your plates", "You have", "for you"
+const isYou = (n: string) => n.trim().toLowerCase() === "you";
+const poss = (n: string) => (isYou(n) ? "Your" : /s$/i.test(n) ? `${n}'` : `${n}'s`);
+const has = (n: string) => (isYou(n) ? "You have" : `${n} has`);
+const obj = (n: string) => (isYou(n) ? "you" : n);
 const plural = (n: number, one: string, many = one + "s") => `${n} ${n === 1 ? one : many}`;
 const fmtScale = (k: number) => (k === 0.5 ? "a half batch" : k === 1 ? "1 batch" : `${k} batches`);
 
@@ -78,6 +83,14 @@ function dayPenalty(m: Macros, widen: Macros, aim: Aim, adjCost: number): number
     p += Math.max(0, m[k] - widen[k] - T * (1 + aim.tol[k])) * PEN.carbFatOut * pct(T);
   }
   return p + adjCost;
+}
+
+/** Same plate-balance penalties as the model. */
+function platePenalty(kcal: number, T: number): number {
+  const pct = 100 / Math.max(T, 1);
+  return Math.max(0, T * (1 - PLATE_BAND) - kcal) * PEN.plateOut * pct
+    + Math.max(0, kcal - T * (1 + PLATE_BAND)) * PEN.plateOut * pct
+    + Math.max(0, T * PLATE_FLOOR - kcal) * PEN.plateFloor * pct;
 }
 
 export function statusFor(m: Macros, widen: Macros, aim: Aim): DayFit["status"] {
@@ -137,22 +150,15 @@ export function extractPlan(P: Prepared, B: Built, values: Record<string, number
   }
   work.sort((a, b) => a.personIdx - b.personIdx || a.day - b.day || slotRank(a.slot) - slotRank(b.slot));
 
-  // --- adjusters: round the solver's grams to steps and place them on plates that suit them
+  // --- adjusters: round the solver's grams on each plate to whole steps
+  const workByOcc = new Map(work.map((w) => [w.occ, w]));
   for (const dv of B.days) {
-    const dayPlates = work.filter((w) => w.personIdx === dv.personIdx && w.day === dv.day);
-    dv.adj.forEach((name, j) => {
+    for (const { occ, j, v: name } of dv.adj) {
+      const w = workByOcc.get(occ);
       const a = A[j];
-      let grams = Math.round(v(name) / a.stepGrams) * a.stepGrams;
-      // biggest meal first: dinner, then lunch, breakfast, snack
-      const bigFirst: MealSlot[] = ["dinner", "lunch", "breakfast", "snack"];
-      const targets = dayPlates.filter((w) => a.slots.includes(w.slot)).sort((x, y) => bigFirst.indexOf(x.slot) - bigFirst.indexOf(y.slot));
-      for (const w of targets) {
-        if (grams <= 0) break;
-        const put = Math.min(grams, a.maxGrams);
-        w.adj.set(j, put);
-        grams -= put;
-      }
-    });
+      const grams = Math.min(a.maxGrams, Math.round(v(name) / a.stepGrams) * a.stepGrams);
+      if (w && grams > 0) w.adj.set(j, grams);
+    }
   }
 
   const recipeMacros = (w: WorkPlate) => {
@@ -188,7 +194,9 @@ export function extractPlan(P: Prepared, B: Built, values: Record<string, number
     if (!ws.length) continue;
     const widen = sumDay(ws, widenOf);
     const age = ageOnDay(setup, dv.day);
-    const score = () => dayPenalty(sumDay(ws, plateMacros), widen, aim, adjCostOf(ws));
+    const person = P.people[dv.personIdx];
+    const score = () => dayPenalty(sumDay(ws, plateMacros), widen, aim, adjCostOf(ws))
+      + ws.reduce((acc, w) => acc + platePenalty(plateMacros(w).kcal, plateAim(aim, person, w.slot, P.share)), 0);
     let cur = score();
     for (let iter = 0; iter < 60; iter++) {
       let best: { w: WorkPlate; j: number; g: number; s: number } | null = null;
@@ -297,7 +305,7 @@ export function extractPlan(P: Prepared, B: Built, values: Record<string, number
     const slots = personSlots(person);
     const t = aim.targets;
     const part = aim.share >= 0.999 ? "the whole day" : `about ${Math.round(aim.share * 100)}% of the day`;
-    notes.push(`${person.name}'s prep covers ${list(slots)}, ${part}: aiming for about ${Math.round(t.kcal)} kcal and ${Math.round(t.protein)} g protein a day from these meals.`);
+    notes.push(`${poss(person.name)} prep covers ${list(slots)}, ${part}: aiming for about ${Math.round(t.kcal)} kcal and ${Math.round(t.protein)} g protein a day from these meals.`);
   });
   for (const bt of batches) {
     const i = R.findIndex((r) => r.recipeId === bt.recipeId);
@@ -314,13 +322,13 @@ export function extractPlan(P: Prepared, B: Built, values: Record<string, number
   portionRange.forEach((s, pi) => {
     const lo = Math.min(...s);
     const hi = Math.max(...s);
-    if (lo !== 1 || hi !== 1) notes.push(`${P.people[pi].name}'s plates use ${lo === hi ? fmtNum(lo) : `${fmtNum(lo)} to ${fmtNum(hi)}`} servings of each dish to fit the targets.`);
+    if (lo !== 1 || hi !== 1) notes.push(`${poss(P.people[pi].name)} plates use ${lo === hi ? fmtNum(lo) : `${fmtNum(lo)} to ${fmtNum(hi)}`} servings of each dish to fit the targets.`);
   });
   const adjUse = new Map<string, number>();
   work.forEach((w) => w.adj.forEach((_, j) => adjUse.set(`${w.personIdx}:${j}`, (adjUse.get(`${w.personIdx}:${j}`) ?? 0) + 1)));
   adjUse.forEach((n, key) => {
     const [pi, j] = key.split(":").map(Number);
-    notes.push(`Added ${A[j].name.toLowerCase()} to ${plural(n, "plate")} for ${P.people[pi].name} to round out the day.`);
+    notes.push(`Added ${A[j].name.toLowerCase()} to ${plural(n, "plate")} for ${obj(P.people[pi].name)} to round out the day.`);
   });
   const frozen = work.filter((w) => w.keeping === "freezer");
   if (frozen.length) {
@@ -338,12 +346,12 @@ export function extractPlan(P: Prepared, B: Built, values: Record<string, number
     const name = P.people[o.personIdx].name;
     const any = B.plates.some((p) => p.occ === idx);
     relaxed.push(any
-      ? `${name}'s ${dayLabel(P, o.day)} ${o.slot} is left open; the chosen dishes didn't stretch that far.`
-      : `${name}'s ${dayLabel(P, o.day)} ${o.slot} is left open: none of the recipes suit it and keep safely that long.`);
+      ? `${poss(name)} ${dayLabel(P, o.day)} ${o.slot} is left open; the chosen dishes didn't stretch that far.`
+      : `${poss(name)} ${dayLabel(P, o.day)} ${o.slot} is left open: none of the recipes suit it and keep safely that long.`);
   });
   for (const s of B.slack.repeats) {
     const extra = Math.round(v(s.v));
-    if (extra > 0) relaxed.push(`${P.people[s.personIdx].name} has ${R[s.recipeIdx].title} for ${s.slot} ${s.limit + extra} times, more than the usual ${s.limit}; there weren't enough suitable dishes to vary it.`);
+    if (extra > 0) relaxed.push(`${has(P.people[s.personIdx].name)} ${R[s.recipeIdx].title} for ${s.slot} ${s.limit + extra} times, more than the usual ${s.limit}; there weren't enough suitable dishes to vary it.`);
   }
   const sameDay = new Map<string, string[]>(); // person|recipe -> days
   for (const s of B.slack.sameDay) if (v(s.v) > 0.5) {
@@ -352,7 +360,7 @@ export function extractPlan(P: Prepared, B: Built, values: Record<string, number
   }
   sameDay.forEach((days, k) => {
     const [pi, ri] = k.split("|").map(Number);
-    relaxed.push(`${P.people[pi].name} has ${R[ri].title} twice in one day on ${list(days)}; there weren't enough suitable dishes to avoid it.`);
+    relaxed.push(`${has(P.people[pi].name)} ${R[ri].title} twice in one day on ${list(days)}; there weren't enough suitable dishes to avoid it.`);
   });
   const protByPerson = new Map<string, number>();
   for (const s of B.slack.protein) if (v(s.v) > 0.5) {
@@ -361,8 +369,23 @@ export function extractPlan(P: Prepared, B: Built, values: Record<string, number
   }
   protByPerson.forEach((n, k) => {
     const [pi, protein, slot] = k.split("|");
-    relaxed.push(`${P.people[Number(pi)].name} has ${protein} for ${slot} on back-to-back days ${plural(n, "time")}, from different dishes.`);
+    relaxed.push(`${has(P.people[Number(pi)].name)} ${protein} for ${slot} on back-to-back days ${plural(n, "time")}, from different dishes.`);
   });
+  for (const f of B.plateFloors) {
+    const w = workByOcc.get(f.occ);
+    if (!w) continue;
+    const kcal = plateMacros(w).kcal;
+    if (kcal < f.aim * PLATE_FLOOR - 1) {
+      relaxed.push(`${poss(P.people[w.personIdx].name)} ${dayLabel(P, w.day)} ${w.slot} is small (about ${Math.round(kcal)} kcal against about ${Math.round(f.aim)}) to keep the day on target.`);
+    }
+  }
+  const chosenIdx = new Set(batches.map((bt) => R.findIndex((r) => r.recipeId === bt.recipeId)));
+  for (const e of B.equipment) {
+    if (!chosenIdx.has(e.recipeIdx)) continue;
+    const needs = `needs ${list(e.missing.map((k) => `a ${k}`))}`;
+    if (e.soft) notes.push(`${R[e.recipeIdx].title} is easiest with ${list(e.missing.map((k) => `a ${k}`))}, which isn't on the kitchen list.`);
+    else relaxed.push(`${R[e.recipeIdx].title} ${needs}, which isn't on the kitchen list; nothing else fit as well.`);
+  }
   const over = v(B.slack.sessionMinutes);
   if (over > 1) relaxed.push(`The dishes need about ${Math.round(handsOn)} minutes of hands-on work; about ${Math.round(B.sessionCap)} fit in the session.`);
   if (B.slack.budget && v(B.slack.budget) > 1) {
@@ -371,7 +394,7 @@ export function extractPlan(P: Prepared, B: Built, values: Record<string, number
   }
   misses.forEach((m, pi) => {
     const days = m.length;
-    relaxed.push(`${P.people[pi].name}'s targets weren't fully met on ${plural(days, "day")}: ${m.join("; ")}.`);
+    relaxed.push(`${poss(P.people[pi].name)} targets weren't fully met on ${plural(days, "day")}: ${m.join("; ")}.`);
   });
 
   return {

@@ -169,6 +169,12 @@ export interface RecipeFacts {
   component?: "protein" | "grain" | "veg" | "sauce" | "complete";
   /** how the numbers were checked (filled by food data) */
   nutritionCheck?: NutritionCheck;
+  /**
+   * appliances the recipe needs beyond an oven, stove and ordinary pans, as
+   * normalized kinds ("rice cooker", "grill", "air fryer"; see
+   * shared/meal-prep/equipment.ts). Missing = unknown, treated as none.
+   */
+  equipment?: string[];
 }
 
 export interface NutritionCheck {

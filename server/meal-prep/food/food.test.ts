@@ -3,7 +3,7 @@ import { AISLES, type RecipeFacts } from "@shared/meal-prep/contract";
 import { parseUnit, toGrams } from "./units";
 import { Matcher, normalizeName, singular, similarity } from "./match";
 import { seedCatalog } from "./catalog";
-import { computeRecipeFacts, mainProteinFor, mealSlotsFor, minutesFor, type RecipeInput } from "./facts";
+import { computeRecipeFacts, equipmentFor, mainProteinFor, mealSlotsFor, minutesFor, type RecipeInput } from "./facts";
 import { storageFor, tipFridgeDays } from "./storage";
 import { buildAdjusters } from "./adjusters";
 import { allPackageIds, packagesFor } from "./packages";
@@ -317,5 +317,17 @@ describe("createFoodData", () => {
 
   it("ingredientNutrition treats weak guesses as unknown", () => {
     expect(ingredientNutrition(catalog, ["olive oil"])["olive oil"]?.perGram.fat).toBe(1);
+  });
+});
+
+describe("equipment a recipe needs", () => {
+  it("reads appliances from equipment columns, step tools and the title, never basic gear", () => {
+    const base = { id: "x", servings: 4, ingredients: [], normalizedIngredients: null, mealType: null, cuisines: null, allergens: null,
+      prepTimeMinutes: null, cookTimeMinutes: null, totalTimeMinutes: null, calories: null, protein: null, carbohydrates: null,
+      fat: null, fiber: null, tips: null, totalCost: null, cookingMethods: null } satisfies Omit<RecipeInput, "title">;
+    expect(equipmentFor({ ...base, title: "One-Pot Rice Cooker Gyudon" })).toEqual(["rice cooker"]);
+    expect(equipmentFor({ ...base, title: "Grilled Flat Iron Steak", specializedEquipment: ["Grill", "Meat thermometer"] })).toEqual(["grill"]);
+    expect(equipmentFor({ ...base, title: "Grilled Chicken", standardEquipment: ["Grill pan", "Tongs"] })).toEqual([]);
+    expect(equipmentFor({ ...base, title: "Soup", equipment: ["Pot", "Oven", "Skillet"], stepTools: ["immersion blender", "stove"] })).toEqual(["blender"]);
   });
 });
