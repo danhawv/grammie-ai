@@ -1,11 +1,15 @@
-import { useEffect } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useLocation } from "wouter";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import logoUrl from "@assets/IMG_0339_1767940282618.jpeg";
 import { SignIn } from "@clerk/react";
 
+import { isNativeApp } from "@/lib/platform";
+
 const hasClerkKey = !!import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
+// In the app, Google and Apple open the system browser (native/auth.tsx)
+const NativeSocialSignIn = lazy(() => import("@/native/sign-in-buttons"));
 
 export default function Login() {
   const [, setLocation] = useLocation();
@@ -33,6 +37,11 @@ export default function Login() {
               Sign in to save and manage your recipes
             </p>
           </div>
+          {isNativeApp() && (
+            <Suspense fallback={null}>
+              <NativeSocialSignIn />
+            </Suspense>
+          )}
           <div className="flex justify-center">
             <SignIn routing="hash" {...{ afterSignInUrl: "/", afterSignUpUrl: "/" } as any} />
           </div>

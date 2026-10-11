@@ -8,6 +8,7 @@ import { ErrorState } from "@/components/page-states";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
+import { isNativeApp, openExternalAndWait } from "@/lib/platform";
 import { US_STATE_OPTIONS, normalizeUsState } from "@shared/us-states";
 import {
   DEFAULT_SHIPPING_LEVEL,
@@ -786,14 +787,31 @@ function OrderStatusCard({ orderId, status, heading }: { orderId: string; status
   );
 }
 
+const CHECKING_PAYMENT_MS = 15_000;
+
 // Follows one order from "Place order" to the door. Polls quickly while the
 // book is being prepared or paid for, then slowly while it's at the printer.
-function OrderTracker({ orderId, returnedCanceled, email, onStartOver }: {
+function OrderTracker({ orderId, returnedCanceled: returnedFromStripe, email, onStartOver }: {
   orderId: string;
   returnedCanceled: boolean;
   email?: string;
   onStartOver: () => void;
 }) {
+  // In the iPhone/iPad app checkout opens over the app (Safari sheet) instead
+  // of replacing the page; closing it, or Stripe's return link, brings people
+  // back here. Payment can take a few seconds to show after a successful
+  // checkout, so keep checking briefly before saying it wasn't finished.
+  const [inCheckout, setInCheckout] = useState(false);
+  const [backFromCheckout, setBackFromCheckout] = useState<number | null>(null);
+  const [, setTick] = useState(0);
+  const checkingPayment = backFromCheckout !== null && Date.now() - backFromCheckout < CHECKING_PAYMENT_MS;
+  const returnedCanceled = returnedFromStripe || (backFromCheckout !== null && !checkingPayment);
+  useEffect(() => {
+    if (backFromCheckout === null) return;
+    const t = setTimeout(() => setTick((n) => n + 1), CHECKING_PAYMENT_MS);
+    return () => clearTimeout(t);
+  }, [backFromCheckout]);
+
   const { data: order, isError, refetch } = useQuery<PrintOrderView>({
     queryKey: ["/api/print-orders", orderId],
     refetchInterval: (q) => {
@@ -804,13 +822,29 @@ function OrderTracker({ orderId, returnedCanceled, email, onStartOver }: {
       return false;
     },
   });
+  const goToCheckout = async (url: string) => {
+    if (!isNativeApp()) {
+      window.location.assign(url);
+      return;
+    }
+    setInCheckout(true);
+    setBackFromCheckout(null);
+    try {
+      await openExternalAndWait(url);
+    } finally {
+      setInCheckout(false);
+      setBackFromCheckout(Date.now());
+      void refetch();
+    }
+  };
   // Off to Stripe's checkout as soon as it's ready (not after coming back from it)
   const redirected = useRef(false);
   useEffect(() => {
     if (order?.status === "awaiting_payment" && order.checkoutUrl && !returnedCanceled && !redirected.current) {
       redirected.current = true;
-      window.location.assign(order.checkoutUrl);
+      void goToCheckout(order.checkoutUrl);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [order, returnedCanceled]);
   useEffect(() => {
     if (order?.status === "submitted") queryClient.invalidateQueries({ queryKey: ["/api/cookbooks"] });
@@ -825,9 +859,19 @@ function OrderTracker({ orderId, returnedCanceled, email, onStartOver }: {
     );
   }
   if (order.status === "awaiting_payment") {
+    if (inCheckout) {
+      return (
+        <Notice icon="busy" title="Finish paying in the checkout window">
+          Payment is handled by Stripe. When you're done, you'll come back here.
+        </Notice>
+      );
+    }
+    if (checkingPayment) {
+      return <Notice icon="busy" title="Checking your payment…">This takes a few seconds.</Notice>;
+    }
     return returnedCanceled ? (
       <Notice icon="info" title="Payment wasn't finished" actions={<>
-        {order.checkoutUrl && <Button onClick={() => window.location.assign(order.checkoutUrl!)}>Go back to checkout</Button>}
+        {order.checkoutUrl && <Button onClick={() => void goToCheckout(order.checkoutUrl!)}>Go back to checkout</Button>}
         <Button variant="outline" onClick={onStartOver}>Start over</Button>
       </>}>
         Nothing was charged and nothing was printed.
@@ -835,7 +879,9 @@ function OrderTracker({ orderId, returnedCanceled, email, onStartOver }: {
     ) : (
       <Notice icon="busy" title="Taking you to secure checkout…">
         Payment is handled by Stripe.{" "}
-        {order.checkoutUrl && <a className="text-primary underline" href={order.checkoutUrl}>Continue to checkout</a>}
+        {order.checkoutUrl && (isNativeApp()
+          ? <button type="button" className="text-primary underline" onClick={() => void goToCheckout(order.checkoutUrl!)}>Continue to checkout</button>
+          : <a className="text-primary underline" href={order.checkoutUrl}>Continue to checkout</a>)}
       </Notice>
     );
   }

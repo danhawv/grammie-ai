@@ -7,6 +7,7 @@ import { storage } from "./storage";
 import { groceryListWsManager, mealPlanWsManager } from "./websocket";
 import { runMigrations } from "./migrations";
 import { MEDIA_DIR } from "./lib/media-storage";
+import { appSiteAssociation } from "./lib/app-site-association";
 
 // ============================================================================
 // Environment validation
@@ -90,6 +91,13 @@ if (process.env.NODE_ENV === 'production' && process.env.PUBLIC_URL) {
 // Health check endpoint (before auth middleware)
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', uptime: process.uptime() });
+});
+
+// Universal links for the iPhone/iPad app (JSON, no redirect, no extension)
+app.get(['/.well-known/apple-app-site-association', '/apple-app-site-association'], (_req, res) => {
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Cache-Control', 'public, max-age=3600');
+  res.send(JSON.stringify(appSiteAssociation(process.env.APPLE_TEAM_ID)));
 });
 
 // Request logging

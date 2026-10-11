@@ -16,6 +16,7 @@ import { Loader2 } from "lucide-react";
 import { ClerkProvider } from "@clerk/react";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { DisplayPrefsApplier } from "@/hooks/use-display-prefs";
+import { isNativeApp } from "@/lib/platform";
 
 const Home = lazy(() => import("@/pages/home"));
 const RecipeDetail = lazy(() => import("@/pages/recipe-detail"));
@@ -43,7 +44,10 @@ const MealPrep = lazy(() => import("@/pages/meal-prep"));
 const MealPrepPlan = lazy(() => import("@/pages/meal-prep-plan"));
 const MealPrepCook = lazy(() => import("@/pages/meal-prep-cook"));
 const MealPrepPacket = lazy(() => import("@/pages/meal-prep-packet"));
+const SsoCallback = lazy(() => import("@/pages/sso-callback"));
 const NotFound = lazy(() => import("@/pages/not-found"));
+// The app's sign-in (bundled Clerk, token instead of cookies): native only
+const NativeClerkProvider = lazy(() => import("@/native/auth"));
 
 const CLERK_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string | undefined;
 
@@ -88,6 +92,7 @@ function Router() {
         <Route path="/processing" component={Processing} />
         <Route path="/import" component={BulkImport} />
         <Route path="/import/:id" component={BulkImport} />
+        <Route path="/sso-callback" component={SsoCallback} />
         <Route component={NotFound} />
       </Switch>
     </Suspense>
@@ -108,9 +113,10 @@ function AppCore() {
                 <Router />
               </main>
               <GrammieChat />
-              <ShareHandler />
-              <InstallPrompt />
-              <UpdateBanner />
+              {/* The app has its own share sheet, install and updates */}
+              {!isNativeApp() && <ShareHandler />}
+              {!isNativeApp() && <InstallPrompt />}
+              {!isNativeApp() && <UpdateBanner />}
             </AddRecipeProvider>
           </UploadProgressProvider>
         </TooltipProvider>
@@ -120,6 +126,18 @@ function AppCore() {
 }
 
 function App() {
+  if (CLERK_KEY && isNativeApp()) {
+    return (
+      <ErrorBoundary>
+        <Suspense fallback={<PageLoader />}>
+          <NativeClerkProvider publishableKey={CLERK_KEY}>
+            <AppCore />
+          </NativeClerkProvider>
+        </Suspense>
+      </ErrorBoundary>
+    );
+  }
+
   if (CLERK_KEY) {
     return (
       <ErrorBoundary>

@@ -54,11 +54,13 @@ interface UploadRecipeModalProps {
   onOpenChange: (open: boolean) => void;
   /** Jump straight to one choice; omit to show all three */
   initialMode?: InitialMode;
+  /** Shared into the app from another app: a link starts importing, photos wait to be read */
+  prefill?: { link?: string; files?: File[]; text?: string };
 }
 
 const viewFor = (mode?: InitialMode): View => (mode === "image" ? "photo" : mode ?? "choose");
 
-export function UploadRecipeModal({ open, onOpenChange, initialMode }: UploadRecipeModalProps) {
+export function UploadRecipeModal({ open, onOpenChange, initialMode, prefill }: UploadRecipeModalProps) {
   const isMobile = useIsMobile();
   const [, navigate] = useLocation();
   const queryClient = useQueryClient();
@@ -92,6 +94,24 @@ export function UploadRecipeModal({ open, onOpenChange, initialMode }: UploadRec
     if (open) setView(viewFor(initialMode));
   }, [open, initialMode]);
 
+  // Shared from another app: the link goes in the box and starts importing
+  // (as if pasted); photos are added to the list, several recipes at once
+  // when there are more than one recipe's pages
+  const prefillLink = useRef<string | null>(null);
+  const [prefillFiles, setPrefillFiles] = useState<File[] | null>(null);
+  useEffect(() => {
+    if (!open || !prefill) return;
+    if (prefill.link) {
+      setLink(prefill.link);
+      prefillLink.current = prefill.link;
+    }
+    if (prefill.text) setText(prefill.text);
+    if (prefill.files?.length) {
+      setBatch(prefill.files.length > MAX_PAGES);
+      setPrefillFiles(prefill.files);
+    }
+  }, [open, prefill]);
+
   const reset = () => {
     photosRef.current.forEach((p) => p.preview && URL.revokeObjectURL(p.preview));
     setView("choose");
@@ -103,6 +123,8 @@ export function UploadRecipeModal({ open, onOpenChange, initialMode }: UploadRec
     setCookbookId(undefined);
     setBusy(null);
     setError(null);
+    prefillLink.current = null;
+    setPrefillFiles(null);
   };
 
   const close = () => {
@@ -157,6 +179,14 @@ export function UploadRecipeModal({ open, onOpenChange, initialMode }: UploadRec
       setPreparing((n) => n - 1);
     }
   };
+
+  useEffect(() => {
+    if (!prefillFiles) return;
+    setPrefillFiles(null);
+    void addPhotos(prefillFiles);
+    // addPhotos reads `batch`, which the prefill effect set just before
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefillFiles]);
 
   const rotate = (id: string, by: number) =>
     setPhotos((prev) => prev.map((p) => (p.id === id ? { ...p, rotation: (p.rotation + by + 360) % 360 } : p)));
@@ -230,6 +260,13 @@ export function UploadRecipeModal({ open, onOpenChange, initialMode }: UploadRec
       setError(apiErrorMessage(err, "Grammie couldn't read that link. Check it opens in your browser, or paste the recipe text instead."));
     }
   };
+
+  useEffect(() => {
+    if (!open || !prefillLink.current || link !== prefillLink.current || !authStatus?.isAuthenticated || busy) return;
+    prefillLink.current = null;
+    void submitLink();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, link, authStatus?.isAuthenticated, busy]);
 
   const submitText = async () => {
     setError(null);
