@@ -23,7 +23,7 @@ export { buildAdjusters } from "./adjusters";
 export { parseUnit, toGrams } from "./units";
 
 /** Bumped automatically when the seeds change, so cached facts are recomputed */
-export const FOOD_DATA_VERSION = `v1-${hash(JSON.stringify(ingredientsSeed) + JSON.stringify(itemMapSeed))}`;
+export const FOOD_DATA_VERSION = `v2-${hash(JSON.stringify(ingredientsSeed) + JSON.stringify(itemMapSeed))}`;
 
 type Package = { label: string; grams: number; price?: number };
 
@@ -69,7 +69,10 @@ function fixtureFoodData(source: FixtureSource, catalog: Catalog): FoodData {
 
 const RECIPE_COLUMNS = `id, title, servings, ingredients, normalized_ingredients, meal_type, cuisines, cuisine, allergens,
   prep_time_minutes, cook_time_minutes, total_time_minutes, calories, protein, carbohydrates, fat, fiber,
-  tips, total_cost, cooking_methods, owner_user_id, updated_at`;
+  tips, total_cost, cooking_methods, equipment, standard_equipment, specialized_equipment,
+  (SELECT array_agg(DISTINCT t) FROM jsonb_array_elements(CASE WHEN jsonb_typeof(normalized_instructions) = 'array' THEN normalized_instructions ELSE '[]'::jsonb END) s,
+     jsonb_array_elements_text(CASE WHEN jsonb_typeof(s->'tools') = 'array' THEN s->'tools' ELSE '[]'::jsonb END) t) AS step_tools,
+  owner_user_id, updated_at`;
 
 export function recipeInputFromRow(r: any): RecipeInput {
   return {
@@ -77,7 +80,9 @@ export function recipeInputFromRow(r: any): RecipeInput {
     normalizedIngredients: r.normalized_ingredients, mealType: r.meal_type, cuisines: r.cuisines, cuisine: r.cuisine,
     allergens: r.allergens, prepTimeMinutes: r.prep_time_minutes, cookTimeMinutes: r.cook_time_minutes,
     totalTimeMinutes: r.total_time_minutes, calories: r.calories, protein: r.protein, carbohydrates: r.carbohydrates,
-    fat: r.fat, fiber: r.fiber, tips: r.tips, totalCost: r.total_cost, cookingMethods: r.cooking_methods, updatedAt: r.updated_at,
+    fat: r.fat, fiber: r.fiber, tips: r.tips, totalCost: r.total_cost, cookingMethods: r.cooking_methods,
+    equipment: r.equipment, standardEquipment: r.standard_equipment, specializedEquipment: r.specialized_equipment,
+    stepTools: r.step_tools ?? toolsOf(r.normalized_instructions), updatedAt: r.updated_at,
   };
 }
 
@@ -198,6 +203,12 @@ async function preferences(query: Query, recipes: any[]): Promise<Map<string, Pr
     console.warn("[MealPrep] preferences not loaded:", e.message);
   }
   return out;
+}
+
+/** tools named in structured steps, when a row carries the raw steps instead of step_tools */
+function toolsOf(steps: unknown): string[] {
+  if (!Array.isArray(steps)) return [];
+  return steps.flatMap((st: any) => (Array.isArray(st?.tools) ? st.tools.filter((t: unknown) => typeof t === "string") : []));
 }
 
 function hash(s: string): string {

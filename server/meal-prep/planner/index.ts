@@ -17,6 +17,12 @@ export interface PlannerOptions {
   mipGap?: number;
   /** share of a day's targets each slot carries (see DEFAULT_SLOT_SHARE) */
   slotShare?: Record<MealSlot, number>;
+  /**
+   * multiplies the session-time estimate; 1 (default) is the model calibrated
+   * on real sessions (see SESSION_MODEL in model.ts). Raise it if real
+   * sessions keep running long.
+   */
+  sessionTimeFactor?: number;
   /** weights used by swapOptions, which has no weights argument */
   weights?: PlanWeights;
   /** swap in another solver (tests) */
@@ -32,7 +38,7 @@ export function createPlanner(options: PlannerOptions = {}): Planner {
 
   async function run(setup: PrepSetup, facts: RecipeFacts[], adjusters: Adjuster[], prep: PrepareOptions, limit: number): Promise<Extracted | null> {
     const t0 = Date.now();
-    const P = prepare(setup, facts, adjusters, { slotShare: options.slotShare, ...prep });
+    const P = prepare(setup, facts, adjusters, { slotShare: options.slotShare, sessionTimeFactor: options.sessionTimeFactor, ...prep });
     if (!P.recipes.length || !P.occasions.length) return null;
     const B = buildModel(P);
     const res = await solve(B.lp.toString(), { timeLimit: limit, mipGap, start: greedyStart(P, B) });

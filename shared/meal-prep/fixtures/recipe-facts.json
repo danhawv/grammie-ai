@@ -158,7 +158,8 @@
     "fiber": 1.8
    },
    "disagreesWithAi": false
-  }
+  },
+  "equipment": []
  },
  {
   "recipeId": "17c22ec5-1bae-4011-8b9b-43b444ac2313",
@@ -373,7 +374,8 @@
     "fiber": 3
    },
    "disagreesWithAi": false
-  }
+  },
+  "equipment": []
  },
  {
   "recipeId": "d84b0ccb-e715-4fae-966b-d3d4f2dc9b71",
@@ -587,7 +589,8 @@
     "fiber": 3.1
    },
    "disagreesWithAi": false
-  }
+  },
+  "equipment": []
  },
  {
   "recipeId": "31511a1b-c0a3-4d41-adcc-6c37d0cb8a77",
@@ -787,7 +790,8 @@
     "fiber": 2
    },
    "disagreesWithAi": false
-  }
+  },
+  "equipment": []
  },
  {
   "recipeId": "ef6489c5-8c82-428f-9f1e-09f826bdd26c",
@@ -1027,7 +1031,8 @@
     "fiber": 4
    },
    "disagreesWithAi": false
-  }
+  },
+  "equipment": []
  },
  {
   "recipeId": "43909630-ceab-42c3-8956-bab1dbce5162",
@@ -1150,7 +1155,8 @@
     "fiber": 3
    },
    "disagreesWithAi": false
-  }
+  },
+  "equipment": []
  },
  {
   "recipeId": "95bb3c02-33e7-43bc-8291-fb6013b3b2c2",
@@ -1298,7 +1304,11 @@
     "fiber": 3
    },
    "disagreesWithAi": false
-  }
+  },
+  "equipment": [
+   "blender",
+   "food processor"
+  ]
  },
  {
   "recipeId": "67d4d5be-8e1f-4cfc-9eb5-1712ce47fe83",
@@ -1539,7 +1549,10 @@
     "fiber": 10.7
    },
    "disagreesWithAi": false
-  }
+  },
+  "equipment": [
+   "blender"
+  ]
  },
  {
   "recipeId": "3fcd9c81-3186-4b1d-97dd-86a051e66f94",
@@ -1752,7 +1765,8 @@
     "fiber": 1
    },
    "disagreesWithAi": false
-  }
+  },
+  "equipment": []
  },
  {
   "recipeId": "888b6d7d-9c95-4350-9b38-94d8a30e8ae0",
@@ -2012,7 +2026,10 @@
     "fiber": 13
    },
    "disagreesWithAi": false
-  }
+  },
+  "equipment": [
+   "blender"
+  ]
  },
  {
   "recipeId": "2f5fe932-edbb-4d16-99b6-b36720e6b4cf",
@@ -2148,7 +2165,8 @@
     "fiber": 1
    },
    "disagreesWithAi": false
-  }
+  },
+  "equipment": []
  },
  {
   "recipeId": "dc1d77ab-a7c7-473b-b8d6-286f1d98b14a",
@@ -2308,7 +2326,10 @@
     "fiber": 9
    },
    "disagreesWithAi": false
-  }
+  },
+  "equipment": [
+   "blender"
+  ]
  },
  {
   "recipeId": "05165f67-5f06-4153-a470-5df8e3320031",
@@ -2481,7 +2502,10 @@
     "fiber": 4
    },
    "disagreesWithAi": false
-  }
+  },
+  "equipment": [
+   "blender"
+  ]
  },
  {
   "recipeId": "47673f50-be99-4f45-a540-c13004c467d7",
@@ -2576,7 +2600,8 @@
     "fiber": 1
    },
    "disagreesWithAi": false
-  }
+  },
+  "equipment": []
  },
  {
   "recipeId": "3f47d688-ff41-45c7-abcd-1142c51d5a90",
@@ -2761,7 +2786,8 @@
     "fiber": 1
    },
    "disagreesWithAi": false
-  }
+  },
+  "equipment": []
  },
  {
   "recipeId": "fc0d3800-252f-4ace-93dc-e7cae1928739",
@@ -2908,7 +2934,8 @@
     "fiber": 1
    },
    "disagreesWithAi": false
-  }
+  },
+  "equipment": []
  },
  {
   "recipeId": "c3b7afe4-d594-45bd-b7e2-79f8687691ff",
@@ -2990,7 +3017,10 @@
     "fiber": 0
    },
    "disagreesWithAi": false
-  }
+  },
+  "equipment": [
+   "blender"
+  ]
  },
  {
   "recipeId": "838ef12e-1e0f-4222-b501-7f292a9b5d4a",
@@ -3138,7 +3168,8 @@
     "fiber": 4
    },
    "disagreesWithAi": false
-  }
+  },
+  "equipment": []
  },
  {
   "recipeId": "fb300602-483f-4d1e-92a9-ee5f0ea0a891",
@@ -3218,7 +3249,8 @@
     "fiber": 1
    },
    "disagreesWithAi": false
-  }
+  },
+  "equipment": []
  },
  {
   "recipeId": "efd7ac2a-6b51-4f12-a113-16e67f7fd091",
@@ -3325,7 +3357,8 @@
     "fiber": 3.8
    },
    "disagreesWithAi": false
-  }
+  },
+  "equipment": []
  },
  {
   "recipeId": "c549731e-3a4c-4021-afe9-4fbc7d4f97b3",
@@ -3538,7 +3571,8 @@
     "fiber": 2
    },
    "disagreesWithAi": false
-  }
+  },
+  "equipment": []
  },
  {
   "recipeId": "06dcc688-eb83-4d1f-89e5-9a92d6b0ec76",
@@ -3681,7 +3715,11 @@
     "fiber": 2
    },
    "disagreesWithAi": false
-  }
+  },
+  "equipment": [
+   "grill",
+   "smoker"
+  ]
  },
  {
   "recipeId": "bf652ae8-cddd-452e-904f-daeec3b73db4",
@@ -3789,7 +3827,8 @@
     "fiber": 0
    },
    "disagreesWithAi": false
-  }
+  },
+  "equipment": []
  },
  {
   "recipeId": "5f05db76-d54e-4703-9f05-a4865d2962a5",
@@ -3963,7 +4002,8 @@
     "fiber": 1
    },
    "disagreesWithAi": true
-  }
+  },
+  "equipment": []
  },
  {
   "recipeId": "8555d2fe-bf82-4f63-a97a-02bc0634fa05",
@@ -4177,6 +4217,7 @@
     "fiber": 2
    },
    "disagreesWithAi": false
-  }
+  },
+  "equipment": []
  }
 ]

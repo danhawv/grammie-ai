@@ -13,6 +13,7 @@ import type {
   Adjuster, MacroKey, MacroTargets, MealSlot, PlanWeights, PrepPerson, PrepSetup, RecipeFacts,
 } from "@shared/meal-prep/contract";
 import { LpModel, type Term } from "./lp";
+import { SOFT_APPLIANCES, normalizeAppliance } from "@shared/meal-prep/equipment";
 import {
   adjusterExcluded, ageOnDay, keepingFor, matchExclusion, personWords, suitsSlot, type Keeping,
 } from "./eligibility";
@@ -41,8 +42,16 @@ export const DEFAULT_REPEATS: Record<MealSlot, number> = { breakfast: 7, lunch: 
 const DEFAULT_TOL: Record<MacroKey, number> = { kcal: 0.05, protein: 0, carbs: 0.15, fat: 0.15 };
 /** extra room for numbers we're less sure of, as a share of that food's macros */
 export const CONFIDENCE_WIDEN = { high: 0, medium: 0.05, low: 0.1 } as const;
-/** the session-time proxy: this share of cook-minutes is hands-on capacity */
-const SESSION_HANDS_ON_SHARE = 0.8;
+/**
+ * Session time, calibrated on real sessions built by the session part (8
+ * dishes from the owner's recipes, two full runs; per-dish error about ±5 min,
+ * whole session within a few minutes):
+ *   hands-on per dish ≈ (5 + 1.2 × activeMinutes + 1 × ingredient lines) × (0.6 + 0.4 × batches)
+ *   plus about 10 min for the session and 3 min per plate (portioning, labels, washing up).
+ * The schedule then adds waiting and a 10% cushion, about 13% on top, so one
+ * cook's hands-on minutes should stay under 87% of the session.
+ */
+export const SESSION_MODEL = { perDish: 5, perActiveMinute: 1.2, perLine: 1, batchBase: 0.6, batchSlope: 0.4, session: 10, perPlate: 3, handsOnShare: 0.87, secondCook: 0.7 };
 const MAX_CANDIDATES = 20;
 
 export const PEN = {
@@ -68,6 +77,13 @@ export const PEN = {
   // fine-tuned with drizzles of oil when the dish portion can do the job
   adjusterGram: 0.01,
   adjusterKcal: 0.003,
+  /** per 1% of a plate's aim outside ±25%, and again below 60% */
+  plateOut: 3,
+  plateFloor: 10,
+  /** a dish needing an appliance the kitchen lacks: given up only after the bands */
+  missingAppliance: 1500,
+  /** a dish that would be easier with a blender, mixer or food processor */
+  missingSoftAppliance: 8,
   /** per quarter serving away from the person's usual portion */
   portionOffUsual: 0.4,
   lowConfidencePlate: 0.6,
@@ -141,6 +157,9 @@ export interface Prepared {
   notes: string[];
   relaxed: string[];
   thinSlots: MealSlot[];
+  /** share of a day's targets per slot */
+  share: Record<MealSlot, number>;
+  sessionTimeFactor: number;
 }
 
 export interface PrepareOptions {
@@ -150,6 +169,8 @@ export interface PrepareOptions {
   forceRecipes?: string[];
   /** cook exactly this many dishes (swap) */
   dishCount?: number;
+  /** multiplies the session-time estimate (1 = the calibrated model) */
+  sessionTimeFactor?: number;
 }
 
 function macroOf(r: RecipeFacts, m: MacroKey): number {
@@ -219,6 +240,21 @@ export function prepare(setup: PrepSetup, facts: RecipeFacts[], adjusters: Adjus
     }
   }
 
+  // The same dish saved twice (same title) counts once, so repeats and
+  // variety see it as one dish. Keep the copy we know best.
+  const rankCopy = (r: RecipeFacts) =>
+    (pinned.has(r.recipeId) ? 100 : 0) + (r.preference.favorite ? 10 : 0) + ({ high: 3, medium: 2, low: 1 }[r.confidence]) + (r.preference.rating ?? 0) / 10;
+  const byTitle = new Map<string, RecipeFacts>();
+  for (const r of pool) {
+    const key = r.title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    const cur = byTitle.get(key);
+    if (!cur || rankCopy(r) > rankCopy(cur)) byTitle.set(key, r);
+  }
+  if (byTitle.size < pool.length) {
+    const keep = new Set(Array.from(byTitle.values()).map((r) => r.recipeId));
+    pool = pool.filter((r) => keep.has(r.recipeId));
+  }
+
   // Slots with too few suitable recipes may borrow other dishes, with a penalty.
   const usedSlots = Array.from(new Set(people.flatMap(personSlots)));
   const thinSlots = usedSlots.filter((s) => pool.filter((r) => suitsSlot(r, s)).length < 2);
@@ -246,7 +282,7 @@ export function prepare(setup: PrepSetup, facts: RecipeFacts[], adjusters: Adjus
   return {
     setup, weights, recipes: pool2, adjusters, people, aims, words, allowed, adjAllowed, occasions,
     maxDishes, maxRepeats: { ...DEFAULT_REPEATS, ...(setup.maxRepeats ?? {}) } as Record<MealSlot, number>,
-    pinned, exactDishes: opts.dishCount != null, notes, relaxed, thinSlots,
+    pinned, exactDishes: opts.dishCount != null, notes, relaxed, thinSlots, share, sessionTimeFactor: opts.sessionTimeFactor ?? 1,
   };
 }
 
@@ -292,8 +328,8 @@ function capPool(pool: RecipeFacts[], aims: Array<Aim | null>, slots: MealSlot[]
 export interface DayMacroVars {
   personIdx: number;
   day: number;
-  /** adjuster index -> grams variable */
-  adj: Map<number, string>;
+  /** grams of adjuster j on the plate for occasion occ */
+  adj: Array<{ occ: number; j: number; v: string }>;
 }
 
 export interface Built {
@@ -305,6 +341,10 @@ export interface Built {
   /** occasion idx -> slack var for "no plate" */
   miss: string[];
   days: DayMacroVars[];
+  /** slack below 60% of a plate's aim, for the explanation */
+  plateFloors: Array<{ v: string; occ: number; aim: number }>;
+  /** chosen dishes that need an appliance the kitchen doesn't list */
+  equipment: Array<{ recipeIdx: number; missing: string[]; soft: boolean }>;
   slack: {
     repeats: Array<{ v: string; personIdx: number; slot: MealSlot; recipeIdx: number; limit: number }>;
     protein: Array<{ v: string; personIdx: number; slot: MealSlot; day: number; protein: string }>;
@@ -314,6 +354,19 @@ export interface Built {
   };
   sessionCap: number;
   activeFor: (recipeIdx: number, scale: number) => number;
+  /** estimated hands-on minutes for the whole session, given the plates */
+  sessionMinutes: (batches: Array<{ recipeIdx: number; scale: number }>, plates: number) => number;
+}
+
+/** a plate within ±25% of its meal's share of the day's aim is balanced */
+export const PLATE_BAND = 0.25;
+/** below 60% of its share, a plate is too small to be a meal */
+export const PLATE_FLOOR = 0.6;
+
+/** calories one plate should carry: the meal's share of the person's prep aim */
+export function plateAim(aim: Aim, person: PrepPerson, slot: MealSlot, share: Record<MealSlot, number> = DEFAULT_SLOT_SHARE): number {
+  const total = personSlots(person).reduce((a, s) => a + share[s], 0) || 1;
+  return (aim.targets.kcal * share[slot]) / total;
 }
 
 /** objective cost of one gram of an adjuster */
@@ -337,9 +390,10 @@ function isMeal(r: RecipeFacts): boolean {
   return (["breakfast", "lunch", "dinner"] as MealSlot[]).some((s) => suitsSlot(r, s));
 }
 
-export function sessionTimeFactor(scale: number): number {
-  // Bigger batches take a bit longer to chop and brown, not proportionally longer.
-  return scale <= 1 ? 0.85 + 0.15 * scale : 1 + 0.25 * (scale - 1);
+/** Hands-on minutes one batch adds to a session (before the skill factor). */
+export function handsOnMinutes(r: RecipeFacts, scale: number): number {
+  const M = SESSION_MODEL;
+  return (M.perDish + M.perActiveMinute * r.activeMinutes + M.perLine * r.lines.length) * (M.batchBase + M.batchSlope * scale);
 }
 
 const SKILL_FACTOR = { beginner: 1.3, home: 1, pro: 0.85 } as const;
@@ -359,9 +413,18 @@ export function buildModel(P: Prepared): Built {
 
   // --- dishes and batches
   const wish = (id: string) => Math.max(-3, Math.min(3, W.recipeBonus?.[id] ?? 0));
-  const y = R.map((r) => lp.addVar({ type: "B", lb: P.pinned.has(r.recipeId) ? 1 : 0, obj: PEN.dish - PEN.wishDish * wish(r.recipeId) }));
+  // appliances the kitchen has (any spelling: "Instant Pot", "pressure cooker")
+  const have = new Set(setup.kitchen.appliances.filter((a) => a.count > 0).map((a) => normalizeAppliance(a.kind)).filter(Boolean) as string[]);
+  const equipment: Built["equipment"] = [];
+  const y = R.map((r, i) => {
+    const missing = (r.equipment ?? []).filter((k) => !have.has(k));
+    const hard = missing.filter((k) => !SOFT_APPLIANCES.has(k));
+    if (missing.length) equipment.push({ recipeIdx: i, missing, soft: !hard.length });
+    const appliancePenalty = hard.length ? PEN.missingAppliance : missing.length ? PEN.missingSoftAppliance : 0;
+    return lp.addVar({ type: "B", lb: P.pinned.has(r.recipeId) ? 1 : 0, obj: PEN.dish - PEN.wishDish * wish(r.recipeId) + appliancePenalty });
+  });
   const skill = SKILL_FACTOR[setup.session.skill] ?? 1;
-  const activeFor = (i: number, k: number) => R[i].activeMinutes * sessionTimeFactor(k) * skill;
+  const activeFor = (i: number, k: number) => handsOnMinutes(R[i], k) * skill * P.sessionTimeFactor;
   const b = R.map((r, i) =>
     SCALES.map((k) => {
       const cost = r.cost != null ? r.cost * k * W.cost * PEN.costDollar : 0;
@@ -534,11 +597,14 @@ export function buildModel(P: Prepared): Built {
 
   // --- session time (hands-on minutes as a proxy for the real schedule)
   const cooks = Math.max(1, setup.session.cooks || 1);
-  const sessionCap = (setup.session.maxMinutes || 240) * cooks * SESSION_HANDS_ON_SHARE;
+  // a second cook helps, but not twice over (shared oven, waiting on each other)
+  const M = SESSION_MODEL;
+  const sessionCap = (setup.session.maxMinutes || 240) * (1 + M.secondCook * (cooks - 1)) * M.handsOnShare;
   const timeTerms: Term[] = [];
   R.forEach((_, i) => SCALES.forEach((k, s) => timeTerms.push([b[i][s], activeFor(i, k)])));
+  plates.forEach((p) => timeTerms.push([p.x, M.perPlate * skill * P.sessionTimeFactor]));
   slack.sessionMinutes = lp.addVar({ obj: PEN.sessionMinute });
-  lp.addRow([...timeTerms, [slack.sessionMinutes, -1]], "<=", sessionCap);
+  lp.addRow([...timeTerms, [slack.sessionMinutes, -1]], "<=", sessionCap - M.session * skill * P.sessionTimeFactor);
 
   // --- budget (recipes with unknown cost count as free)
   if (setup.budget && setup.budget > 0) {
@@ -552,6 +618,7 @@ export function buildModel(P: Prepared): Built {
 
   // --- macros per person-day
   const days: DayMacroVars[] = [];
+  const plateFloors: Built["plateFloors"] = [];
   P.people.forEach((person, pi) => {
     const aim = P.aims[pi];
     if (!aim) return;
@@ -559,20 +626,49 @@ export function buildModel(P: Prepared): Built {
     for (let d = 0; d < setup.days; d++) {
       const age = ageOnDay(setup, d);
       const dayPlates = plates.filter((p) => occasions[p.occ].personIdx === pi && occasions[p.occ].day === d);
-      const adj = new Map<number, string>();
-      P.adjusters.forEach((a, j) => {
-        if (!P.adjAllowed[pi][j]) return;
-        const nSlots = slots.filter((s) => a.slots.includes(s)).length;
-        if (!nSlots || keepingFor(a.storage, age, freezerOk) === "no") return;
-        adj.set(j, lp.addVar({ lb: 0, ub: a.maxGrams * nSlots, obj: adjusterCost(a) * W.macro }));
-      });
+      // adjusters belong to a plate (so each plate can be balanced), and only
+      // to a plate that has a dish on it
+      const adj: DayMacroVars["adj"] = [];
+      for (const o of occasions) {
+        if (o.personIdx !== pi || o.day !== d) continue;
+        const xs = plates.filter((p) => p.occ === o.idx);
+        if (!xs.length) continue;
+        P.adjusters.forEach((a, j) => {
+          if (!P.adjAllowed[pi][j] || !a.slots.includes(o.slot)) return;
+          if (keepingFor(a.storage, age, freezerOk) === "no") return;
+          const v = lp.addVar({ lb: 0, ub: a.maxGrams, obj: adjusterCost(a) * W.macro });
+          lp.addRow([[v, 1], ...xs.map((p): Term => [p.x, -a.maxGrams])], "<=", 0);
+          adj.push({ occ: o.idx, j, v });
+        });
+      }
       days.push({ personIdx: pi, day: d, adj });
 
       const amount = (m: MacroKey): Term[] => {
         const t: Term[] = dayPlates.map((p) => [p.n!, macroOf(R[p.recipeIdx], m) / 4]);
-        adj.forEach((v, j) => t.push([v, P.adjusters[j].perGram[m] ?? 0]));
+        adj.forEach(({ j, v }) => t.push([v, P.adjusters[j].perGram[m] ?? 0]));
         return t;
       };
+
+      // each plate near its meal's share of the day, so lunch isn't 1,200 kcal
+      // and dinner 200: a soft ±25% band, and a firmer floor at 60%
+      for (const o of occasions) {
+        if (o.personIdx !== pi || o.day !== d) continue;
+        const xs = dayPlates.filter((p) => p.occ === o.idx);
+        if (!xs.length) continue;
+        const T = plateAim(aim, person, o.slot, P.share);
+        const kc: Term[] = [
+          ...xs.map((p): Term => [p.n!, macroOf(R[p.recipeIdx], "kcal") / 4]),
+          ...adj.filter((a) => a.occ === o.idx).map(({ j, v }): Term => [v, P.adjusters[j].perGram.kcal ?? 0]),
+        ];
+        const pctP = (100 / Math.max(T, 1)) * W.macro;
+        const lo = lp.addVar({ obj: PEN.plateOut * pctP });
+        const hi = lp.addVar({ obj: PEN.plateOut * pctP });
+        const floor = lp.addVar({ obj: PEN.plateFloor * pctP });
+        lp.addRow([...kc, ...xs.map((p): Term => [p.x, -T * (1 - PLATE_BAND)]), [lo, 1]], ">=", 0);
+        lp.addRow([...kc, ...xs.map((p): Term => [p.x, -T * (1 + PLATE_BAND)]), [hi, -1]], "<=", 0);
+        lp.addRow([...kc, ...xs.map((p): Term => [p.x, -T * PLATE_FLOOR]), [floor, 1]], ">=", 0);
+        plateFloors.push({ v: floor, occ: o.idx, aim: T });
+      }
       const widen = (m: MacroKey): Term[] =>
         dayPlates.map((p) => [p.n!, (CONFIDENCE_WIDEN[R[p.recipeIdx].confidence] * macroOf(R[p.recipeIdx], m)) / 4]);
       const pct = (target: number) => (100 / Math.max(target, 1)) * W.macro;
@@ -605,5 +701,7 @@ export function buildModel(P: Prepared): Built {
     }
   });
 
-  return { lp, y, b, plates, miss, days, slack, sessionCap, activeFor };
+  const sessionMinutes = (bs: Array<{ recipeIdx: number; scale: number }>, n: number) =>
+    bs.reduce((a, x) => a + activeFor(x.recipeIdx, x.scale), 0) + (M.session + M.perPlate * n) * skill * P.sessionTimeFactor;
+  return { lp, y, b, plates, miss, days, plateFloors, equipment, slack, sessionCap, activeFor, sessionMinutes };
 }

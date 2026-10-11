@@ -14,7 +14,7 @@ export function formatPlan(plan: PrepPlan, setup: PrepSetup, facts: RecipeFacts[
     for (let d = 0; d < setup.days; d++) {
       const plates = plan.plates.filter((x) => x.personId === p.id && x.day === d);
       const fit = plan.fit.find((f) => f.personId === p.id && f.day === d);
-      const desc = plates.map((x) => `${x.slot}: ${x.items.map((i) => (i.kind === "recipe" ? `${i.amount}x ${title(i.refId)}` : `${i.amount} g ${title(i.refId)}`)).join(" + ")}${x.storage === "freezer" ? " [freezer]" : ""}`);
+      const desc = plates.map((x) => `${x.slot}: ${x.items.map((i) => (i.kind === "recipe" ? `${i.amount}x ${title(i.refId)}` : `${i.amount} g ${title(i.refId)}`)).join(" + ")} (${x.macros.kcal} kcal, ${x.macros.protein} P)${x.storage === "freezer" ? " [freezer]" : ""}`);
       const m = fit?.macros;
       const t = fit?.target;
       const st = fit && fit.target ? Object.entries(fit.status).filter(([, s]) => s !== "n/a").map(([k, s]) => `${k} ${s}`).join(", ") : "";

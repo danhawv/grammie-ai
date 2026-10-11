@@ -6,7 +6,7 @@ import { createPlanner, stopSolver } from "./index";
 import { LpModel } from "./lp";
 import { solveLp } from "./solver";
 import { ageOnDay, expandTerms, keepingFor, matchExclusion } from "./eligibility";
-import { DEFAULT_REPEATS, personSlots } from "./model";
+import { DEFAULT_REPEATS, handsOnMinutes, personSlots } from "./model";
 import { adjusterFacts, person, recipeFacts, scenarios, setupFor } from "./test-fixtures";
 
 const planner = createPlanner({ timeLimit: 2 });
@@ -254,6 +254,87 @@ describe("planner scenarios", () => {
     const plan = await planner.plan(setup, recipeFacts().filter((f) => f.recipeId === "turkey-chili"), adjusterFacts());
     expect(plan.plates).toEqual([]);
     expect(plan.relaxed.length).toBeGreaterThan(0);
+  });
+});
+
+describe("balanced plates and kitchen equipment", () => {
+  it("keeps each plate near its meal's share of the day", async () => {
+    for (const name of ["one-lifter", "two-people", "seven-days-freezer"]) {
+      const s = byName(name);
+      const plan = await planner.plan(s.setup, s.facts, s.adjusters);
+      expect(plan.fitScore).toBe(100);
+      for (const p of plan.plates) {
+        const person = s.setup.people.find((x) => x.id === p.personId)!;
+        const fit = plan.fit.find((f) => f.personId === p.personId && f.day === p.day)!;
+        if (!fit.target) continue;
+        const share = { breakfast: 0.25, lunch: 0.3, dinner: 0.35, snack: 0.1 };
+        const total = personSlots(person).reduce((a, sl) => a + share[sl], 0);
+        const aim = (fit.target.kcal * share[p.slot]) / total;
+        expect(p.macros.kcal).toBeGreaterThanOrEqual(aim * 0.6);
+        expect(p.macros.kcal).toBeLessThanOrEqual(aim * 1.4);
+      }
+    }
+  });
+
+  it("skips dishes that need an appliance the kitchen doesn't have, unless nothing else fits", async () => {
+    const s = byName("one-lifter");
+    const facts = s.facts.map((f) => (f.recipeId === "turkey-chili" || f.recipeId === "carnitas" ? { ...f, equipment: ["slow cooker"] } : f));
+    const without = await planner.plan(s.setup, facts, s.adjusters);
+    const ids = without.batches.map((b) => b.recipeId);
+    expect(ids).not.toContain("turkey-chili");
+    expect(ids).not.toContain("carnitas");
+
+    const kitchen = { ...s.setup.kitchen, appliances: [{ kind: "Slow cooker", count: 1 }] };
+    const withIt = await planner.plan({ ...s.setup, kitchen }, facts, s.adjusters, { ...API_WEIGHTS, recipeBonus: { "turkey-chili": 1 } });
+    expect(withIt.batches.map((b) => b.recipeId)).toContain("turkey-chili");
+
+    const only = facts.filter((f) => ["turkey-chili", "carnitas"].includes(f.recipeId));
+    const forced = await planner.plan(s.setup, only, s.adjusters);
+    expect(forced.plates.length).toBeGreaterThan(0);
+    expect(forced.relaxed.some((r) => r.includes("needs a slow cooker"))).toBe(true);
+  });
+
+  it("treats a missing blender as a note, not a reason to skip", async () => {
+    const s = byName("one-lifter");
+    const facts = s.facts.map((f) => (f.recipeId === "turkey-chili" ? { ...f, equipment: ["blender"] } : f));
+    const plan = await planner.plan(s.setup, facts, s.adjusters, { ...API_WEIGHTS, recipeBonus: { "turkey-chili": 1 } });
+    expect(plan.batches.map((b) => b.recipeId)).toContain("turkey-chili");
+    expect(plan.notes.some((n) => n.includes("easiest with a blender"))).toBe(true);
+    expect(plan.relaxed.some((r) => r.includes("blender"))).toBe(false);
+  });
+});
+
+describe("session time", () => {
+  it("estimates hands-on minutes close to real sessions", () => {
+    const f = recipeFacts()[0];
+    const dish = (active: number, lines: number) => ({ ...f, activeMinutes: active, lines: f.lines.slice(0, 1).concat(Array(lines - 1).fill(f.lines[0])) });
+    // measured in real sessions built by the session part: 64, 52 and 40 minutes
+    expect(Math.abs(handsOnMinutes(dish(30, 21), 1) - 64)).toBeLessThan(6);
+    expect(Math.abs(handsOnMinutes(dish(41, 17), 0.5) - 52)).toBeLessThan(6);
+    expect(Math.abs(handsOnMinutes(dish(18, 10), 1.5) - 40)).toBeLessThan(6);
+  });
+
+  it("a larger sessionTimeFactor plans a lighter session", async () => {
+    const s = byName("one-lifter");
+    const slow = createPlanner({ timeLimit: 2, sessionTimeFactor: 2 });
+    const base = await planner.plan(s.setup, s.facts, s.adjusters);
+    const plan = await slow.plan(s.setup, s.facts, s.adjusters);
+    const minutes = (p: PrepPlan) => Number(/About (\d+) minutes of hands-on/.exec(p.notes.join(" "))![1]);
+    expect(minutes(plan) / 2).toBeLessThan(minutes(base));
+  });
+});
+
+describe("library quirks", () => {
+  it("treats two saved copies of one recipe as one dish, and speaks to 'You'", async () => {
+    const s = byName("one-lifter");
+    const chili = s.facts.find((f) => f.recipeId === "turkey-chili")!;
+    const facts = [...s.facts, { ...chili, recipeId: "turkey-chili-copy", title: "Turkey chili!" }];
+    const setup = { ...s.setup, people: [{ ...s.setup.people[0], name: "You" }] };
+    const plan = await planner.plan(setup, facts, s.adjusters);
+    const ids = plan.batches.map((b) => b.recipeId);
+    expect(ids.includes("turkey-chili") && ids.includes("turkey-chili-copy")).toBe(false);
+    expect(plan.notes.some((n) => n.startsWith("Your prep covers"))).toBe(true);
+    expect(plan.notes.join(" ")).not.toMatch(/You's|for You\b/);
   });
 });
 
