@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { apiFetch } from "@/lib/platform";
-import { queryClient } from "@/lib/queryClient";
+import { apiFetch } from "./platform";
+import { queryClient } from "./queryClient";
 import { useAuth } from "@/hooks/useAuth";
 import type { CreditsSummary, CreditPackId, NeedCreditsError } from "@shared/credits";
 

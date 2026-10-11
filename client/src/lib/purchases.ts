@@ -1,4 +1,4 @@
-import { apiFetch, isNativeApp } from "@/lib/platform";
+import { apiFetch, isNativeApp } from "./platform";
 import type { CreditPack } from "@shared/credits";
 
 // Buying credit packs inside the iPhone/iPad app (App Store consumables,
