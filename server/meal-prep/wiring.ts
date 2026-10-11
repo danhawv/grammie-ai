@@ -11,6 +11,7 @@ import { createPgIntegrations } from "./calendar";
 import { createGeminiMealPrepAI } from "./ai";
 import { getMealPrepEngines } from "./engines";
 import { createInstacartClient, instacartConfig } from "./instacart";
+import { charge, gate, jobRefs } from "../lib/credits";
 
 export function mealPrepRouter() {
   return createMealPrepRouter({
@@ -21,6 +22,10 @@ export function mealPrepRouter() {
     integrations: createPgIntegrations(db),
     engines: getMealPrepEngines,
     ai: createGeminiMealPrepAI(),
+    credits: {
+      canStart: (res, ownerId) => gate(res, ownerId, "meal_prep_plan"),
+      charge: (ownerId, planId) => charge(ownerId, "meal_prep_plan", jobRefs.prepPlan(planId)),
+    },
     instacart: () => {
       const config = instacartConfig();
       return config ? createInstacartClient(config) : null;

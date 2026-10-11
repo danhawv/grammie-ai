@@ -15,6 +15,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { PageHeader } from "@/components/page-header";
 import { ErrorState, LoadingState } from "@/components/page-states";
+import { CreditsPill } from "@/components/credits";
 import { useTheme } from "@/components/theme-provider";
 import { useAuth } from "@/hooks/useAuth";
 import { usePreferences, useAutosavePreferences, type SaveStatus } from "@/hooks/use-preferences";
@@ -63,6 +64,17 @@ export default function Settings() {
           <Section id="account" title="Account">
             {CLERK_KEY ? <ClerkAccount /> : <LegacyAccount />}
           </Section>
+
+          {isSignedIn && (
+            <Section id="credits" title="Credits" description="Adding recipes, dish photos and meal-prep plans use credits.">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <CreditsPill className="-ml-3 text-base" />
+                <Button asChild variant="outline">
+                  <Link href="/credits">See credits</Link>
+                </Button>
+              </div>
+            </Section>
+          )}
 
           <Section
             id="food-profile"

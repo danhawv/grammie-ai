@@ -30,6 +30,7 @@ import { findPantryMatch } from "../../shared/pantry-matching";
 import { getFoodProfile, ingredientMatchesAvoid } from "@shared/food-profile";
 import { convertToBaseUnit } from "../unit-conversion";
 import { recordImport } from "../recipe-imports";
+import { charge, gate, jobRefs, refundJob } from "../lib/credits";
 import { straightenNewCard, rotateOriginalCard } from "../lib/original-card";
 import { rankRecipesByPantry, recipeIngredients, normalizeIngredient, namesMatch } from "../../shared/pantry-match";
 
@@ -670,6 +671,7 @@ router.post(
       if (!req.file) {
         return res.status(400).json({ error: "No image file provided" });
       }
+      if (!(await gate(res, userId, "recipe_import"))) return;
 
       // Convert HEIC/HEIF files to JPEG (OpenAI Vision doesn't support HEIC)
       let imageBuffer = req.file.buffer;
@@ -760,6 +762,7 @@ router.post(
       const recipe = await storage.createRecipe(validatedData);
       // The original photo stays in handwrittenImage; this row tracks the review step
       await recordImport({ recipeId: recipe.id, ownerUserId: userId, sourceType: shotOf ? 'social' : 'photo', ...(shotOf ? { sourceUrl: shotOf.url } : {}) });
+      await charge(userId, "recipe_import", jobRefs.recipeImport(recipe.id));
       console.log(`Recipe ${recipe.id} created${sessionId ? ` for session ${sessionId}` : ''}, queuing extraction...`);
 
       // Queue Vision extraction for background processing
@@ -801,6 +804,8 @@ router.post(
       if (files.length > 5) {
         return res.status(400).json({ error: "Maximum 5 images allowed for single recipe" });
       }
+      // Several pages of one card are still one recipe: 1 credit
+      if (!(await gate(res, userId, "recipe_import"))) return;
 
       console.log(`Processing ${files.length} images for single recipe...`);
 
@@ -887,6 +892,7 @@ router.post(
         ...(shotOf ? { sourceUrl: shotOf.url } : {}),
         extraPageImages: handwrittenImages.slice(1),
       });
+      await charge(userId, "recipe_import", jobRefs.recipeImport(recipe.id));
       console.log(`Recipe ${recipe.id} created, queuing multi-image extraction with ${files.length} images...`);
 
       // Queue multi-image extraction
@@ -1004,6 +1010,7 @@ async function importWebLink(url: string, userId: string, foundVia?: string): Pr
   const validatedData = insertRecipeSchema.parse(recipeData);
   const recipe = await storage.createRecipe(validatedData);
   await recordImport({ recipeId: recipe.id, ownerUserId: userId, sourceType: foundVia ? 'social' : 'link', sourceUrl: foundVia || url });
+  await charge(userId, "recipe_import", jobRefs.recipeImport(recipe.id));
   console.log(`[URL import] Recipe ${recipe.id} saved from ${new URL(url).hostname} in ${Date.now() - started}ms, queuing enrichment`);
   jobQueue.addEnrichmentJob(recipe.id);
   // Start the dish photo now, alongside enrichment, so it's ready sooner
@@ -1025,6 +1032,7 @@ router.post("/recipes/extract-url", isAuthenticated, async (req: any, res) => {
     if (!url || typeof url !== "string") {
       return res.status(400).json({ error: "Valid URL is required" });
     }
+    if (!(await gate(res, userId, "recipe_import"))) return;
 
     const result = detectPlatform(url) === "web" ? await importWebLink(url, userId) : await importSocialLink(url, userId);
     res.status(result.status).json(result.body);
@@ -1055,6 +1063,7 @@ router.post("/recipes/extract-text", isAuthenticated, async (req: any, res) => {
       return res.status(400).json({ error: "Please provide complete recipe text" });
     }
 
+    if (!(await gate(res, userId, "recipe_import"))) return;
     console.log(`Extracting recipe from pasted text (${text.length} chars)`);
 
     const rawRecipe = await extractRecipeFromText(text, social ? "caption" : "pasted");
@@ -1116,6 +1125,7 @@ router.post("/recipes/extract-text", isAuthenticated, async (req: any, res) => {
     const validatedData = insertRecipeSchema.parse(recipeData);
     const recipe = await storage.createRecipe(validatedData);
     await recordImport({ recipeId: recipe.id, ownerUserId: userId, sourceType: social ? 'social' : 'text', sourceText: text, ...(link ? { sourceUrl: link } : {}) });
+    await charge(userId, "recipe_import", jobRefs.recipeImport(recipe.id));
     console.log(`Recipe ${recipe.id} saved from pasted text, queuing enrichment...`);
 
     // Queue Phase 2 enrichment
@@ -1208,6 +1218,7 @@ async function importSocialLink(url: string, userId: string): Promise<{ status: 
   const validatedData = insertRecipeSchema.parse(recipeData);
   const recipe = await storage.createRecipe(validatedData);
   await recordImport({ recipeId: recipe.id, ownerUserId: userId, sourceType: 'social', sourceUrl: url });
+  await charge(userId, "recipe_import", jobRefs.recipeImport(recipe.id));
   console.log(`[Social Import] Recipe ${recipe.id} saved from ${platformName} in ${Date.now() - started}ms, queuing enrichment`);
   jobQueue.addEnrichmentJob(recipe.id);
   // Start the dish photo now, alongside enrichment, so it's ready sooner
@@ -1244,6 +1255,7 @@ router.post("/recipes/import-social", isAuthenticated, async (req: any, res) => 
     if (!url || typeof url !== "string" || !isValidSocialUrl(url)) {
       return res.status(400).json({ error: "That doesn't look like a link. Copy the whole link and paste it again." });
     }
+    if (!(await gate(res, userId, "recipe_import"))) return;
 
     // Web pages go through the web importer
     const result = detectPlatform(url) === "web" ? await importWebLink(url, userId) : await importSocialLink(url, userId);
@@ -1338,9 +1350,15 @@ router.post("/recipes/:id/regenerate-image", isAuthenticated, async (req: any, r
       });
     }
 
-    // Queue image generation job
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    if (!(await gate(res, userId, "dish_photo"))) return;
+
+    // Queue image generation job; its credit comes back if the photo never comes
     const ingredientNames = recipe.ingredients.map((ing: any) => ing.item || '');
-    jobQueue.addImageGenerationJob(id, recipe.title, ingredientNames);
+    const creditRef = jobRefs.photo(id);
+    await charge(userId, "dish_photo", creditRef);
+    const queued = await jobQueue.addImageGenerationJob(id, recipe.title, ingredientNames, { creditRef });
+    if (!queued) await refundJob(creditRef, 'already_making');
 
     console.log(`Manually queued image regeneration for recipe ${id}`);
     res.json({ message: "Image regeneration queued successfully" });
@@ -1436,6 +1454,7 @@ router.get("/recipes/:id/image-prompt", isAuthenticated, async (req: any, res) =
 // how it's finished, with the best photo model. For when a photo (often a
 // cheaper bulk-import one) doesn't look like the family's dish.
 router.post("/recipes/:id/remake-photo", isAuthenticated, async (req: any, res) => {
+  let creditRef: string | null = null;
   try {
     const { id } = req.params;
     const userId = getUserId(req);
@@ -1451,10 +1470,15 @@ router.post("/recipes/:id/remake-photo", isAuthenticated, async (req: any, res) 
       return res.status(400).json({ error: "This recipe needs a name and ingredients before Grammie can picture it." });
     }
 
+    if (!(await gate(res, userId, "dish_photo"))) return;
+
     const { buildFullRecipePhotoPrompt } = await import("../lib/dish-photo");
+    creditRef = jobRefs.photo(id);
+    await charge(userId, "dish_photo", creditRef);
     const result = await makePrimaryPhoto(recipe, buildFullRecipePhotoPrompt(recipe), userId);
     res.json({ success: true, ...result });
   } catch (error) {
+    if (creditRef) await refundJob(creditRef, 'photo_failed');
     console.error("Error remaking photo:", error);
     res.status(500).json({ error: "The new photo couldn't be made. Please try again in a minute." });
   }
@@ -1462,6 +1486,7 @@ router.post("/recipes/:id/remake-photo", isAuthenticated, async (req: any, res) 
 
 // Regenerate image with custom prompt
 router.post("/recipes/:id/regenerate-image-custom", isAuthenticated, async (req: any, res) => {
+  let creditRef: string | null = null;
   try {
     const { id } = req.params;
     const { prompt } = req.body;
@@ -1480,9 +1505,13 @@ router.post("/recipes/:id/regenerate-image-custom", isAuthenticated, async (req:
       return res.status(403).json({ error: "Only the recipe owner can regenerate images" });
     }
 
+    if (!(await gate(res, userId, "dish_photo"))) return;
+    creditRef = jobRefs.photo(id);
+    await charge(userId, "dish_photo", creditRef);
     const result = await makePrimaryPhoto(recipe, prompt.slice(0, 4000), userId);
     res.json({ success: true, ...result });
   } catch (error) {
+    if (creditRef) await refundJob(creditRef, 'photo_failed');
     console.error("Error regenerating image with custom prompt:", error);
     res.status(500).json({ error: "Failed to regenerate image" });
   }

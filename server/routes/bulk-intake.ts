@@ -25,6 +25,7 @@ import {
 import { freezePlan } from "../bulk-intake/worker";
 import { prepareUpload } from "../bulk-intake/images";
 import { bulkLane } from "../bulk-intake/handoff";
+import { gate } from "../lib/credits";
 
 // Bringing in a whole box of recipes at once (docs/BULK_IMPORT.md). The
 // browser shrinks each photo and sends them one per request, several at a
@@ -348,6 +349,8 @@ router.post("/bulk-intake/:id/import", isAuthenticated, safe(async (req: any, re
     if ((await importsToday(userId)) + count > limits.maxImportsPerDay) {
       return res.status(429).json({ error: `You can import up to ${limits.maxImportsPerDay} recipes a day from photos. Leave some out and import the rest tomorrow.` });
     }
+    // Each recipe uses a credit when it's handed off (bulk-intake/handoff.ts)
+    if (!(await gate(res, userId, "recipe_import", count))) return;
     await db.update(bulkIntakes)
       .set({ status: "importing" as IntakeStatus, importRequestedAt: new Date(), updatedAt: new Date() })
       .where(and(eq(bulkIntakes.id, intake.id), eq(bulkIntakes.status, "review")));

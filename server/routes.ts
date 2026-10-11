@@ -20,6 +20,8 @@ import mealPlanRoutes from "./routes/meal-plans";
 import templateRoutes from "./routes/templates";
 import cookbookPhotoRoutes from "./routes/cookbook-photos";
 import bulkIntakeRoutes from "./routes/bulk-intake";
+import creditsRoutes from "./routes/credits";
+import { startCredits } from "./lib/credits-pg";
 import { mealPrepRouter } from "./meal-prep/wiring";
 import { setMealPrepEngines } from "./meal-prep/engines";
 import { createFoodData } from "./meal-prep/food";
@@ -48,6 +50,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use("/api", templateRoutes);
   app.use("/api", bulkIntakeRoutes);
   app.use("/api", cookbookPhotoRoutes);
+  // Pay-as-you-go credits (inert until migrations/2026-10-credits.sql runs)
+  startCredits();
+  app.use("/api", creditsRoutes);
   // Meal prep; its cook pages (/api/meal-prep/cook/:token) need no account.
   setMealPrepEngines({ food: createFoodData(), planner: createPlanner(), session: createSessionBuilder() });
   app.use("/api/meal-prep", mealPrepRouter());

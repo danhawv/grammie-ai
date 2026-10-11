@@ -4,6 +4,8 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import type { Recipe } from "@shared/schema";
 import { ArrowLeft, ChefHat, Loader2, Mic, ShoppingCart } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { refreshCredits } from "@/lib/credits-api";
+import { apiErrorMessage } from "@/lib/import-api";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -195,10 +197,11 @@ export default function RecipeDetail() {
     },
     onSuccess: () => {
       toast({ title: "Image generation queued", description: "New dish image generation has been queued." });
+      refreshCredits();
       queryClient.invalidateQueries({ queryKey: ["/api/recipes", recipeId] });
     },
     onError: (err: Error) => {
-      toast({ title: "Image generation failed", description: err.message || "Failed to queue image generation", variant: "destructive" });
+      toast({ title: "Image generation failed", description: apiErrorMessage(err, "Failed to queue image generation"), variant: "destructive" });
     },
   });
 
@@ -210,10 +213,12 @@ export default function RecipeDetail() {
     },
     onSuccess: () => {
       toast({ title: "New photo made", description: "Made from the full recipe. Your earlier photo is still in Manage images if you prefer it." });
+      refreshCredits();
       queryClient.invalidateQueries({ queryKey: ["/api/recipes", recipeId] });
     },
     onError: (err: Error) => {
-      toast({ title: "The photo couldn't be made", description: err.message || "Please try again in a minute.", variant: "destructive" });
+      refreshCredits();
+      toast({ title: "The photo couldn't be made", description: apiErrorMessage(err, "Please try again in a minute."), variant: "destructive" });
     },
   });
 

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { Recipe } from "@shared/schema";
 import { AlertTriangle, ImageIcon, Loader2, Sparkles, Wand2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { CreditNote } from "@/components/credits";
 import { RecipeImageCarousel } from "@/components/recipe-image-manager";
 import { isPlaceholderImage } from "./recipe-utils";
 import grammieImage from "@assets/image_1763329917086.png";
@@ -62,7 +63,7 @@ export function RecipeHero({
           data-testid="button-remake-photo"
         >
           {remakingPhoto ? <Loader2 className="motion-safe:animate-spin" aria-hidden /> : <Wand2 aria-hidden />}
-          {remakingPhoto ? "Making…" : "Remake photo"}
+          {remakingPhoto ? "Making…" : <>Remake photo<CreditNote action="dish_photo" /></>}
         </Button>
       )}
       {remakingPhoto && (

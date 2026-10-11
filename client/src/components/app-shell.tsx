@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { AlertsButton } from "@/components/alerts-button";
 import { PendingInvitationsPopover } from "@/components/pending-invitations-popover";
 import { UserHeader } from "@/components/user-header";
+import { CreditsPill } from "@/components/credits";
 import { useAuth } from "@/hooks/useAuth";
 import { useAddRecipe } from "@/contexts/AddRecipeContext";
 import { cn } from "@/lib/utils";
@@ -25,7 +26,7 @@ const NAV = [
   { href: "/cookbooks", label: "Cookbooks", icon: BookOpen, match: (p: string) => p.startsWith("/cookbook") },
 ] as const;
 
-const ME = { href: "/settings", label: "Me", icon: CircleUser, match: (p: string) => /^\/(settings|profile)/.test(p) };
+const ME = { href: "/settings", label: "Me", icon: CircleUser, match: (p: string) => /^\/(settings|profile|credits)/.test(p) };
 
 /** Pages that render without the app chrome */
 const BARE = [/^\/login/, /^\/grocery-list\/shared\//, /^\/prep\/cook\//, /^\/meal-prep\/[^/]+\/(packet|cook)/];
@@ -82,6 +83,8 @@ export function AppShell() {
                 <Plus aria-hidden /> Add recipe
               </Button>
             )}
+            {/* Balance on desktop; on phones it's on the Me page */}
+            {user && <CreditsPill className="hidden md:inline-flex" />}
             {user && <PendingInvitationsPopover />}
             <AlertsButton />
             <UserHeader />

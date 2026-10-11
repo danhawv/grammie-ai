@@ -3,6 +3,7 @@ import { ArrowLeft, ArrowRight, CalendarCheck, ChefHat, Printer, Scale, Shopping
 import type { PrepSetup } from "@shared/meal-prep/contract";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
+import { CreditNote } from "@/components/credits";
 import { setupProblems, setupSteps, stepSummary } from "./setup-steps";
 
 // The first-run guide: a welcome, one question per screen with sensible
@@ -148,7 +149,7 @@ export function Walkthrough({
           )}
           {isReview ? (
             <Button size="lg" className="ml-auto" onClick={onBuild} disabled={problems.length > 0 || building} data-testid="button-build-plan">
-              <Sparkles aria-hidden /> Build my plan
+              <Sparkles aria-hidden /> Build my plan<CreditNote action="meal_prep_plan" />
             </Button>
           ) : (
             <Button size="lg" className={step?.skippable ? "" : "ml-auto"} onClick={() => go(index + 1)} data-testid="button-next-step">

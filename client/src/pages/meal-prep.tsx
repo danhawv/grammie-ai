@@ -13,9 +13,11 @@ import { SetupStepSheet, SetupSummaryList } from "@/components/meal-prep/setup-s
 import { setupProblems } from "@/components/meal-prep/setup-steps";
 import { planStatusText } from "@/components/meal-prep/plan-status";
 import { useAuth } from "@/hooks/useAuth";
+import { CreditNote } from "@/components/credits";
+import { isNeedCredits, refreshCredits } from "@/lib/credits-api";
 import { usePreferences } from "@/hooks/use-preferences";
 import { queryClient } from "@/lib/queryClient";
-import { defaultsFromSetup, errorText, mealPrepApi, mealPrepKeys, setupFromDefaults, type PrepPlanSummary } from "@/lib/meal-prep-api";
+import { MealPrepApiError, defaultsFromSetup, errorText, mealPrepApi, mealPrepKeys, setupFromDefaults, type PrepPlanSummary } from "@/lib/meal-prep-api";
 import { defaultSetup, formatDay, sessionSkill, todayIso } from "@/lib/meal-prep-format";
 
 // /meal-prep: the start of meal prep. First time through it's the guided
@@ -96,6 +98,7 @@ export default function MealPrepPage() {
     },
     onSuccess: (record) => {
       writeDraft(null);
+      refreshCredits();
       queryClient.setQueryData(mealPrepKeys.plan(record.id), record);
       queryClient.invalidateQueries({ queryKey: mealPrepKeys.profile });
       queryClient.invalidateQueries({ queryKey: mealPrepKeys.plans });
@@ -107,6 +110,14 @@ export default function MealPrepPage() {
 
   if (build.isPending) return wrap(<BuildingState />);
   if (build.isError) {
+    if (build.error instanceof MealPrepApiError && isNeedCredits(build.error)) {
+      return wrap(
+        <ErrorState
+          title="Add credits to build this plan"
+          description={<>{errorText(build.error)} <Link href="/credits" className="font-medium text-primary underline underline-offset-4">Add credits</Link>. Your answers are saved.</>}
+        />,
+      );
+    }
     return wrap(
       <ErrorState
         title="Grammie couldn't build that plan"
@@ -152,7 +163,7 @@ export default function MealPrepPage() {
       </section>
       <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center">
         <Button size="lg" className="w-full sm:w-auto" onClick={() => build.mutate(setup)} disabled={problems.length > 0} data-testid="button-build-plan">
-          <Sparkles aria-hidden /> Build my plan
+          <Sparkles aria-hidden /> Build my plan<CreditNote action="meal_prep_plan" />
         </Button>
         <Button variant="ghost" onClick={() => { setStep(1); setTour(true); }}>
           <RotateCcw aria-hidden /> Go through the guide again
