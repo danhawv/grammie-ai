@@ -38,6 +38,7 @@ const MealPlans = lazy(() => import("@/pages/meal-plans"));
 const MealPlanDetail = lazy(() => import("@/pages/meal-plan-detail"));
 const RecipeCreator = lazy(() => import("@/pages/recipe-creator"));
 const PrintPolicy = lazy(() => import("@/pages/print-policy"));
+const BulkImport = lazy(() => import("@/pages/bulk-import"));
 const NotFound = lazy(() => import("@/pages/not-found"));
 
 const CLERK_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string | undefined;
@@ -75,6 +76,8 @@ function Router() {
         <Route path="/meal-plans" component={MealPlans} />
         <Route path="/meal-plans/:id" component={MealPlanDetail} />
         <Route path="/processing" component={Processing} />
+        <Route path="/import" component={BulkImport} />
+        <Route path="/import/:id" component={BulkImport} />
         <Route component={NotFound} />
       </Switch>
     </Suspense>

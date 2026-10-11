@@ -319,10 +319,10 @@ class JobQueue {
 
   /**
    * Reads a recipe card photo. `bulk: true` marks the recipe as part of a
-   * bulk import: it's still read right away, but its dish photo and extra
-   * content go through the Gemini Batch API (server/batch-queue.ts). Recipes
-   * in an upload session of GEMINI_BATCH_MIN_RECIPES+ files count as bulk
-   * without the flag.
+   * bulk import: its extraction waits behind everyone else's single uploads,
+   * and its dish photo and extra content go through the Gemini Batch API
+   * (server/batch-queue.ts). Recipes in an upload session of
+   * GEMINI_BATCH_MIN_RECIPES+ files count as bulk without the flag.
    */
   async addExtractionJob(recipeId: string, imageBase64: string, options: { bulk?: boolean } = {}) {
     if (options.bulk) markBulkImport([recipeId]);
@@ -341,8 +341,10 @@ class JobQueue {
     };
 
     // PRIORITY: Add extraction jobs to FRONT of queue so new uploads aren't blocked by enrichments
-    // This prevents the 60+ second queue wait when enrichment jobs are running
-    this.fastQueue.unshift(job);
+    // This prevents the 60+ second queue wait when enrichment jobs are running.
+    // Bulk imports go to the back, so a box of cards never holds up a single photo.
+    if (options.bulk) this.fastQueue.push(job);
+    else this.fastQueue.unshift(job);
     console.log(`[Queue] Added extraction job for ${recipeId} to FRONT (fast queue: ${this.fastQueue.length}, image queue: ${this.imageQueue.length})`);
 
     // Start fast worker if we have capacity
@@ -403,7 +405,9 @@ class JobQueue {
     };
 
     // PRIORITY: Add extraction jobs to FRONT of queue so new uploads aren't blocked by enrichments
-    this.fastQueue.unshift(job);
+    // (bulk imports go to the back, as in addExtractionJob)
+    if (options.bulk) this.fastQueue.push(job);
+    else this.fastQueue.unshift(job);
     console.log(`[Queue] Added multi-extraction job for ${recipeId} with ${imagesBase64.length} images to FRONT (fast queue: ${this.fastQueue.length})`);
 
     // Start fast worker if we have capacity

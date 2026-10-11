@@ -1,9 +1,10 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, real, jsonb, boolean, timestamp, serial, unique, uniqueIndex, primaryKey, index } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, real, jsonb, boolean, timestamp, serial, unique, uniqueIndex, primaryKey, index, bigint, customType } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { relations } from "drizzle-orm";
 import type { UserPreferences } from "./food-profile";
+import type { IntakeStatus, PhotoCatalog } from "./bulk-intake";
 
 // Constant maps for comprehensive recipe enrichment
 export const DIETARY_FLAGS = {
@@ -862,6 +863,84 @@ export const printOrders = pgTable("print_orders", {
 }));
 
 export type PrintOrder = typeof printOrders.$inferSelect;
+
+// ============================================================================
+// BULK INTAKE (a whole box of recipe cards at once; docs/BULK_IMPORT.md)
+// ============================================================================
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({ dataType: () => "bytea" });
+
+// One pile of photos: uploaded, looked at, reviewed, then imported. Arrives
+// with migrations/2026-10-bulk-intake.sql.
+export const bulkIntakes = pgTable("bulk_intakes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  ownerUserId: varchar("owner_user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  status: varchar("status", { length: 20 }).$type<IntakeStatus>().notNull().default('uploading'),
+  /** 'device' | 'drive_picker' | 'drive_link' */
+  source: varchar("source", { length: 20 }).notNull().default('device'),
+  /** How many photos the browser said it would send (null until it knows) */
+  expectedPhotos: integer("expected_photos"),
+  uploadsDoneAt: timestamp("uploads_done_at"),
+  /** Cookbook the imported recipes are added to (and compared against) */
+  cookbookId: integer("cookbook_id").references(() => cookbooks.id, { onDelete: 'set null' }),
+  /** What the first look and pairing actually cost, millionths of a dollar */
+  spentMicros: bigint("spent_micros", { mode: "number" }).notNull().default(0),
+  importRequestedAt: timestamp("import_requested_at"),
+  importFinishedAt: timestamp("import_finished_at"),
+  problem: text("problem"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  ownerIdx: index("bulk_intakes_owner_idx").on(table.ownerUserId, table.createdAt),
+  statusIdx: index("bulk_intakes_status_idx").on(table.status),
+}));
+
+export type BulkIntake = typeof bulkIntakes.$inferSelect;
+
+// One photo in a pile. A recipe is a front photo plus any backs paired to
+// it (paired_to); the recipe-level choices live on the front's row.
+export const bulkIntakePhotos = pgTable("bulk_intake_photos", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  intakeId: varchar("intake_id").notNull().references(() => bulkIntakes.id, { onDelete: 'cascade' }),
+  ownerUserId: varchar("owner_user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  /** The browser's id for the file (SHA-256 of the original), so a resumed upload skips it */
+  clientKey: varchar("client_key", { length: 80 }).notNull(),
+  /** Hash of the original file; repeats reuse an earlier first look (no second charge) */
+  sourceHash: varchar("source_hash", { length: 80 }).notNull(),
+  fileName: text("file_name"),
+  seq: integer("seq").notNull().default(0),
+  takenAt: timestamp("taken_at"),
+  /** The photo as uploaded (browser-shrunk JPEG); cleared once it's imported */
+  image: bytea("image"),
+  /** 448px upright copy for the review screen */
+  thumb: bytea("thumb"),
+  /** 'uploaded' | 'checking' | 'checked' | 'failed' */
+  status: varchar("status", { length: 20 }).notNull().default('uploaded'),
+  attempts: integer("attempts").notNull().default(0),
+  claimedAt: timestamp("claimed_at"),
+  catalog: jsonb("catalog").$type<PhotoCatalog & { v: number }>(),
+  costMicros: integer("cost_micros").notNull().default(0),
+  problem: text("problem"),
+  /** This photo is the back of that photo */
+  pairedTo: varchar("paired_to"),
+  /** 'ai' | 'sequence' | 'person' */
+  pairSource: varchar("pair_source", { length: 20 }),
+  /** The person split this pair; don't pair it again */
+  pairLocked: boolean("pair_locked").notNull().default(false),
+  /** The person's include/exclude choice (front rows only) */
+  includeOverride: boolean("include_override"),
+  /** The recipe this photo became (front rows only) */
+  recipeId: varchar("recipe_id").references(() => recipes.id, { onDelete: 'set null' }),
+  importedAt: timestamp("imported_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  clientKeyIdx: uniqueIndex("bulk_intake_photos_client_key_idx").on(table.intakeId, table.clientKey),
+  intakeIdx: index("bulk_intake_photos_intake_idx").on(table.intakeId, table.seq),
+  statusIdx: index("bulk_intake_photos_status_idx").on(table.status),
+  hashIdx: index("bulk_intake_photos_hash_idx").on(table.ownerUserId, table.sourceHash),
+  recipeIdx: index("bulk_intake_photos_recipe_idx").on(table.recipeId),
+}));
+
+export type BulkIntakePhoto = typeof bulkIntakePhotos.$inferSelect;
 
 // ============================================================================
 // COOKBOOK_RECIPES JOIN TABLE (many-to-many)

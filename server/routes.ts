@@ -19,6 +19,7 @@ import grammieRoutes from "./routes/grammie";
 import mealPlanRoutes from "./routes/meal-plans";
 import templateRoutes from "./routes/templates";
 import cookbookPhotoRoutes from "./routes/cookbook-photos";
+import bulkIntakeRoutes from "./routes/bulk-intake";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Setup authentication
@@ -40,6 +41,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use("/api", grammieRoutes);
   app.use("/api", mealPlanRoutes);
   app.use("/api", templateRoutes);
+  app.use("/api", bulkIntakeRoutes);
   app.use("/api", cookbookPhotoRoutes);
 
   // Mount print routes (has both /lulu/* and /api/print/* paths)
