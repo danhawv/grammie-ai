@@ -1,6 +1,9 @@
 import { useState, useRef } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
+import { CreditNote } from "@/components/credits";
+import { refreshCredits } from "@/lib/credits-api";
+import { apiErrorMessage } from "@/lib/import-api";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
@@ -198,12 +201,14 @@ export function RecipeImageManager({
     },
     onSuccess: (data) => {
       toast({ title: "Image generated successfully" });
+      refreshCredits();
       queryClient.invalidateQueries({ queryKey: ['/api/recipes', recipeId] });
       onImagesChange?.(data.dishImages);
       setIsPromptDialogOpen(false);
     },
     onError: (error: any) => {
-      toast({ title: "Failed to generate image", description: error.message, variant: "destructive" });
+      refreshCredits();
+      toast({ title: "Failed to generate image", description: apiErrorMessage(error, "Please try again in a minute."), variant: "destructive" });
     },
   });
 
@@ -215,11 +220,13 @@ export function RecipeImageManager({
     },
     onSuccess: (data) => {
       toast({ title: "New photo made from the full recipe" });
+      refreshCredits();
       queryClient.invalidateQueries({ queryKey: ['/api/recipes', recipeId] });
       onImagesChange?.(data.dishImages);
     },
     onError: (error: any) => {
-      toast({ title: "The photo couldn't be made", description: error.message, variant: "destructive" });
+      refreshCredits();
+      toast({ title: "The photo couldn't be made", description: apiErrorMessage(error, "Please try again in a minute."), variant: "destructive" });
     },
   });
 
@@ -396,7 +403,7 @@ export function RecipeImageManager({
                   ) : (
                     <Wand2 className="h-4 w-4" />
                   )}
-                  {remakeMutation.isPending ? "Making…" : "Remake from recipe"}
+                  {remakeMutation.isPending ? "Making…" : <>Remake from recipe<CreditNote action="dish_photo" /></>}
                 </Button>
 
                 <Button
@@ -614,7 +621,7 @@ export function RecipeImageManager({
               ) : (
                 <>
                   <Wand2 className="h-4 w-4" />
-                  Generate Image
+                  Generate Image<CreditNote action="dish_photo" />
                 </>
               )}
             </Button>

@@ -25,6 +25,8 @@ import {
   uploadRecipePhotos,
 } from "@/lib/import-api";
 import { cn } from "@/lib/utils";
+import { AddCreditsLink, CreditNote, LowCreditsNotice } from "@/components/credits";
+import { isNeedCredits, refreshCredits } from "@/lib/credits-api";
 
 // The one "Add recipe" sheet (docs/DESIGN_PRINCIPLES.md §3, §4, §6): three
 // large choices — Photo, Link or post, Type or paste. Batch import is the
@@ -215,6 +217,7 @@ export function UploadRecipeModal({ open, onOpenChange, initialMode, prefill }: 
     if (batch) {
       const blobs = await finalBlobs();
       startPhotoBatch(blobs.map((blob, i) => ({ blob, thumbnail: photos[i].thumbnail })), { cookbookId });
+      refreshCredits();
       close();
       navigate("/processing");
       return;
@@ -249,7 +252,8 @@ export function UploadRecipeModal({ open, onOpenChange, initialMode, prefill }: 
       done(recipePageAfterImport(recipeId));
     } catch (err) {
       setBusy(null);
-      if (platform === "instagram" || platform === "tiktok") {
+      const message = apiErrorMessage(err, "Grammie couldn't read that link. Check it opens in your browser, or paste the recipe text instead.");
+      if ((platform === "instagram" || platform === "tiktok") && !isNeedCredits(message)) {
         // Instagram sometimes won't show posts to our server; a screenshot
         // of the caption has the recipe, so ask for one
         setCaptionFor({ url: link, platform: platform === "instagram" ? "Instagram" : "TikTok" });
@@ -257,7 +261,7 @@ export function UploadRecipeModal({ open, onOpenChange, initialMode, prefill }: 
         setView("photo");
         return;
       }
-      setError(apiErrorMessage(err, "Grammie couldn't read that link. Check it opens in your browser, or paste the recipe text instead."));
+      setError(message);
     }
   };
 
@@ -288,6 +292,7 @@ export function UploadRecipeModal({ open, onOpenChange, initialMode, prefill }: 
 
   const done = (href: string) => {
     queryClient.invalidateQueries({ predicate: (q) => q.queryKey[0] === "/api/recipes" });
+    refreshCredits();
     setBusy(null);
     close();
     navigate(href);
@@ -478,8 +483,11 @@ export function UploadRecipeModal({ open, onOpenChange, initialMode, prefill }: 
       data-testid="button-extract-recipe"
     >
       {busy ? <><Loader2 className="motion-safe:animate-spin" aria-hidden /> {busy}</> :
-        batch ? (photos.length ? `Read ${photos.length} ${photos.length === 1 ? "recipe" : "recipes"}` : "Read recipes") :
-        photos.length > 1 ? `Read ${photos.length} pages as one recipe` : "Read this recipe"}
+        <>
+          {batch ? (photos.length ? `Read ${photos.length} ${photos.length === 1 ? "recipe" : "recipes"}` : "Read recipes") :
+            photos.length > 1 ? `Read ${photos.length} pages as one recipe` : "Read this recipe"}
+          <CreditNote action="recipe_import" count={batch ? Math.max(1, photos.length) : 1} />
+        </>}
     </Button>
   ) : (
     <Button
@@ -489,7 +497,7 @@ export function UploadRecipeModal({ open, onOpenChange, initialMode, prefill }: 
       disabled={!!busy || (view === "link" ? !link.trim() : !text.trim())}
       data-testid={view === "link" ? "button-import-link" : "button-extract-text"}
     >
-      {busy ? <><Loader2 className="motion-safe:animate-spin" aria-hidden /> {busy}</> : view === "link" ? "Read this link" : "Read this recipe"}
+      {busy ? <><Loader2 className="motion-safe:animate-spin" aria-hidden /> {busy}</> : <>{view === "link" ? "Read this link" : "Read this recipe"}<CreditNote action="recipe_import" /></>}
     </Button>
   );
 
@@ -537,9 +545,11 @@ export function UploadRecipeModal({ open, onOpenChange, initialMode, prefill }: 
       {error && (
         <p id="add-recipe-error" role="alert" className="rounded-md border border-destructive/50 bg-destructive/5 p-3 text-base text-destructive">
           {error}
+          <AddCreditsLink error={error} className="ml-2" />
         </p>
       )}
 
+      {primary && <LowCreditsNotice />}
       {primary}
     </div>
   );

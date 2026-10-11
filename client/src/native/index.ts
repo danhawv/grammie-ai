@@ -7,6 +7,8 @@ import { registerNativeAdapters } from "@/lib/platform";
 import { nativeAdapters } from "./adapters";
 import { startLinkHandling } from "./links";
 import { startShareIntake } from "./share-intake";
+import { startStore } from "./store";
+import { syncUnfinishedPurchases } from "@/lib/purchases";
 
 // Start-up for the iPhone/iPad app. main.tsx loads this (as its own chunk,
 // so the website never downloads it) only when isNativeApp() is true.
@@ -38,13 +40,9 @@ function refreshOnResume(): void {
   });
 }
 
-async function finishUnfinishedPurchases(): Promise<void> {
-  try {
-    const { recoverUnfinishedPurchases } = await import("@/lib/purchases");
-    await recoverUnfinishedPurchases();
-  } catch {
-    // Tried again on the next launch or resume
-  }
+function finishUnfinishedPurchases(): void {
+  // Tried again on the next launch or resume if it fails
+  syncUnfinishedPurchases().catch(() => {});
 }
 
 export async function startNativeApp(): Promise<void> {
@@ -55,12 +53,14 @@ export async function startNativeApp(): Promise<void> {
   await Promise.all([
     startLinkHandling().catch((err) => console.warn("[native] links", err)),
     startShareIntake().catch((err) => console.warn("[native] share", err)),
+    startStore().catch((err) => console.warn("[native] store", err)),
   ]);
   // Tells over-the-air updates (when turned on) that this version started fine
   CapacitorUpdater.notifyAppReady().catch(() => {});
   // A credits purchase paid for but not yet recorded (app closed mid-way)
-  setTimeout(() => void finishUnfinishedPurchases(), 5000);
-  App.addListener("resume", () => void finishUnfinishedPurchases()).catch(() => {});
+  // (after a moment, so sign-in is ready to send with it)
+  setTimeout(finishUnfinishedPurchases, 5000);
+  App.addListener("resume", finishUnfinishedPurchases).catch(() => {});
   // Android's back button (later): nothing yet
 }
 

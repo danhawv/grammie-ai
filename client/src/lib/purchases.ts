@@ -1,141 +1,108 @@
-// Buying credits inside the iPhone/iPad app, through the App Store (Apple
-// requires in-app purchase for credits used in the app). The website buys
-// credits with Stripe on /credits and doesn't use this file.
-//
-// The flow, for one consumable pack:
-//   1. POST /api/credits/apple/token     → a UUID tying the purchase to this account
-//   2. StoreKit purchase with that appAccountToken
-//   3. POST /api/credits/apple/transaction with Apple's signed transaction (JWS);
-//      the server checks it with Apple and adds the credits once
-//   4. finish the transaction, only after the server has recorded it
-// A purchase interrupted between 2 and 4 (app closed, no signal) is finished
-// by recoverUnfinishedPurchases() on the next launch or resume.
-//
-// The native plugin is loaded on demand so the website never downloads it.
-
 import { apiFetch, isNativeApp } from "./platform";
+import type { CreditPack } from "@shared/credits";
 
-/** App Store product ids are "ai.grammie.app.credits.<pack id>" (shared/credits.ts) */
-export const APPLE_PRODUCT_PREFIX = "ai.grammie.app.credits.";
-export const appleProductId = (packId: string) => `${APPLE_PRODUCT_PREFIX}${packId}`;
+// Buying credit packs inside the iPhone/iPad app (App Store consumables,
+// StoreKit 2). The page calls buyCreditsInApp(pack); the native side (the
+// Capacitor shell, client/src/native/) registers a StorePurchases adapter
+// with registerStorePurchases() at startup. Until it does, buying in the app
+// says "Coming soon in the app".
+//
+// The flow:
+//   1. POST /api/credits/apple/token  -> this account's appAccountToken (a UUID)
+//   2. adapter.purchase(productId, token): StoreKit 2
+//      Product.purchase(options: [.appAccountToken(token)]); returns the
+//      verified transaction's jwsRepresentation
+//   3. POST /api/credits/apple/transaction {jws}: the server verifies it with
+//      Apple's library and adds the credits (once per transaction)
+//   4. adapter.finish(transactionId) when the server says finish: true. An
+//      unfinished transaction comes back through adapter.unfinished() (and
+//      StoreKit's Transaction.updates), so nothing is lost if the app closes.
 
-export interface StorePack {
-  packId: string;
-  productId: string;
-  /** Local price from the App Store, e.g. "$4.99" */
-  price: string;
-  title: string;
+export type StorePurchaseResult =
+  | { status: "purchased"; jws: string; transactionId: string }
+  | { status: "cancelled" }
+  /** Ask to Buy or a payment that needs more steps: it arrives later through unfinished() */
+  | { status: "pending" };
+
+export interface StorePurchases {
+  /** Buys one consumable; appAccountToken ties it to this Grammie account */
+  purchase(productId: string, appAccountToken: string): Promise<StorePurchaseResult>;
+  /** Marks a transaction finished once the server has the credits */
+  finish(transactionId: string): Promise<void>;
+  /** Transactions bought but not yet finished (Transaction.unfinished) */
+  unfinished?(): Promise<Array<{ jws: string; transactionId: string }>>;
+  /** Localized App Store prices by product id ("$4.99"), to show in place of the web price */
+  prices?(productIds: string[]): Promise<Record<string, string>>;
+}
+
+let store: StorePurchases | null = null;
+
+/** Called by the native shell at startup */
+export function registerStorePurchases(adapter: StorePurchases | null): void {
+  store = adapter;
+}
+
+/** True when the app can sell credits (native app with the store adapter registered) */
+export function inAppPurchasesReady(): boolean {
+  return isNativeApp() && !!store;
 }
 
 export type BuyResult =
-  | { status: "purchased"; balance?: number }
+  | { status: "added"; credits: number; balance: number | null }
   | { status: "cancelled" }
-  | { status: "pending" } // Ask to Buy or a payment that needs approval
-  | { status: "failed"; message: string };
+  | { status: "pending"; message: string }
+  | { status: "unavailable"; message: string }
+  | { status: "error"; message: string };
 
-async function plugin() {
-  return import("@capgo/native-purchases");
-}
+export const COMING_SOON = "Coming soon in the app. For now you can add credits at grammie.ai.";
 
-/** Whether credits can be bought through the App Store here */
-export function canBuyInApp(): boolean {
-  return isNativeApp();
-}
-
-/** The packs as the App Store prices them for this person (empty on the web) */
-export async function availablePacks(packIds: string[]): Promise<StorePack[]> {
-  if (!isNativeApp() || packIds.length === 0) return [];
-  const { NativePurchases, PURCHASE_TYPE } = await plugin();
-  const { products } = await NativePurchases.getProducts({
-    productIdentifiers: packIds.map(appleProductId),
-    productType: PURCHASE_TYPE.INAPP,
-  });
-  return products.map((p) => ({
-    packId: p.identifier.slice(APPLE_PRODUCT_PREFIX.length),
-    productId: p.identifier,
-    price: p.priceString,
-    title: p.title,
-  }));
-}
-
-async function readJson(res: Response): Promise<any> {
-  return res.json().catch(() => ({}));
-}
-
-/** Records a StoreKit transaction with our server; true once the credits are on the account */
-async function recordWithServer(tx: { transactionId: string; productIdentifier: string; jwsRepresentation?: string }): Promise<{ ok: boolean; balance?: number; message?: string }> {
-  if (!tx.jwsRepresentation) return { ok: false, message: "The App Store didn't send a receipt for this purchase." };
-  const res = await apiFetch("/api/credits/apple/transaction", {
+async function post<T>(path: string, body?: unknown): Promise<{ ok: boolean; status: number; body: T & { error?: string } }> {
+  const res = await apiFetch(path, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ jws: tx.jwsRepresentation, transactionId: tx.transactionId, productId: tx.productIdentifier }),
+    body: body === undefined ? undefined : JSON.stringify(body),
   });
-  const body = await readJson(res);
-  if (!res.ok) return { ok: false, message: body?.error || body?.message };
-  return { ok: true, balance: typeof body?.balance === "number" ? body.balance : undefined };
+  const text = await res.text();
+  let parsed: any = {};
+  try {
+    parsed = text ? JSON.parse(text) : {};
+  } catch {
+    /* not JSON */
+  }
+  return { ok: res.ok, status: res.status, body: parsed };
 }
 
-/** Buys one credits pack through the App Store */
-export async function buyCredits(packId: string): Promise<BuyResult> {
-  if (!isNativeApp()) return { status: "failed", message: "Credits are bought on the Credits page on the website." };
-  const { NativePurchases, PURCHASE_TYPE } = await plugin();
+/** Sends a finished StoreKit purchase to the server and finishes it when the credits are in */
+async function deliver(jws: string, transactionId: string): Promise<BuyResult> {
+  const sent = await post<{ credits: number; balance: number | null; finish?: boolean }>("/api/credits/apple/transaction", { jws });
+  if (sent.body.finish && store) await store.finish(transactionId).catch(() => {});
+  if (!sent.ok) return { status: "error", message: sent.body.error || "We couldn't add those credits yet. We'll try again next time you open the app." };
+  return { status: "added", credits: sent.body.credits, balance: sent.body.balance };
+}
 
-  const tokenRes = await apiFetch("/api/credits/apple/token", { method: "POST" });
-  const tokenBody = await readJson(tokenRes);
-  const appAccountToken: string | undefined = tokenBody?.appAccountToken ?? tokenBody?.token;
-  if (!tokenRes.ok || !appAccountToken) {
-    return { status: "failed", message: tokenBody?.error || "Couldn't start the purchase. Check you're signed in and try again." };
-  }
-
-  let tx;
+/** Buys a credit pack in the app */
+export async function buyCreditsInApp(pack: CreditPack): Promise<BuyResult> {
+  if (!inAppPurchasesReady() || !store) return { status: "unavailable", message: COMING_SOON };
   try {
-    tx = await NativePurchases.purchaseProduct({
-      productIdentifier: appleProductId(packId),
-      productType: PURCHASE_TYPE.INAPP,
-      quantity: 1,
-      appAccountToken,
-      autoAcknowledgePurchases: false,
-    });
+    const token = await post<{ appAccountToken: string }>("/api/credits/apple/token");
+    if (!token.ok) return { status: "unavailable", message: token.body.error || COMING_SOON };
+    const bought = await store.purchase(pack.appleProductId, token.body.appAccountToken);
+    if (bought.status === "cancelled") return { status: "cancelled" };
+    if (bought.status === "pending") return { status: "pending", message: "Your purchase is waiting for approval. The credits will appear when it goes through." };
+    return await deliver(bought.jws, bought.transactionId);
   } catch (err) {
-    const message = String((err as Error)?.message ?? err);
-    if (/cancel/i.test(message)) return { status: "cancelled" };
-    if (/pending|deferred/i.test(message)) return { status: "pending" };
-    return { status: "failed", message: "The App Store couldn't complete the purchase. You weren't charged." };
+    console.error("[Purchases] Buying credits failed:", err);
+    return { status: "error", message: "The purchase didn't go through. Please try again in a moment." };
   }
-
-  const recorded = await recordWithServer(tx).catch(() => ({ ok: false as const, balance: undefined, message: undefined }));
-  if (!recorded.ok) {
-    // Left unfinished on purpose: StoreKit keeps it, and the next launch
-    // records it (recoverUnfinishedPurchases), so nothing paid for is lost
-    return {
-      status: "failed",
-      message: recorded.message || "Your payment went through, but the credits haven't arrived yet. They'll be added automatically the next time you open Grammie.",
-    };
-  }
-  await NativePurchases.finishTransaction({ transactionId: tx.transactionId }).catch(() => {});
-  return { status: "purchased", balance: recorded.balance };
 }
 
-let recovering = false;
-
-/** Records and finishes any credits purchase that was paid for but not finished */
-export async function recoverUnfinishedPurchases(): Promise<number> {
-  if (!isNativeApp() || recovering) return 0;
-  recovering = true;
-  try {
-    const { NativePurchases } = await plugin();
-    const { transactions } = await NativePurchases.getUnfinishedTransactions();
-    let finished = 0;
-    for (const tx of transactions) {
-      if (!tx.productIdentifier.startsWith(APPLE_PRODUCT_PREFIX)) continue;
-      const recorded = await recordWithServer(tx).catch(() => ({ ok: false }));
-      if (recorded.ok) {
-        await NativePurchases.finishTransaction({ transactionId: tx.transactionId }).catch(() => {});
-        finished += 1;
-      }
-    }
-    return finished;
-  } finally {
-    recovering = false;
+/** Delivers purchases that weren't finished (call at app start and when the app comes back) */
+export async function syncUnfinishedPurchases(): Promise<number> {
+  if (!inAppPurchasesReady() || !store?.unfinished) return 0;
+  let added = 0;
+  for (const t of await store.unfinished().catch(() => [])) {
+    const r = await deliver(t.jws, t.transactionId).catch(() => null);
+    if (r?.status === "added") added += r.credits;
   }
+  return added;
 }

@@ -416,3 +416,39 @@ describe("Instacart", () => {
     expect(sent[0].items[0]).toMatchObject({ name: "sour cream", line_item_measurements: [{ quantity: 480, unit: "gram" }] });
   });
 });
+
+describe("credits", () => {
+  async function withCredits(canStart: boolean) {
+    await new Promise(r => ctx.server.close(r));
+    const charged: string[] = [];
+    ctx = await setup({
+      credits: {
+        canStart: async (res, _owner) => {
+          if (!canStart) res.status(402).json({ error: "Add credits to keep going.", code: "needs_credits" });
+          return canStart;
+        },
+        charge: async (owner, planId) => { charged.push(`${owner}:${planId}`); },
+      },
+    });
+    return charged;
+  }
+
+  it("charges a new plan when it builds, and re-plans don't charge again", async () => {
+    const charged = await withCredits(true);
+    const plan = await makePlan();
+    expect(charged).toEqual([`alice:${plan.id}`]);
+    const replan = await call("PATCH", `/plans/${plan.id}`, { exclude: ["r1"] });
+    expect(replan.status).toBe(200);
+    // The router asks again; credits.ts makes the repeat a no-op (same plan id)
+    expect(new Set(charged)).toEqual(new Set([`alice:${plan.id}`]));
+  });
+
+  it("refuses a new plan the owner can't afford, without making it", async () => {
+    const charged = await withCredits(false);
+    const res = await call("POST", "/plans", sampleSetup());
+    expect(res.status).toBe(402);
+    expect(res.body.code).toBe("needs_credits");
+    expect((await call("GET", "/plans")).body).toEqual([]);
+    expect(charged).toEqual([]);
+  });
+});

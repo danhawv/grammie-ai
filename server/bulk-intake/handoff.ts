@@ -6,6 +6,7 @@ import { jobQueue } from "../job-queue";
 import { generateThumbnail } from "../thumbnail";
 import { recordImport } from "../recipe-imports";
 import { batchLaneConfig } from "../lib/batch-lane";
+import { charge, jobRefs } from "../lib/credits";
 
 // THE HANDOFF: where a reviewed bulk-intake recipe enters the normal import
 // pipeline. Everything before this (upload, first look, pairing, review) is
@@ -80,6 +81,9 @@ export async function handOffRecipe({ ownerUserId, uploadSessionId, index, pages
     sourceImageIndex: index,
   }));
   await recordImport({ recipeId: recipe.id, ownerUserId, sourceType: "photo", extraPageImages: dataUrls.slice(1) });
+  // 1 credit per recipe, checked for the whole import when Import was pressed
+  // (routes/bulk-intake.ts); the free first look before it costs nothing
+  await charge(ownerUserId, "recipe_import", jobRefs.recipeImport(recipe.id));
 
   // Photos were turned upright during the first look, so no straightenNewCard()
   if (pages.length > 1) jobQueue.addMultiImageExtractionJob(recipe.id, imagesBase64, { bulk: true });

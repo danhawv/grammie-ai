@@ -28,6 +28,7 @@ import { withNewPrimaryPhoto } from "./lib/dish-photo";
 import { randomUUID } from "crypto";
 import { markBulkImport, queueForBatch, useBatchLane } from "./batch-queue";
 import type { BatchJob } from "./lib/batch-lane";
+import { jobRefs, refundJob } from "./lib/credits";
 
 interface ImageGenerationJob {
   type: 'image';
@@ -36,6 +37,8 @@ interface ImageGenerationJob {
   recipeName: string;
   ingredients: string[];
   retries: number;
+  /** Credits paid for this photo on its own (a remake), given back if it never comes */
+  creditRef?: string;
 }
 
 interface EnrichmentJob {
@@ -299,14 +302,16 @@ class JobQueue {
     return this.fastQueue.some(j => j.recipeId === recipeId && j.type === type);
   }
 
+  /** Queues a dish photo; false when one is already queued for the recipe */
   async addImageGenerationJob(
     recipeId: string,
     recipeName: string,
-    ingredients: string[]
-  ) {
+    ingredients: string[],
+    options: { creditRef?: string } = {}
+  ): Promise<boolean> {
     if (this.isJobQueued(recipeId, 'image')) {
       console.log(`[Queue] Skipping duplicate image job for ${recipeId}`);
-      return;
+      return false;
     }
 
     const job: ImageGenerationJob = {
@@ -316,12 +321,14 @@ class JobQueue {
       recipeName,
       ingredients,
       retries: 0,
+      ...(options.creditRef ? { creditRef: options.creditRef } : {}),
     };
 
     this.imageQueue.push(job);
     console.log(`[Queue] Added image job for ${recipeId} (image queue: ${this.imageQueue.length}, fast queue: ${this.fastQueue.length})`);
 
     this.startImageWorkers();
+    return true;
   }
 
   /**
@@ -530,6 +537,8 @@ class JobQueue {
             updateData.title = 'Failed to Extract Recipe';
             updateData.imageGenerationStatus = 'failed';
             updateData.imageGenerationError = 'Extraction failed - image generation skipped';
+            // The card couldn't be read: give back the import's credit
+            await refundJob(jobRefs.recipeImport(job.recipeId), 'extraction_failed');
           }
 
           await storage.updateRecipe(job.recipeId, updateData);
@@ -606,6 +615,7 @@ class JobQueue {
           imageGenerationStatus: 'failed',
           imageGenerationError: `Image generation failed: ${errorMsg}`,
         });
+        if (job.creditRef) await refundJob(job.creditRef, 'photo_failed');
         await updateSessionProgress(job.recipeId);
       }
     } finally {

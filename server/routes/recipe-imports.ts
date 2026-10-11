@@ -22,6 +22,7 @@ import {
   setReviewStatus,
 } from "../recipe-imports";
 import { getUserId } from "./route-utils";
+import { charge, gate, jobRefs } from "../lib/credits";
 
 // The review step for AI imports (docs/DESIGN_PRINCIPLES.md §6.2): status for
 // JobStatus, the import record for the review screen, saving the checked
@@ -204,6 +205,10 @@ router.post("/recipe-imports/:id/retry", isAuthenticated, async (req: any, res) 
       if (pages.length === 0) {
         return res.status(400).json({ error: "The original photo isn't available to read again. Add the recipe again." });
       }
+      // Reading it again is an import again, unless its credit is still held
+      // (a failed read was given back)
+      if (!(await gate(res, userId, "recipe_import"))) return;
+      await charge(userId, "recipe_import", jobRefs.recipeImport(recipe.id));
       await storage.updateRecipe(recipe.id, {
         title: "Your Recipe",
         enrichmentStatus: "extracting",

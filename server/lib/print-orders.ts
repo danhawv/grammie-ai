@@ -28,7 +28,7 @@ const stripeKey = () => process.env.STRIPE_SECRET_KEY || "";
 export const paymentsEnabled = () => !!stripeKey();
 export const luluIsProduction = () => process.env.LULU_ENVIRONMENT === "production";
 let stripeClient: Stripe | null = null;
-function stripe(): Stripe {
+export function stripe(): Stripe {
   if (!stripeClient) stripeClient = new Stripe(stripeKey());
   return stripeClient;
 }

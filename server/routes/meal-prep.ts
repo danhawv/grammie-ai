@@ -46,6 +46,15 @@ export interface MealPrepRouterDeps {
   now?: () => Date;
   /** how long POST/PATCH wait for the solver before answering 202 */
   waitMs?: number;
+  /**
+   * Credits for a new plan (server/lib/credits.ts); omitted = free. A plan is
+   * charged once, when it first builds; re-plans and swaps are free.
+   */
+  credits?: {
+    /** false (with the 402 answer sent) when the owner can't afford a new plan */
+    canStart(res: Response, ownerId: string): Promise<boolean>;
+    charge(ownerId: string, planId: string): Promise<void>;
+  };
 }
 
 /** A build that hasn't finished after this long was cut off (e.g. a redeploy) */
@@ -119,7 +128,14 @@ export function createMealPrepRouter(deps: MealPrepRouterDeps): Router {
 
   /** Starts a build and waits a moment: 201/200 with the plan if it finished, else 202 to poll */
   async function startBuild(res: Response, row: PrepPlanRow, reuse: PrepPlanRow["wishesResult"], doneStatus: number) {
-    const job = buildPlan(service, row, reuse).finally(() => building.delete(row.id));
+    const job = buildPlan(service, row, reuse)
+      .then(async built => {
+        if (built?.buildStatus === "ready" && deps.credits) {
+          await deps.credits.charge(row.ownerUserId, row.id).catch(err => console.error("[MealPrep] Charging credits failed:", err));
+        }
+        return built;
+      })
+      .finally(() => building.delete(row.id));
     building.set(row.id, job);
     let timer: NodeJS.Timeout | undefined;
     const finished = await Promise.race([
@@ -185,6 +201,7 @@ export function createMealPrepRouter(deps: MealPrepRouterDeps): Router {
       if (overPlanLimit(req, res)) return;
       const ownerId = owner(req)!;
       const setup = await checkRecipes(ownerId, prepSetupSchema.parse(req.body) as PrepSetup);
+      if (deps.credits && !(await deps.credits.canStart(res, ownerId))) return;
       const row = await deps.store.createPlan(ownerId, setup);
       await startBuild(res, row, null, 201);
     } catch (err) { fail(res, err, "making the plan"); }

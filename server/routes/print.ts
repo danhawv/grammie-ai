@@ -10,6 +10,8 @@ import { listWebhooks, registerWebhook } from "../lib/lulu/client";
 import {
   applyLuluJob, customerPriceCents, getOrder, markCheckoutEnded, markPaid, orderByLuluId, orderFiles, paymentsEnabled, verifyStripeEvent,
 } from "../lib/print-orders";
+import { handleCreditStripeEvent } from "../lib/credit-stripe";
+import { credits } from "../lib/credits";
 import { SHIPPING_LEVELS, ESTIMATE_ADDRESS, estimateArrival, DEFAULT_SHIPPING_LEVEL } from "@shared/print-checkout";
 import { buildPodPackageId, BINDING_PAGE_LIMITS, BINDING_PAPER_COMPATIBILITY, unsupportedBookReason } from "../lib/lulu/pod-package";
 import { BOOK_SIZES, BINDING_TYPE_INFO, PAPER_TYPE_INFO, COLOR_TYPE_INFO } from "../lib/lulu/book-sizes";
@@ -67,6 +69,14 @@ router.post("/api/stripe/webhook", async (req: any, res) => {
   } catch (err: any) {
     console.warn("[Stripe] Webhook rejected:", err?.message);
     return res.status(400).json({ error: "Bad signature" });
+  }
+  // Credit packs (metadata.kind = "credits") and their refunds are handled
+  // before answering, so Stripe sends the event again if saving failed
+  try {
+    if (await handleCreditStripeEvent(credits(), event) === "handled") return res.json({ received: true });
+  } catch (err) {
+    console.error(`[Stripe] Credits for ${event.type} failed; Stripe will retry:`, err);
+    return res.status(500).json({ error: "Not saved" });
   }
   res.json({ received: true }); // answer fast; the work runs after
   const session: any = event.data.object;

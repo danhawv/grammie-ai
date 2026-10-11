@@ -1,9 +1,10 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, real, jsonb, boolean, timestamp, date, serial, unique, uniqueIndex, primaryKey, index, bigint, customType } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, real, jsonb, boolean, timestamp, date, serial, unique, uniqueIndex, primaryKey, index, bigint, customType, uuid } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { relations } from "drizzle-orm";
 import type { UserPreferences } from "./food-profile";
+import type { CreditKind, CreditSource } from "./credits";
 import type { IntakeStatus, PhotoCatalog } from "./bulk-intake";
 import type { PrepPlan, PrepSession, PrepSetup, ShoppingList, MealSlot } from "./meal-prep/contract";
 import type { CheckinOutcome, PrepBuildStatus, PrepPlanStatus, PrepProfileDefaults, PrepSubstitution, WishesResult } from "./meal-prep/api";
@@ -865,6 +866,57 @@ export const printOrders = pgTable("print_orders", {
 }));
 
 export type PrintOrder = typeof printOrders.$inferSelect;
+
+// ============================================================================
+// CREDITS (pay-as-you-go AI; shared/credits.ts, server/lib/credits.ts).
+// Arrive with migrations/2026-10-credits.sql.
+// ============================================================================
+export const creditBalances = pgTable("credit_balances", {
+  userId: varchar("user_id").primaryKey().references(() => users.id, { onDelete: 'cascade' }),
+  balance: integer("balance").notNull().default(0),
+  /** 'YYYY-MM' of the last monthly free grant */
+  monthlyFreeGrantedFor: varchar("monthly_free_granted_for", { length: 7 }),
+  /** appAccountToken for App Store purchases */
+  appleAccountToken: uuid("apple_account_token").unique(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const creditLedger = pgTable("credit_ledger", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  delta: integer("delta").notNull(),
+  kind: varchar("kind", { length: 20 }).$type<CreditKind>().notNull(),
+  source: varchar("source", { length: 20 }).$type<CreditSource>().notNull(),
+  externalId: text("external_id"),
+  jobRef: text("job_ref"),
+  meta: jsonb("meta").$type<Record<string, unknown>>(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  externalIdx: uniqueIndex("credit_ledger_external_idx").on(table.source, table.externalId).where(sql`external_id IS NOT NULL`),
+  userIdx: index("credit_ledger_user_idx").on(table.userId, table.createdAt),
+  jobIdx: index("credit_ledger_job_idx").on(table.jobRef).where(sql`job_ref IS NOT NULL`),
+}));
+
+export type CreditLedgerRow = typeof creditLedger.$inferSelect;
+
+export const appleTransactions = pgTable("apple_transactions", {
+  transactionId: varchar("transaction_id", { length: 64 }).primaryKey(),
+  originalTransactionId: varchar("original_transaction_id", { length: 64 }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  productId: varchar("product_id", { length: 200 }).notNull(),
+  environment: varchar("environment", { length: 20 }).notNull(),
+  appAccountToken: uuid("app_account_token"),
+  quantity: integer("quantity").notNull().default(1),
+  credits: integer("credits").notNull(),
+  purchaseDate: timestamp("purchase_date"),
+  revocationDate: timestamp("revocation_date"),
+  payload: jsonb("payload").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  userIdx: index("apple_transactions_user_idx").on(table.userId, table.createdAt),
+}));
 
 // ============================================================================
 // BULK INTAKE (a whole box of recipe cards at once; docs/BULK_IMPORT.md)
