@@ -178,7 +178,10 @@ export function extractPlan(P: Prepared, B: Built, values: Record<string, number
   const adjCostOf = (ws: WorkPlate[]) =>
     ws.reduce((a, w) => a + Array.from(w.adj).reduce((x, [j, g]) => x + g * adjusterCost(A[j]) + (g > 0 ? PEN.adjusterItem : 0), 0), 0);
 
-  // --- greedy pass: step adjusters up or down while it improves the day
+  // --- greedy pass: step adjusters (or a portion, by a quarter serving, when
+  // there's food to spare) up or down while it improves the day
+  const made = (i: number) => (scaleOf.get(i) ?? 0) * R[i].servings;
+  const eatenOf = (i: number) => work.reduce((a, w) => a + (w.recipeIdx === i ? w.servings : 0), 0);
   for (const dv of B.days) {
     const aim = P.aims[dv.personIdx]!;
     const ws = work.filter((w) => w.personIdx === dv.personIdx && w.day === dv.day);
@@ -204,10 +207,22 @@ export function extractPlan(P: Prepared, B: Built, values: Record<string, number
           if (g0) w.adj.set(j, g0);
           else w.adj.delete(j);
         });
+        // j = -1 marks a portion change
+        const s0 = w.servings;
+        const spare = made(w.recipeIdx) - eatenOf(w.recipeIdx);
+        for (const sv of [s0 - 0.25, s0 + 0.25]) {
+          if (sv < 0.5 || sv > 2) continue;
+          if (sv > s0 && spare < 0.25 - 1e-9) continue;
+          w.servings = sv;
+          const sc = score() + PEN.portionOffUsual; // a small cost, so portions only move when it helps
+          if (sc < cur - 1e-6 && (!best || sc < best.s)) best = { w, j: -1, g: sv, s: sc - PEN.portionOffUsual };
+        }
+        w.servings = s0;
       }
       if (!best) break;
       const b = best as { w: WorkPlate; j: number; g: number; s: number };
-      if (b.g > 0) b.w.adj.set(b.j, b.g);
+      if (b.j === -1) b.w.servings = b.g;
+      else if (b.g > 0) b.w.adj.set(b.j, b.g);
       else b.w.adj.delete(b.j);
       cur = b.s;
     }
@@ -330,6 +345,15 @@ export function extractPlan(P: Prepared, B: Built, values: Record<string, number
     const extra = Math.round(v(s.v));
     if (extra > 0) relaxed.push(`${P.people[s.personIdx].name} has ${R[s.recipeIdx].title} for ${s.slot} ${s.limit + extra} times, more than the usual ${s.limit}; there weren't enough suitable dishes to vary it.`);
   }
+  const sameDay = new Map<string, string[]>(); // person|recipe -> days
+  for (const s of B.slack.sameDay) if (v(s.v) > 0.5) {
+    const k = `${s.personIdx}|${s.recipeIdx}`;
+    sameDay.set(k, [...(sameDay.get(k) ?? []), dayLabel(P, s.day)]);
+  }
+  sameDay.forEach((days, k) => {
+    const [pi, ri] = k.split("|").map(Number);
+    relaxed.push(`${P.people[pi].name} has ${R[ri].title} twice in one day on ${list(days)}; there weren't enough suitable dishes to avoid it.`);
+  });
   const protByPerson = new Map<string, number>();
   for (const s of B.slack.protein) if (v(s.v) > 0.5) {
     const k = `${s.personIdx}|${s.protein}|${s.slot}`;

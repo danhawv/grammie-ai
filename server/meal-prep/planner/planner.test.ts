@@ -60,6 +60,16 @@ function addDaysIso(iso: string, n: number) {
   return d.toISOString().slice(0, 10);
 }
 
+function noSameDayDish(plan: PrepPlan) {
+  const seen = new Set<string>();
+  for (const p of plan.plates) {
+    const k = `${p.personId}:${p.day}:${p.items[0].refId}`;
+    if (seen.has(k)) return false;
+    seen.add(k);
+  }
+  return true;
+}
+
 function repeatsOk(plan: PrepPlan) {
   const counts = new Map<string, number>();
   for (const p of plan.plates) {
@@ -137,6 +147,7 @@ describe("planner scenarios", () => {
     expect(plan.fitScore).toBeGreaterThanOrEqual(80);
     expect(plan.relaxed).toEqual([]);
     expect(repeatsOk(plan)).toBe(true);
+    expect(noSameDayDish(plan)).toBe(true);
     expect(plan.notes.some((n) => n.startsWith("Chose"))).toBe(true);
     // the day's aim is the lunch + dinner share of 2,200 kcal
     expect(plan.fit[0].target?.kcal).toBe(Math.round(2200 * 0.65));
@@ -178,6 +189,18 @@ describe("planner scenarios", () => {
     expect(plan.relaxed.some((r) => r.includes("fit in the session"))).toBe(true);
   });
 
+  it("varies dishes within each day when the pool allows, and says so when it can't", async () => {
+    for (const name of ["two-people", "vegetarian-nut-allergy"]) {
+      const s = byName(name);
+      expect(noSameDayDish(await planner.plan(s.setup, s.facts, s.adjusters))).toBe(true);
+    }
+    const s = byName("one-lifter");
+    const setup = { ...s.setup, days: 2 };
+    const plan = await planner.plan(setup, s.facts.filter((f) => f.recipeId === "lentil-soup"), s.adjusters);
+    expect(plan.plates).toHaveLength(4);
+    expect(plan.relaxed.some((r) => r.includes("twice in one day"))).toBe(true);
+  });
+
   it("seven days uses the freezer for late plates", async () => {
     const s = byName("seven-days-freezer");
     const plan = await planner.plan(s.setup, s.facts, s.adjusters);
@@ -210,9 +233,10 @@ describe("planner scenarios", () => {
   it("a ±1 wish bonus tips the choice", async () => {
     const s = byName("one-lifter");
     const base = await planner.plan(s.setup, s.facts, s.adjusters, API_WEIGHTS);
-    expect(base.batches.map((b) => b.recipeId)).not.toContain("carnitas");
-    const more = await planner.plan(s.setup, s.facts, s.adjusters, { ...API_WEIGHTS, recipeBonus: { carnitas: 1 } });
-    expect(more.batches.map((b) => b.recipeId)).toContain("carnitas");
+    const ids = base.batches.map((b) => b.recipeId);
+    const wished = ["turkey-meatballs", "carnitas", "beef-broccoli", "burrito-bowls"].find((id) => !ids.includes(id))!;
+    const more = await planner.plan(s.setup, s.facts, s.adjusters, { ...API_WEIGHTS, recipeBonus: { [wished]: 1 } });
+    expect(more.batches.map((b) => b.recipeId)).toContain(wished);
     expect(more.fitScore).toBeGreaterThanOrEqual(80);
   });
 
@@ -270,7 +294,8 @@ describe.skipIf(!haveFixtures)("planner on the food-data fixtures", () => {
     const a = await planner.plan(lifter, facts, adjusters);
     checkInvariants(a, lifter, facts, adjusters);
     expect(a.plates).toHaveLength(10);
-    expect(a.fitScore).toBeGreaterThanOrEqual(60);
+    expect(a.fitScore).toBeGreaterThanOrEqual(80);
+    expect(noSameDayDish(a)).toBe(true);
 
     const family = setupFor([
       person("mom", "Mom", { targets: { kcal: 1800, protein: 120 }, allergies: ["tree nuts"] }),

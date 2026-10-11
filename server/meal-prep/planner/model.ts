@@ -48,6 +48,11 @@ const MAX_CANDIDATES = 20;
 export const PEN = {
   missingPlate: 2000,
   repeat: 15,
+  /** the same dish twice in one day for one person (gives way after repeats) */
+  sameDayDish: 20,
+  /** per plate of one dish beyond 3, and again beyond 5, in a person's plan */
+  weekDishOver3: 3,
+  weekDishOver5: 4,
   proteinRepeat: 25,
   sessionMinute: 2,
   budgetDollar: 1,
@@ -67,12 +72,13 @@ export const PEN = {
   portionOffUsual: 0.4,
   lowConfidencePlate: 0.6,
   mediumConfidencePlate: 0.2,
-  // macro penalties, per 1% of the day's aim
-  kcalUnder: 10,
-  kcalOver: 15,
+  // macro penalties, per 1% outside the band: large enough that variety
+  // preferences never push a day out of its band when the pool can avoid it
+  kcalUnder: 60,
+  kcalOver: 80,
   kcalOffAim: 0.15,
-  proteinShort: 15,
-  carbFatOut: 4,
+  proteinShort: 80,
+  carbFatOut: 40,
   // objective terms scaled by PlanWeights (sized for the default weights)
   preferenceScale: 2,
   costDollar: 0.75,
@@ -302,6 +308,7 @@ export interface Built {
   slack: {
     repeats: Array<{ v: string; personIdx: number; slot: MealSlot; recipeIdx: number; limit: number }>;
     protein: Array<{ v: string; personIdx: number; slot: MealSlot; day: number; protein: string }>;
+    sameDay: Array<{ v: string; personIdx: number; day: number; recipeIdx: number }>;
     sessionMinutes: string | null;
     budget: string | null;
   };
@@ -432,7 +439,7 @@ export function buildModel(P: Prepared): Built {
   if (freezerPlates.length && Number.isFinite(freezerCap)) lp.addRow(freezerPlates.map((p): Term => [p.x, 1]), "<=", freezerCap);
 
   // --- repeats per person, slot and dish
-  const slack: Built["slack"] = { repeats: [], protein: [], sessionMinutes: null, budget: null };
+  const slack: Built["slack"] = { repeats: [], protein: [], sameDay: [], sessionMinutes: null, budget: null };
   P.people.forEach((_, pi) => {
     for (const slot of personSlots(P.people[pi])) {
       const limit = P.maxRepeats[slot];
@@ -443,6 +450,26 @@ export function buildModel(P: Prepared): Built {
         const v = lp.addVar({ obj: PEN.repeat });
         lp.addRow([...xs.map((p): Term => [p.x, 1]), [v, -1]], "<=", limit);
         slack.repeats.push({ v, personIdx: pi, slot, recipeIdx: i, limit });
+      }
+    }
+  });
+
+  // --- variety within a person's plan: not the same dish twice in a day, and
+  // a growing cost for eating one dish many times across the week
+  P.people.forEach((_, pi) => {
+    for (let i = 0; i < nR; i++) {
+      const mine = plates.filter((p) => p.recipeIdx === i && occasions[p.occ].personIdx === pi);
+      for (let d = 0; d < setup.days; d++) {
+        const xs = mine.filter((p) => occasions[p.occ].day === d);
+        if (xs.length < 2) continue;
+        const v = lp.addVar({ obj: PEN.sameDayDish });
+        lp.addRow([...xs.map((p): Term => [p.x, 1]), [v, -1]], "<=", 1);
+        slack.sameDay.push({ v, personIdx: pi, day: d, recipeIdx: i });
+      }
+      for (const [over, pen] of [[3, PEN.weekDishOver3], [5, PEN.weekDishOver5]] as const) {
+        if (mine.length <= over) continue;
+        const e = lp.addVar({ obj: pen });
+        lp.addRow([...mine.map((p): Term => [p.x, 1]), [e, -1]], "<=", over);
       }
     }
   });

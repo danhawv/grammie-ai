@@ -18,6 +18,8 @@ export function greedyStart(P: Prepared, B: Built): Array<[string, number]> {
   R.forEach((r, i) => P.pinned.has(r.recipeId) && chosen.add(i));
   const usedQuarters = new Map<number, number>();
   const repeats = new Map<string, number>();
+  const dayUse = new Set<string>(); // person:day:recipe
+  const personUse = new Map<string, number>(); // person:recipe
   const pick = new Map<number, PlateVar>();
   const byOcc = new Map<number, PlateVar[]>();
   for (const p of B.plates) byOcc.set(p.occ, [...(byOcc.get(p.occ) ?? []), p]);
@@ -29,8 +31,11 @@ export function greedyStart(P: Prepared, B: Built): Array<[string, number]> {
     const fits = (byOcc.get(o.idx) ?? []).filter((p) => (usedQuarters.get(p.recipeIdx) ?? 0) + q <= 4 * SCALES[SCALES.length - 1] * R[p.recipeIdx].servings);
     const rep = (p: PlateVar) => repeats.get(key(o.personIdx, o.slot, p.recipeIdx)) ?? 0;
     const underLimit = (p: PlateVar) => rep(p) < P.maxRepeats[o.slot];
-    const rank = (a: PlateVar, b: PlateVar) => Number(a.mismatch) - Number(b.mismatch) || rep(a) - rep(b) || score(b.recipeIdx) - score(a.recipeIdx);
-    let best = fits.filter((p) => chosen.has(p.recipeIdx) && underLimit(p)).sort(rank)[0];
+    const today = (p: PlateVar) => Number(dayUse.has(`${o.personIdx}:${o.day}:${p.recipeIdx}`));
+    const uses = (p: PlateVar) => personUse.get(`${o.personIdx}:${p.recipeIdx}`) ?? 0;
+    const rank = (a: PlateVar, b: PlateVar) =>
+      Number(a.mismatch) - Number(b.mismatch) || today(a) - today(b) || rep(a) - rep(b) || uses(a) - uses(b) || score(b.recipeIdx) - score(a.recipeIdx);
+    let best = fits.filter((p) => chosen.has(p.recipeIdx) && underLimit(p) && !today(p)).sort(rank)[0];
     if (!best && chosen.size < P.maxDishes) best = fits.filter((p) => !chosen.has(p.recipeIdx)).sort(rank)[0];
     if (!best) best = fits.filter((p) => chosen.has(p.recipeIdx)).sort(rank)[0];
     if (!best) continue;
@@ -38,6 +43,8 @@ export function greedyStart(P: Prepared, B: Built): Array<[string, number]> {
     pick.set(o.idx, best);
     usedQuarters.set(best.recipeIdx, (usedQuarters.get(best.recipeIdx) ?? 0) + q);
     repeats.set(key(o.personIdx, o.slot, best.recipeIdx), rep(best) + 1);
+    dayUse.add(`${o.personIdx}:${o.day}:${best.recipeIdx}`);
+    personUse.set(`${o.personIdx}:${best.recipeIdx}`, uses(best) + 1);
   }
   if (P.exactDishes) {
     // a swap asks for an exact dish count: add the best unused dishes
