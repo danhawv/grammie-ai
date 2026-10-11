@@ -17,6 +17,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
+import { publicUrl } from "@/lib/platform";
 
 // The Cookbooks tab (/cookbooks): your cookbooks, ones you follow, and public
 // ones to discover. Each card opens the cookbook page.
@@ -86,7 +87,7 @@ export function CookbooksBrowser({ embedded = false }: { embedded?: boolean } = 
 
   const share = async (id: number) => {
     try {
-      await navigator.clipboard.writeText(`${window.location.origin}/cookbook/${id}`);
+      await navigator.clipboard.writeText(publicUrl(`/cookbook/${id}`));
       toast({ title: "Link copied" });
     } catch {
       toast({ title: "Couldn't copy the link", variant: "destructive" });

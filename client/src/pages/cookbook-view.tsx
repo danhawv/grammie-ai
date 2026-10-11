@@ -60,7 +60,7 @@ function loadListState(id: number): { filters: FiltersState; sortBy: string } {
 }
 import type { CookbookPrintProject } from "@shared/schema";
 import grammieImage from "@assets/image_1763329917086.png";
-import { apiFetch, mediaUrl } from "@/lib/platform";
+import { apiFetch, mediaUrl, publicUrl } from "@/lib/platform";
 
 interface CookbookWithOwner {
   id: number;
@@ -284,7 +284,7 @@ export default function CookbookViewPage() {
   });
 
   const handleShare = async () => {
-    const url = `${window.location.origin}/cookbook/${cookbookId}`;
+    const url = publicUrl(`/cookbook/${cookbookId}`);
     try {
       if (navigator.share && /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent)) {
         await navigator.share({ title: cookbook?.name, url });

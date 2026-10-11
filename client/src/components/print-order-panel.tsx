@@ -22,7 +22,8 @@ import {
 import type { PrintLayoutData } from "@shared/schema";
 import { BOOK_SIZES, BINDING_TYPES, PAPER_TYPES, COLOR_TYPES, COVER_FINISHES } from "@/lib/print-constants";
 import { TEMPLATE_STYLES } from "@/components/print/look-step";
-import { mediaUrl } from "@/lib/platform";
+import { mediaUrl, publicUrl } from "@/lib/platform";
+import { ExternalAnchor } from "@/components/external-anchor";
 
 // Checkout (docs/DESIGN_PRINCIPLES.md §5 and §8):
 //   1. Copies, with "about $X including shipping" and an arrival range before any form
@@ -413,7 +414,7 @@ export function PrintOrderPanel({
         <p className="text-sm text-muted-foreground">
           Includes tax. Printing takes a few business days before the book ships.
           {luluStatus.paymentsEnabled && " You'll pay on Stripe's secure checkout page next."}{" "}
-          <a href="/print-policy" target="_blank" rel="noreferrer" className="text-primary underline">Printing, refunds and returns</a>
+          <ExternalAnchor href={publicUrl("/print-policy")} className="text-primary underline">Printing, refunds and returns</ExternalAnchor>
         </p>
 
         {quote.suggestedAddress && (
@@ -872,7 +873,7 @@ function Tracking({ tracking }: { tracking: PrintOrderView["tracking"] }) {
       {tracking.map((t, i) => (
         <li key={i}>
           {t.carrier ? `${t.carrier} ` : ""}tracking{t.number ? ` ${t.number}` : ""}
-          {t.url && <> · <a className="text-primary underline" href={t.url} target="_blank" rel="noreferrer">Track the package</a></>}
+          {t.url && <> · <ExternalAnchor className="text-primary underline" href={t.url}>Track the package</ExternalAnchor></>}
         </li>
       ))}
     </ul>
@@ -912,7 +913,7 @@ function OrderHistory({ cookbookId, legacy }: { cookbookId: number; legacy: { id
             <span className="font-medium">{new Date(o.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</span>
             <span>{o.quantity} {o.quantity === 1 ? "copy" : "copies"}{o.priceCents != null ? ` · ${money(o.priceCents / 100)}` : ""}</span>
             <span className="text-muted-foreground">{o.status === "refunded" ? "Refunded" : orderStatusLabel(o.luluStatus)}</span>
-            {o.tracking?.[0]?.url && <a className="text-primary underline" href={o.tracking[0].url} target="_blank" rel="noreferrer">Track</a>}
+            {o.tracking?.[0]?.url && <ExternalAnchor className="text-primary underline" href={o.tracking[0].url}>Track</ExternalAnchor>}
           </li>
         ))}
       </ul>

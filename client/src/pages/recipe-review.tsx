@@ -20,6 +20,7 @@ import { importStatusText } from "@/lib/import-jobs";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { apiFetch, mediaUrl } from "@/lib/platform";
+import { ExternalAnchor } from "@/components/external-anchor";
 
 // Review step for AI imports (docs/DESIGN_PRINCIPLES.md §6.2): the original
 // beside what Grammie read, edit-likely spots highlighted, one "Check the
@@ -320,10 +321,10 @@ function SourcePanel({ recipe, record, kind }: { recipe: Recipe; record: ImportR
     return (
       <section aria-labelledby="original-heading" className="space-y-2 rounded-lg border bg-card p-4">
         <h2 id="original-heading" className="text-lg font-semibold">Where it came from</h2>
-        <a href={url} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center gap-2 break-all text-base font-medium text-primary underline underline-offset-4">
+        <ExternalAnchor href={url} className="inline-flex min-h-11 items-center gap-2 break-all text-base font-medium text-primary underline underline-offset-4">
           {host} <ExternalLink className="h-4 w-4 shrink-0" aria-hidden />
           <span className="sr-only">(opens in a new tab)</span>
-        </a>
+        </ExternalAnchor>
         <p className="text-sm text-muted-foreground">Open the page next to this one to compare.</p>
       </section>
     );

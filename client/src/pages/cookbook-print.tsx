@@ -6,7 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowLeft, ChevronLeft, ChevronRight, BookOpen, Printer, ShoppingCart } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import type { Recipe } from "@shared/schema";
-import { apiFetch, mediaUrl } from "@/lib/platform";
+import { apiFetch, mediaUrl, printPage } from "@/lib/platform";
 
 interface Cookbook {
   id: number;
@@ -137,7 +137,7 @@ export default function CookbookPrintPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-stone-100 flex items-center justify-center">
+      <div className="min-h-screen supports-[height:100dvh]:min-h-dvh bg-stone-100 flex items-center justify-center">
         <div className="w-full max-w-2xl p-8">
           <Skeleton className="h-[600px] w-full rounded-lg" />
         </div>
@@ -147,7 +147,7 @@ export default function CookbookPrintPage() {
 
   if (!cookbook) {
     return (
-      <div className="min-h-screen bg-stone-100 flex items-center justify-center">
+      <div className="min-h-screen supports-[height:100dvh]:min-h-dvh bg-stone-100 flex items-center justify-center">
         <div className="text-center">
           <p className="text-muted-foreground mb-4">Cookbook not found</p>
           <Link href="/"><Button variant="outline"><ArrowLeft className="h-4 w-4 mr-2" />Back to Home</Button></Link>
@@ -159,7 +159,7 @@ export default function CookbookPrintPage() {
   const page = pages[currentPage];
 
   return (
-    <div className="min-h-screen bg-stone-100">
+    <div className="min-h-screen supports-[height:100dvh]:min-h-dvh bg-stone-100">
       {/* Top bar */}
       <div className="sticky top-0 z-10 bg-white/90 backdrop-blur border-b px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -188,14 +188,14 @@ export default function CookbookPrintPage() {
               </Link>
             </>
           )}
-          <Button variant="ghost" size="sm" onClick={() => window.print()}>
+          <Button variant="ghost" size="sm" onClick={() => void printPage()}>
             <Printer className="h-4 w-4" />
           </Button>
         </div>
       </div>
 
       {/* Book display */}
-      <div className="flex items-center justify-center min-h-[calc(100vh-60px)] px-4 py-8">
+      <div className="flex items-center justify-center min-h-[calc(100vh-60px)] supports-[height:100dvh]:min-h-[calc(100dvh-60px)] px-4 py-8">
         {/* Left arrow */}
         <button
           onClick={() => setCurrentPage(p => Math.max(p - 1, 0))}

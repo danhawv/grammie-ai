@@ -52,7 +52,7 @@ export default function Settings() {
   const { queue, flush, status } = useAutosavePreferences();
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen supports-[height:100dvh]:min-h-dvh bg-background">
       <div className="mx-auto max-w-2xl px-4 py-6 md:py-10">
         <PageHeader
           title="Me"

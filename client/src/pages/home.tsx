@@ -1,6 +1,6 @@
 import { useState, useMemo, useReducer, useEffect, useRef, useCallback } from "react";
 import { SortMenu, serializeFiltersToParams, HANDY_FILTERS, filterChips, FilterChipsRow } from "@/components/recipe-filter-controls";
-import { useLocation } from "wouter";
+import { Link, useLocation } from "wouter";
 import { useQuery, useMutation, useInfiniteQuery } from "@tanstack/react-query";
 import { PaginatedRecipes, RecipeCardData } from "@shared/schema";
 import { pluralize } from "@shared/format";
@@ -47,7 +47,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useUndoable } from "@/hooks/use-undoable";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
-import { apiFetch } from "@/lib/platform";
+import { apiFetch, publicUrl } from "@/lib/platform";
 
 type CollectionFilter = "all" | "yours" | "public" | "shared" | "bookmarked";
 
@@ -384,7 +384,7 @@ function RecipesHome() {
   });
 
   const handleShare = async (recipe: RecipeCardData) => {
-    const url = `${window.location.origin}/recipe/${recipe.id}`;
+    const url = publicUrl(`/recipe/${recipe.id}`);
     try {
       if (navigator.share && window.matchMedia("(pointer: coarse)").matches) {
         await navigator.share({ title: recipe.title, url });
@@ -744,7 +744,7 @@ function RecipesHome() {
                 description="Sign in to save your family's recipes."
                 action={
                   <Button asChild>
-                    <a href="/login">Sign in</a>
+                    <Link href="/login">Sign in</Link>
                   </Button>
                 }
               />

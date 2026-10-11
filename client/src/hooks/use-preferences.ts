@@ -106,9 +106,14 @@ export function useAutosavePreferences(delay = 700) {
         }).then(() => queryClient.invalidateQueries({ queryKey: PREFERENCES_QUERY_KEY }));
       } catch { /* best effort */ }
     };
+    // Hidden too: phones (and the iPhone app) can close a backgrounded page
+    // without a pagehide
+    const onHidden = () => { if (document.visibilityState === "hidden") sendNow(); };
     window.addEventListener("pagehide", sendNow);
+    document.addEventListener("visibilitychange", onHidden);
     return () => {
       window.removeEventListener("pagehide", sendNow);
+      document.removeEventListener("visibilitychange", onHidden);
       if (timer.current) clearTimeout(timer.current);
       sendNow();
     };

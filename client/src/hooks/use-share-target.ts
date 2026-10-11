@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useLocation } from 'wouter';
+import { isNativeApp } from '@/lib/platform';
 
 interface SharedFile {
   name: string;
@@ -30,6 +31,9 @@ export function useShareTarget({ onShareReceived }: UseShareTargetOptions) {
   }, [onShareReceived]);
 
   useEffect(() => {
+    // The iPhone/iPad app receives shares through the system share sheet, not
+    // the web share target, and a service worker there would only get in the way
+    if (isNativeApp()) return;
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js')
         .then((registration) => {

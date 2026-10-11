@@ -19,7 +19,7 @@ export default function Login() {
 
   if (hasClerkKey) {
     return (
-      <div className="container flex items-center justify-center min-h-[calc(100vh-3.5rem)] py-8">
+      <div className="container flex items-center justify-center min-h-[calc(100vh-3.5rem)] supports-[height:100dvh]:min-h-[calc(100dvh-3.5rem)] py-8">
         <div className="w-full max-w-md space-y-6">
           <div className="flex flex-col items-center space-y-2">
             <img
@@ -44,7 +44,7 @@ export default function Login() {
   // Clerk is the only sign-in method; this renders when the publishable key
   // is missing from the environment
   return (
-    <div className="container flex items-center justify-center min-h-[calc(100vh-3.5rem)] py-8">
+    <div className="container flex items-center justify-center min-h-[calc(100vh-3.5rem)] supports-[height:100dvh]:min-h-[calc(100dvh-3.5rem)] py-8">
       <Card className="w-full max-w-md">
         <CardHeader className="space-y-1">
           <div className="flex justify-center mb-4">

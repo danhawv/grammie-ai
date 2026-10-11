@@ -111,8 +111,9 @@ function AppCore() {
               </main>
               <GrammieChat />
               <ShareHandler />
-              <InstallPrompt />
-              <UpdateBanner />
+              {/* The app installs and updates through the App Store */}
+              {!isNativeApp() && <InstallPrompt />}
+              {!isNativeApp() && <UpdateBanner />}
             </AddRecipeProvider>
           </UploadProgressProvider>
         </TooltipProvider>

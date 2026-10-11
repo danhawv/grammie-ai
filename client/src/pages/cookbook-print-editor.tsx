@@ -30,7 +30,7 @@ import { replacePhotosForBook } from "@/lib/place-photos";
 import { BINDING_PAGE_LIMITS } from "@/lib/print-constants";
 import type { CookbookPrintProject, CustomTemplate, PrintLayoutData } from "@shared/schema";
 import type { BindingTypeId, ColorTypeId, CoverFinishId, PaperTypeId, TrimSizeId } from "@/lib/print-constants";
-import { apiFetch } from "@/lib/platform";
+import { apiFetch, saveFile } from "@/lib/platform";
 
 // The print builder, as a short guided flow (docs/DESIGN_PRINCIPLES.md §8):
 // 1 Recipes & chapters · 2 Look · 3 Personalize · 4 Ready to print? · 5 Order.
@@ -270,14 +270,7 @@ function CookbookPrintEditorInner() {
         throw new Error(error.error || "Couldn't make the PDF");
       }
       const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${(draft.layoutData.title || "cookbook").replace(/[^a-zA-Z0-9]/g, "_")}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+      await saveFile(blob, `${(draft.layoutData.title || "cookbook").replace(/[^a-zA-Z0-9]/g, "_")}.pdf`);
       toast({ title: "PDF downloaded" });
     } catch (error) {
       toast({

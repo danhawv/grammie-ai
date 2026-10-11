@@ -5,6 +5,7 @@ import { SiInstagram, SiTiktok, SiYoutube } from "react-icons/si";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { mediaUrl } from "@/lib/platform";
+import { ExternalAnchor } from "@/components/external-anchor";
 
 // Where the recipe came from: the family's notes, the original card image,
 // the social post it was imported from, or the recipe it was adapted from.
@@ -51,10 +52,10 @@ function SourceAttribution({
         </div>
       </div>
       <Button variant="outline" asChild className="shrink-0 self-start sm:self-center" data-testid="button-view-original-post">
-        <a href={sourceUrl} target="_blank" rel="noopener noreferrer">
+        <ExternalAnchor href={sourceUrl}>
           <ExternalLink aria-hidden />
           View original post
-        </a>
+        </ExternalAnchor>
       </Button>
     </div>
   );

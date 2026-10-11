@@ -54,7 +54,7 @@ export default function CookbooksPage() {
           icon={BookOpen}
           title="Sign in to see your cookbooks"
           description="Cookbooks collect your family's recipes in one place, and you can print them as a real book."
-          action={<Button asChild><a href="/login">Sign in</a></Button>}
+          action={<Button asChild><Link href="/login">Sign in</Link></Button>}
         />
       </div>
     );

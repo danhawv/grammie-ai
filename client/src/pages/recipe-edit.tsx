@@ -268,7 +268,7 @@ export default function RecipeEditPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-background">
+      <div className="min-h-screen supports-[height:100dvh]:min-h-dvh bg-background">
         <div className="container max-w-4xl mx-auto px-4 py-8">
           <Skeleton className="h-10 w-48 mb-8" />
           <Skeleton className="h-[600px] w-full" />
@@ -279,7 +279,7 @@ export default function RecipeEditPage() {
 
   if (error || !recipe) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
+      <div className="min-h-screen supports-[height:100dvh]:min-h-dvh bg-background flex items-center justify-center">
         <Card className="max-w-md">
           <CardContent className="p-8 text-center">
             <ChefHat className="h-16 w-16 mx-auto text-muted-foreground mb-4" />
@@ -296,7 +296,7 @@ export default function RecipeEditPage() {
 
   if (!isOwner) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
+      <div className="min-h-screen supports-[height:100dvh]:min-h-dvh bg-background flex items-center justify-center">
         <Card className="max-w-md">
           <CardContent className="p-8 text-center">
             <ChefHat className="h-16 w-16 mx-auto text-muted-foreground mb-4" />
@@ -312,7 +312,7 @@ export default function RecipeEditPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen supports-[height:100dvh]:min-h-dvh bg-background">
       <div className="container max-w-4xl mx-auto px-4 py-8">
         <div className="flex items-center gap-4 mb-8">
           <Button

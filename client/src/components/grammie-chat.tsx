@@ -251,7 +251,7 @@ export function GrammieChat() {
     <Card
       role="dialog"
       aria-label="Ask Grammie"
-      className={`fixed ${bottom} ${corner} z-50 flex h-[600px] max-h-[calc(100dvh-10rem)] w-[380px] max-w-[calc(100vw-2rem)] flex-col shadow-2xl md:max-h-[calc(100vh-6rem)]`}
+      className={`fixed ${bottom} ${corner} z-50 flex h-[600px] max-h-[calc(100dvh-10rem)] w-[380px] max-w-[calc(100vw-2rem)] flex-col shadow-2xl md:max-h-[calc(100dvh-6rem)]`}
       data-testid="grammie-chat-panel"
     >
       {/* Header */}

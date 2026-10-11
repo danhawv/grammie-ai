@@ -37,7 +37,7 @@ import { RecipeExtras } from "@/components/recipe/recipe-extras";
 import { RecipeActionsMenu } from "@/components/recipe/recipe-actions";
 import { RecipePrintView } from "@/components/recipe/recipe-print-view";
 import { getDisplayIngredients, getDisplayInstructions } from "@/components/recipe/recipe-utils";
-import { apiFetch, mediaUrl } from "@/lib/platform";
+import { apiFetch, mediaUrl, publicUrl } from "@/lib/platform";
 
 // The recipe page, recipe first (docs/DESIGN_PRINCIPLES.md rule 1):
 // title, a short photo and the key numbers; a big "Start cooking"; then
@@ -306,7 +306,7 @@ export default function RecipeDetail() {
   const closeCooking = useCallback(() => setCookingModeOpen(false), []);
 
   const shareRecipe = async () => {
-    const url = window.location.href;
+    const url = publicUrl(window.location.pathname + window.location.search + window.location.hash);
     const title = recipe?.title || "Recipe";
     try {
       if (navigator.share) {
