@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRoute, Link, useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import type { Recipe } from "@shared/schema";
@@ -72,6 +72,12 @@ export default function RecipeDetail() {
   const { user } = useAuth();
   const { toast } = useToast();
   const [, setLocation] = useLocation();
+  // Opened from a meal prep plan: the back link returns there. Only meal prep
+  // paths are accepted, so the link can't be pointed anywhere else.
+  const backTo = useMemo(() => {
+    const from = new URLSearchParams(window.location.search).get("from");
+    return from && /^\/meal-prep\/[\w-]+$/.test(from) ? { href: from, label: "Your meal plan" } : null;
+  }, []);
 
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -368,12 +374,12 @@ export default function RecipeDetail() {
         {/* Back and "More" share a row so the title and key numbers fit the first phone screen */}
         <div className="mb-2 flex items-center justify-between gap-2">
           <Link
-            href="/"
+            href={backTo?.href ?? "/"}
             className="inline-flex min-h-11 items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground"
             data-testid="button-back-to-recipes"
           >
             <ArrowLeft className="h-4 w-4" aria-hidden />
-            Recipes
+            {backTo?.label ?? "Recipes"}
           </Link>
           <RecipeActionsMenu
             recipeId={recipe.id}

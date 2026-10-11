@@ -186,7 +186,7 @@ describe("planner scenarios", () => {
     checkInvariants(plan, s.setup, s.facts);
     expect(plan.plates).toHaveLength(10);
     expect(plan.relaxed.some((r) => r.includes("more than the usual"))).toBe(true);
-    expect(plan.relaxed.some((r) => r.includes("fit in the session"))).toBe(true);
+    expect(plan.relaxed.some((r) => r.includes("fits in the session"))).toBe(true);
   });
 
   it("varies dishes within each day when the pool allows, and says so when it can't", async () => {
@@ -319,7 +319,10 @@ describe("session time", () => {
     const slow = createPlanner({ timeLimit: 2, sessionTimeFactor: 2 });
     const base = await planner.plan(s.setup, s.facts, s.adjusters);
     const plan = await slow.plan(s.setup, s.facts, s.adjusters);
-    const minutes = (p: PrepPlan) => Number(/About (\d+) minutes of hands-on/.exec(p.notes.join(" "))![1]);
+    const minutes = (p: PrepPlan) => {
+      const m = /About (?:(\d+) hr)? ?(?:(\d+) min)? of hands-on/.exec(p.notes.join(" "))!;
+      return Number(m[1] ?? 0) * 60 + Number(m[2] ?? 0);
+    };
     expect(minutes(plan) / 2).toBeLessThan(minutes(base));
   });
 });

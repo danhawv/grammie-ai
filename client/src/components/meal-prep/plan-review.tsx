@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "wouter";
 import { useMutation } from "@tanstack/react-query";
 import { Ban, CheckCircle2, Loader2, MoreHorizontal, Pin, PinOff, Repeat, SlidersHorizontal, Sparkles } from "lucide-react";
 import type { PrepPlanView } from "@shared/meal-prep/api";
@@ -117,9 +118,16 @@ export function PlanReview({ record, onRecord }: { record: PrepPlanView; onRecor
             const name = title(b.recipeId);
             return (
               <li key={b.recipeId} className="flex flex-wrap gap-3 rounded-lg border bg-card p-3">
-                <DishPhoto src={photoOf(photos[b.recipeId])} className="h-20 w-20 shrink-0" />
+                {/* Opens the full recipe; its back link returns to this plan */}
+                <Link href={`/recipe/${b.recipeId}?from=${encodeURIComponent(`/meal-prep/${record.id}`)}`} className="shrink-0 rounded-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary" aria-label={`Open the recipe for ${name}`}>
+                  <DishPhoto src={photoOf(photos[b.recipeId])} className="h-20 w-20" />
+                </Link>
                 <div className="min-w-0 flex-1 basis-48">
-                  <h3 className="text-lg font-semibold leading-snug">{name}</h3>
+                  <h3 className="text-lg font-semibold leading-snug">
+                    <Link href={`/recipe/${b.recipeId}?from=${encodeURIComponent(`/meal-prep/${record.id}`)}`} className="underline-offset-4 hover:underline" data-testid={`link-dish-${b.recipeId}`}>
+                      {name}
+                    </Link>
+                  </h3>
                   <p className="mt-1 text-base">
                     Making {formatServings(b.servingsMade)}
                     {b.scale !== 1 && ` (${quarterFraction(b.scale)}× the recipe)`}

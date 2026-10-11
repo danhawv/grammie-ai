@@ -47,7 +47,7 @@ function hoursText(min: number): string {
   const h = Math.floor(min / 60);
   const m = min % 60;
   if (!h) return `${m} min`;
-  return m ? `${h} h ${m} min` : `${h} ${h === 1 ? "hour" : "hours"}`;
+  return m ? `${h} hr ${m} min` : `${h} ${h === 1 ? "hour" : "hours"}`;
 }
 
 export function createSessionBuilder(deps: SessionBuilderDeps = {}): SessionBuilderWithSteps {

@@ -3,6 +3,7 @@
 // doesn't knock a day out of its band), the fit per person-day, and plain
 // notes about what was chosen and what had to give.
 
+import { formatDuration } from "@shared/format";
 import type {
   CookBatch, DayFit, MacroKey, Macros, MealSlot, Plate, PlateItem, PrepPlan, RecipeFacts,
 } from "@shared/meal-prep/contract";
@@ -338,7 +339,7 @@ export function extractPlan(P: Prepared, B: Built, values: Record<string, number
   }
   work.filter((w) => w.mismatch).forEach((w) => notes.push(`${R[w.recipeIdx].title} is used for ${w.slot} on ${dayLabel(P, w.day)} because few ${w.slot} recipes were available.`));
   const handsOn = B.sessionMinutes(batches.map((bt) => ({ recipeIdx: R.findIndex((r) => r.recipeId === bt.recipeId), scale: bt.scale })), work.length);
-  notes.push(`About ${Math.round(handsOn)} minutes of hands-on work for ${plural(batches.length, "dish", "dishes")}, including portioning and washing up.`);
+  notes.push(`About ${formatDuration(handsOn) ?? "a few minutes"} of hands-on work for ${plural(batches.length, "dish", "dishes")}, including portioning and washing up.`);
 
   // --- what had to give
   occasions.forEach((o, idx) => {
@@ -387,7 +388,7 @@ export function extractPlan(P: Prepared, B: Built, values: Record<string, number
     else relaxed.push(`${R[e.recipeIdx].title} ${needs}, which isn't on the kitchen list; nothing else fit as well.`);
   }
   const over = v(B.slack.sessionMinutes);
-  if (over > 1) relaxed.push(`The dishes need about ${Math.round(handsOn)} minutes of hands-on work; about ${Math.round(B.sessionCap)} fit in the session.`);
+  if (over > 1) relaxed.push(`The dishes need about ${formatDuration(handsOn)} of hands-on work; about ${formatDuration(B.sessionCap) ?? "no time"} fits in the session.`);
   if (B.slack.budget && v(B.slack.budget) > 1) {
     const cost = batches.reduce((a, bt) => a + (R.find((r) => r.recipeId === bt.recipeId)!.cost ?? 0) * bt.scale, 0);
     relaxed.push(`The groceries come to about $${Math.round(cost)}, over the $${setup.budget} budget.`);
