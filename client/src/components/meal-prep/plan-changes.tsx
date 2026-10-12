@@ -158,11 +158,12 @@ export function OptionCards({
           {none ? "You've changed the dishes, so this is your own mix. Pick one of these to start over from it." : "Grammie made a few different weeks. Each one fits your goals; they differ in the dishes."}
         </p>
       </div>
-      <ul className="grid gap-3 md:grid-cols-3">
+      {/* Phones: a swipeable row so the week stays near the top; wider screens: side by side */}
+      <ul className="-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-2 md:mx-0 md:grid md:grid-cols-3 md:overflow-visible md:px-0 md:pb-0">
         {options.map((o) => {
           const fit = fitLine(o);
           return (
-            <li key={o.key}>
+            <li key={o.key} className="w-[80%] max-w-xs shrink-0 snap-start md:w-auto md:max-w-none">
               <button
                 type="button"
                 aria-pressed={o.chosen}
@@ -183,7 +184,7 @@ export function OptionCards({
                   ) : null}
                 </span>
                 <span className="text-sm text-muted-foreground">{o.summary}</span>
-                <span className="text-base">{o.dishes.map((d) => d.title).join(" · ")}</span>
+                <span className="line-clamp-2 text-base md:line-clamp-none">{o.dishes.map((d) => d.title).join(" · ")}</span>
                 <span className="mt-auto space-y-0.5 pt-1 text-sm">
                   <span className="flex items-center gap-1.5"><Clock className="h-4 w-4 shrink-0" aria-hidden /> About {formatMinutes(o.handsOnMinutes)} hands-on</span>
                   {fit && <span className="block">{fit}</span>}
