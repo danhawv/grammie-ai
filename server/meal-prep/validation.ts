@@ -7,7 +7,7 @@ import { CHECKIN_OUTCOMES } from "@shared/meal-prep/api";
 
 const id = z.string().trim().min(1).max(100);
 const recipeIds = z.array(id).max(500);
-const slot = z.enum(["breakfast", "lunch", "dinner", "snack"]);
+const slot = z.enum(["breakfast", "lunch", "dinner", "snack", "dessert"]);
 const name = z.string().trim().min(1).max(80);
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use a date like 2026-10-18")
   .refine(s => !Number.isNaN(Date.parse(`${s}T00:00:00Z`)), "That date doesn't exist");
@@ -31,7 +31,7 @@ export const personSchema = z.object({
   id,
   name,
   targets: macroTargetsSchema.nullable(),
-  slots: z.array(slot).min(1).max(4),
+  slots: z.array(slot).min(1).max(5),
   allergies: z.array(z.string().trim().min(1).max(60)).max(30).default([]),
   dislikes: z.array(z.string().trim().min(1).max(60)).max(50).default([]),
 });
@@ -59,7 +59,24 @@ const maxRepeats = z.object({
   lunch: z.number().int().min(1).max(7),
   dinner: z.number().int().min(1).max(7),
   snack: z.number().int().min(1).max(7),
+  dessert: z.number().int().min(1).max(7),
 }).partial();
+
+const recipeSource = z.object({
+  kind: z.enum(["all", "cookbooks", "favorites"]),
+  cookbookIds: z.array(z.number().int().positive()).max(50).optional(),
+}).refine(s => s.kind !== "cookbooks" || (s.cookbookIds?.length ?? 0) > 0, "Pick at least one cookbook");
+
+const topUps = z.enum(["chicken", "shake", "both", "none"]);
+
+/** Round 2 choices, shared by the setup and the saved defaults */
+const planningChoices = {
+  recipeSource: recipeSource.optional(),
+  allowSwaps: z.boolean().optional(),
+  topUps: topUps.optional(),
+  dessertsPerWeek: z.number().int().min(1).max(7).optional(),
+  shakeId: id.optional(),
+};
 
 export const prepSetupSchema = z.object({
   people: z.array(personSchema).min(1).max(8)
@@ -75,6 +92,9 @@ export const prepSetupSchema = z.object({
   maxRepeats: maxRepeats.optional(),
   budget: z.number().min(0).max(2000).optional(),
   wishes: z.string().trim().max(500).optional(),
+  ...planningChoices,
+  /** "recipeId:swapId" */
+  excludedSwaps: z.array(z.string().trim().min(3).max(220)).max(200).optional(),
 });
 
 export const profileDefaultsSchema = z.object({
@@ -86,6 +106,7 @@ export const profileDefaultsSchema = z.object({
   maxDishes: z.number().int().min(1).max(8).optional(),
   maxRepeats: maxRepeats.optional(),
   budget: z.number().min(0).max(2000).optional(),
+  ...planningChoices,
 });
 
 export const putProfileSchema = z.object({
@@ -106,11 +127,16 @@ export const patchPlanSchema = z.object({
   wishes: z.string().trim().max(500).optional(),
   /** drop what the wishes did without changing the text */
   clearWishes: z.boolean().optional(),
+  /** "Keep it as written": turn these swaps off ("recipeId:swapId") and re-plan */
+  keepAsWritten: z.array(z.string().trim().min(3).max(220)).max(50).optional(),
+  /** allow these swaps again */
+  allowSwapsAgain: z.array(z.string().trim().min(3).max(220)).max(50).optional(),
   /** done / cancelled without re-planning */
   status: z.enum(["done", "cancelled"]).optional(),
 });
 
 export const swapSchema = z.object({ recipeId: id });
+export const chooseOptionSchema = z.object({ key: z.enum(["balanced", "protein", "variety", "quick"]) });
 export const chooseSwapSchema = z.object({ recipeId: id });
 
 export const approveSchema = z.object({
