@@ -28,7 +28,7 @@ export type Macros = Record<MacroKey, number> & { fiber?: number };
 /** high = matched to USDA data with known amounts; medium = some guesses; low = AI estimate only */
 export type Confidence = "high" | "medium" | "low";
 
-export type MealSlot = "breakfast" | "lunch" | "dinner" | "snack";
+export type MealSlot = "breakfast" | "lunch" | "dinner" | "snack" | "dessert";
 
 /** Day index within the plan: 0 = first eating day */
 export type DayIndex = number;
@@ -101,6 +101,27 @@ export interface PrepSetup {
   budget?: number;
   /** free text wishes ("more Mexican, no fish"), turned into weights by the API */
   wishes?: string;
+  /**
+   * Which recipes to plan from (the API turns this into recipePool):
+   * all the owner's recipes, chosen cookbooks, or bookmarked favourites.
+   * Default: all.
+   */
+  recipeSource?: { kind: "all" | "cookbooks" | "favorites"; cookbookIds?: number[] };
+  /**
+   * Allow higher-protein / lighter ingredient swaps from each recipe's own
+   * suggestions (RecipeFacts.swaps) when portions alone can't hit targets.
+   * Every swap used is called out in the plan, labels and cook packet.
+   * Default true.
+   */
+  allowSwaps?: boolean;
+  /**
+   * Plain protein top-ups the planner may add to plates as a last resort:
+   * cooked chicken breast, a bottled protein shake, both, or none.
+   * Default "both". (Other adjusters like rice or yogurt are unaffected.)
+   */
+  topUps?: "chicken" | "shake" | "both" | "none";
+  /** desserts per person per week when "dessert" is a chosen slot (default 7 = every day) */
+  dessertsPerWeek?: number;
 }
 
 // ---------- Food data (part 1 produces, parts 2-3 consume) ----------
@@ -175,6 +196,37 @@ export interface RecipeFacts {
    * shared/meal-prep/equipment.ts). Missing = unknown, treated as none.
    */
   equipment?: string[];
+  /**
+   * Higher-protein / lighter swaps from the recipe's own suggestions, with
+   * exact per-serving macro changes worked out in code from USDA data.
+   * Missing = none known yet.
+   */
+  swaps?: IngredientSwap[];
+}
+
+/** One swap to a recipe's ingredients ("nonfat Greek yogurt instead of sour cream") */
+export interface IngredientSwap {
+  id: string; // stable per recipe, e.g. "sour-cream->greek-yogurt-nonfat"
+  /** what it's for: more protein, fewer calories, or both */
+  goal: "protein" | "lighter" | "both";
+  /** short, plain: "Greek yogurt instead of sour cream" */
+  title: string;
+  /** the exact ingredient changes, for the cook packet and shopping list */
+  changes: Array<{
+    lineIndex: number;
+    /** the line as written in the recipe */
+    from: string;
+    /** what to use instead, with the amount for the recipe's stated servings */
+    to: CanonicalIngredientRef;
+    toGrams: number;
+    /** "1 cup nonfat Greek yogurt" */
+    toDisplay: string;
+  }>;
+  /** change per serving when the swap is used (e.g. protein +14, kcal -95) */
+  perServingDelta: Macros;
+  confidence: Confidence;
+  /** where the idea came from: the recipe's own suggestion text, or a standard swap */
+  source: "recipe_suggestion" | "standard";
 }
 
 export interface NutritionCheck {
@@ -201,6 +253,12 @@ export interface Adjuster {
   /** needs cooking in the session (rice) or not (yogurt) */
   needsCooking: boolean;
   storage: StorageInfo;
+  /** protein top-ups are governed by PrepSetup.topUps; "shake" ones are bought ready-made */
+  topUp?: "chicken" | "shake";
+  /** for bottled shakes: brand and product, e.g. "Fairlife Core Power 26g" */
+  product?: string;
+  /** a shake is one bottle: amount is counted in whole bottles of this many grams */
+  unitGrams?: number;
 }
 
 export interface FoodData {
@@ -225,6 +283,20 @@ export interface CookBatch {
   /** recipe multiplier (0.5, 1, 1.5, 2, ...) */
   scale: number;
   servingsMade: number;
+  /** IngredientSwap ids used for this batch (empty = cooked as written) */
+  swapIds?: string[];
+}
+
+/** A swap the plan used, called out to the family and the cook */
+export interface AppliedSwap {
+  recipeId: string;
+  swapId: string;
+  title: string;
+  goal: IngredientSwap["goal"];
+  /** per serving, versus the recipe as written */
+  perServingDelta: Macros;
+  /** plain sentence: "Greek yogurt instead of sour cream: +14 g protein, 95 fewer calories per serving" */
+  note: string;
 }
 
 export interface PlateItem {
@@ -270,10 +342,24 @@ export interface PrepPlan {
   /** when the solver couldn't satisfy everything: which limits bound */
   relaxed: string[];
   solverMs: number;
+  /** swaps used (also on batches[].swapIds); plate macros already include them */
+  swapsApplied?: AppliedSwap[];
+}
+
+/** One of several plans offered side by side */
+export interface PlanOption {
+  key: "balanced" | "protein" | "variety" | "quick";
+  /** short label for the card: "Most protein", "Most variety", "Least cooking" */
+  label: string;
+  /** one line on what's different about it */
+  summary: string;
+  plan: PrepPlan;
 }
 
 export interface Planner {
   plan(setup: PrepSetup, facts: RecipeFacts[], adjusters: Adjuster[], weights?: PlanWeights): Promise<PrepPlan>;
+  /** up to 3 meaningfully different plans (different dishes), best-fitting first */
+  planOptions(setup: PrepSetup, facts: RecipeFacts[], adjusters: Adjuster[], weights?: PlanWeights): Promise<PlanOption[]>;
   /** replace one dish with alternatives that keep the week's macros (best first) */
   swapOptions(setup: PrepSetup, plan: PrepPlan, recipeId: string, facts: RecipeFacts[], adjusters: Adjuster[]): Promise<Array<{ recipeId: string; plan: PrepPlan }>>;
 }
