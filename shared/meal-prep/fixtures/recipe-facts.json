@@ -3253,6 +3253,266 @@
   "equipment": []
  },
  {
+  "recipeId": "96343f8d-4e5e-4124-a493-1b63b356707f",
+  "title": "A Really Good Hummus",
+  "servings": 8,
+  "perServing": {
+   "kcal": 149,
+   "protein": 5,
+   "carbs": 10.4,
+   "fat": 10.8,
+   "fiber": 3.4
+  },
+  "confidence": "high",
+  "nutritionSource": "usda",
+  "lines": [
+   {
+    "index": 0,
+    "raw": "200g dried chickpeas",
+    "ingredient": {
+     "id": "chickpeas",
+     "name": "Chickpeas",
+     "aisle": "Canned & Jarred"
+    },
+    "grams": 200,
+    "prep": "soaked overnight",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 3,
+    "raw": "60g lemon juice",
+    "ingredient": {
+     "id": "lemon-juice",
+     "name": "Lemon juice",
+     "aisle": "Produce"
+    },
+    "grams": 60,
+    "prep": "freshly squeezed",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 4,
+    "raw": "2 cloves garlic, peeled",
+    "ingredient": {
+     "id": "garlic",
+     "name": "Garlic",
+     "aisle": "Produce"
+    },
+    "grams": 6,
+    "prep": "peeled",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 6,
+    "raw": "150g tahini",
+    "ingredient": {
+     "id": "tahini",
+     "name": "Tahini",
+     "aisle": "Pantry"
+    },
+    "grams": 150,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   }
+  ],
+  "mealTypes": [
+   "snack"
+  ],
+  "cuisines": [
+   "Middle Eastern",
+   "Mediterranean"
+  ],
+  "mainProtein": "beans",
+  "allergens": [
+   "sesame"
+  ],
+  "activeMinutes": 760,
+  "totalMinutes": 910,
+  "storage": {
+   "fridgeDays": 4,
+   "freezerDays": null,
+   "reheat": "Serve cold. No reheating needed.",
+   "notes": [
+    "Eat cold."
+   ],
+   "reheatsWell": false
+  },
+  "preference": {
+   "rating": null,
+   "favorite": false,
+   "recentCount": 0
+  },
+  "cost": 5.1,
+  "component": "sauce",
+  "nutritionCheck": {
+   "coverage": 1,
+   "aiPerServing": {
+    "kcal": 175,
+    "protein": 6,
+    "carbs": 14,
+    "fat": 11,
+    "fiber": 5.5
+   },
+   "disagreesWithAi": false
+  },
+  "equipment": [
+   "food processor"
+  ]
+ },
+ {
+  "recipeId": "55691f59-055f-4bb7-9538-33e646fb0596",
+  "title": "Artichoke Parmesan Dip",
+  "servings": 8,
+  "perServing": {
+   "kcal": 273,
+   "protein": 5.9,
+   "carbs": 5.7,
+   "fat": 25.5,
+   "fiber": 1.4
+  },
+  "confidence": "high",
+  "nutritionSource": "usda",
+  "lines": [
+   {
+    "index": 0,
+    "raw": "8 oz. artichoke hearts, chop",
+    "ingredient": {
+     "id": "artichoke-hearts",
+     "name": "Artichoke hearts",
+     "aisle": "Canned & Jarred"
+    },
+    "grams": 226.8,
+    "prep": "chopped",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 1,
+    "raw": "1 c. mayo",
+    "ingredient": {
+     "id": "mayonnaise",
+     "name": "Mayonnaise",
+     "aisle": "Oils, Vinegars & Condiments"
+    },
+    "grams": 220.8,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 2,
+    "raw": "1/4 c. chopped onion",
+    "ingredient": {
+     "id": "onion-yellow",
+     "name": "Yellow onion",
+     "aisle": "Produce"
+    },
+    "grams": 40,
+    "prep": "chopped",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 3,
+    "raw": "1 (heavy) c. parmesan",
+    "ingredient": {
+     "id": "parmesan",
+     "name": "Parmesan",
+     "aisle": "Dairy & Eggs"
+    },
+    "grams": 100,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 4,
+    "raw": "1 T. Worcestershire",
+    "ingredient": {
+     "id": "worcestershire",
+     "name": "Worcestershire sauce",
+     "aisle": "Oils, Vinegars & Condiments"
+    },
+    "grams": 17,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 5,
+    "raw": "pepper",
+    "ingredient": {
+     "id": "black-pepper",
+     "name": "Black pepper",
+     "aisle": "Spices & Seasonings"
+    },
+    "grams": null,
+    "prep": null,
+    "optional": false,
+    "confidence": "low"
+   },
+   {
+    "index": 6,
+    "raw": "1/4 c. Monterey Jack",
+    "ingredient": {
+     "id": "swiss",
+     "name": "Swiss cheese",
+     "aisle": "Dairy & Eggs"
+    },
+    "grams": 33,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   }
+  ],
+  "mealTypes": [
+   "snack"
+  ],
+  "cuisines": [
+   "American"
+  ],
+  "mainProtein": "dairy",
+  "allergens": [
+   "dairy",
+   "egg",
+   "fish"
+  ],
+  "activeMinutes": 6,
+  "totalMinutes": 25,
+  "storage": {
+   "fridgeDays": 4,
+   "freezerDays": null,
+   "reheat": "Serve cold. No reheating needed.",
+   "notes": [
+    "Eat cold."
+   ],
+   "reheatsWell": false
+  },
+  "preference": {
+   "rating": null,
+   "favorite": false,
+   "recentCount": 0
+  },
+  "cost": 11.25,
+  "component": "sauce",
+  "nutritionCheck": {
+   "coverage": 0.99,
+   "aiPerServing": {
+    "kcal": 269,
+    "protein": 9,
+    "carbs": 5,
+    "fat": 24,
+    "fiber": 1
+   },
+   "disagreesWithAi": false
+  },
+  "equipment": []
+ },
+ {
   "recipeId": "efd7ac2a-6b51-4f12-a113-16e67f7fd091",
   "title": "3 Ingredient Protein Cookies",
   "servings": 5,
@@ -3320,7 +3580,8 @@
    }
   ],
   "mealTypes": [
-   "snack"
+   "snack",
+   "dessert"
   ],
   "cuisines": [
    "Healthy",
@@ -3361,116 +3622,25 @@
   "equipment": []
  },
  {
-  "recipeId": "c549731e-3a4c-4021-afe9-4fbc7d4f97b3",
-  "title": "83 Calorie Protein Crackly Top Fudge Brownie",
-  "servings": 12,
+  "recipeId": "61347159-23a0-421f-be15-f5cec430f4b8",
+  "title": "Chewy Pumpkin Cookies",
+  "servings": 16,
   "perServing": {
-   "kcal": 86,
-   "protein": 8.5,
-   "carbs": 6,
-   "fat": 3.9,
-   "fiber": 1.8
+   "kcal": 202,
+   "protein": 2,
+   "carbs": 28.3,
+   "fat": 9.2,
+   "fiber": 0.9
   },
   "confidence": "high",
   "nutritionSource": "usda",
   "lines": [
    {
     "index": 0,
-    "raw": "2 Medium Eggs",
+    "raw": "1/4 cup (50 g) granulated white sugar",
     "ingredient": {
-     "id": "egg",
-     "name": "Eggs",
-     "aisle": "Dairy & Eggs"
-    },
-    "grams": 88,
-    "prep": null,
-    "optional": false,
-    "confidence": "high"
-   },
-   {
-    "index": 1,
-    "raw": "120g (½ Cup) Egg Whites",
-    "ingredient": {
-     "id": "egg-white",
-     "name": "Egg whites",
-     "aisle": "Dairy & Eggs"
-    },
-    "grams": 120,
-    "prep": null,
-    "optional": false,
-    "confidence": "high"
-   },
-   {
-    "index": 2,
-    "raw": "170g (¾ Cup) 0% Greek Yogurt",
-    "ingredient": {
-     "id": "greek-yogurt-nonfat",
-     "name": "Nonfat Greek yogurt",
-     "aisle": "Dairy & Eggs"
-    },
-    "grams": 170,
-    "prep": null,
-    "optional": false,
-    "confidence": "high"
-   },
-   {
-    "index": 3,
-    "raw": "30g (2 tbsp) Coconut Oil, melted",
-    "ingredient": {
-     "id": "coconut-oil",
-     "name": "Coconut oil",
-     "aisle": "Oils, Vinegars & Condiments"
-    },
-    "grams": 30,
-    "prep": "melted",
-    "optional": false,
-    "confidence": "high"
-   },
-   {
-    "index": 4,
-    "raw": "5mL (1 tsp) Vanilla Extract (optional)",
-    "ingredient": {
-     "id": "vanilla",
-     "name": "Vanilla extract",
-     "aisle": "Baking"
-    },
-    "grams": 4.3,
-    "prep": null,
-    "optional": true,
-    "confidence": "high"
-   },
-   {
-    "index": 5,
-    "raw": "210–230g Granulated 1:1 Sugar Substitute",
-    "ingredient": {
-     "id": "sweetener-zero",
-     "name": "Zero-calorie sweetener",
-     "aisle": "Baking"
-    },
-    "grams": 220,
-    "prep": null,
-    "optional": false,
-    "confidence": "medium"
-   },
-   {
-    "index": 6,
-    "raw": "40g (⅓ Cup) All-Purpose Flour",
-    "ingredient": {
-     "id": "flour",
-     "name": "All-purpose flour",
-     "aisle": "Baking"
-    },
-    "grams": 40,
-    "prep": null,
-    "optional": false,
-    "confidence": "high"
-   },
-   {
-    "index": 7,
-    "raw": "50g (½ Cup + 2 tbsp) Cocoa Powder",
-    "ingredient": {
-     "id": "cocoa",
-     "name": "Cocoa powder",
+     "id": "sugar",
+     "name": "Sugar",
      "aisle": "Baking"
     },
     "grams": 50,
@@ -3479,72 +3649,327 @@
     "confidence": "high"
    },
    {
-    "index": 8,
-    "raw": "60g (about 2 Scoop) Chocolate or Vanilla Protein Powder",
+    "index": 1,
+    "raw": "1/2 tsp pumpkin pie spice",
     "ingredient": {
-     "id": "protein-powder",
-     "name": "Protein powder",
-     "aisle": "Pantry"
+     "id": "cinnamon",
+     "name": "Cinnamon",
+     "aisle": "Spices & Seasonings"
     },
-    "grams": 60,
+    "grams": 1.3,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 2,
+    "raw": "3/4 cup (168 g) unsalted butter, softened",
+    "ingredient": {
+     "id": "butter-unsalted",
+     "name": "Unsalted butter",
+     "aisle": "Dairy & Eggs"
+    },
+    "grams": 168,
+    "prep": "softened",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 3,
+    "raw": "1 cup (220 g) light brown sugar, packed",
+    "ingredient": {
+     "id": "brown-sugar",
+     "name": "Brown sugar",
+     "aisle": "Baking"
+    },
+    "grams": 220,
+    "prep": "packed",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 4,
+    "raw": "2 egg yolks, at room temperature",
+    "ingredient": {
+     "id": "egg-yolk",
+     "name": "Egg yolks",
+     "aisle": "Dairy & Eggs"
+    },
+    "grams": 34,
+    "prep": "room temperature",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 5,
+    "raw": "2 tsp vanilla",
+    "ingredient": {
+     "id": "vanilla",
+     "name": "Vanilla extract",
+     "aisle": "Baking"
+    },
+    "grams": 8.4,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 6,
+    "raw": "1/2 cup (122 g) canned pumpkin puree (Libby's works best)",
+    "ingredient": {
+     "id": "pumpkin-puree",
+     "name": "Pumpkin purée",
+     "aisle": "Canned & Jarred"
+    },
+    "grams": 122,
+    "prep": "dried (excess moisture removed)",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 7,
+    "raw": "1 3/4 cups (219 g) all purpose flour, spooned and leveled",
+    "ingredient": {
+     "id": "flour",
+     "name": "All-purpose flour",
+     "aisle": "Baking"
+    },
+    "grams": 219,
+    "prep": "spooned and leveled",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 8,
+    "raw": "1 tbsp pumpkin pie spice",
+    "ingredient": {
+     "id": "cinnamon",
+     "name": "Cinnamon",
+     "aisle": "Spices & Seasonings"
+    },
+    "grams": 7.8,
     "prep": null,
     "optional": false,
     "confidence": "high"
    },
    {
     "index": 9,
-    "raw": "3–4g (¾ tsp) Baking Powder",
+    "raw": "1/2 tsp baking soda",
     "ingredient": {
-     "id": "baking-powder",
-     "name": "Baking powder",
+     "id": "baking-soda",
+     "name": "Baking soda",
      "aisle": "Baking"
     },
-    "grams": 3.5,
+    "grams": 2.3,
     "prep": null,
     "optional": false,
     "confidence": "high"
    },
    {
     "index": 10,
-    "raw": "Pinch of Salt",
+    "raw": "1/2 tsp baking powder",
     "ingredient": {
-     "id": "salt",
-     "name": "Salt",
-     "aisle": "Spices & Seasonings"
+     "id": "baking-powder",
+     "name": "Baking powder",
+     "aisle": "Baking"
     },
-    "grams": 0.4,
+    "grams": 2.3,
     "prep": null,
     "optional": false,
     "confidence": "high"
    },
    {
     "index": 11,
-    "raw": "Chocolate Chips or Chunks to Taste (optional)",
+    "raw": "1/2 tsp salt",
     "ingredient": {
-     "id": "chocolate-chips",
-     "name": "Chocolate chips",
-     "aisle": "Baking"
+     "id": "salt",
+     "name": "Salt",
+     "aisle": "Spices & Seasonings"
     },
-    "grams": null,
+    "grams": 3,
     "prep": null,
-    "optional": true,
-    "confidence": "low"
+    "optional": false,
+    "confidence": "high"
    }
   ],
   "mealTypes": [
-   "snack"
+   "dessert"
   ],
   "cuisines": [
    "American"
   ],
-  "mainProtein": "dairy",
+  "mainProtein": null,
   "allergens": [
    "dairy",
    "egg",
    "gluten"
   ],
-  "activeMinutes": 15,
-  "totalMinutes": 30,
+  "activeMinutes": 33,
+  "totalMinutes": 63,
+  "storage": {
+   "fridgeDays": 3,
+   "freezerDays": 90,
+   "reheat": "Microwave covered until steaming hot all the way through (165°F), 2–3 minutes, stirring halfway.",
+   "notes": [],
+   "reheatsWell": true
+  },
+  "preference": {
+   "rating": null,
+   "favorite": false,
+   "recentCount": 0
+  },
+  "cost": 5.6,
+  "component": "complete",
+  "nutritionCheck": {
+   "coverage": 1,
+   "aiPerServing": {
+    "kcal": 210,
+    "protein": 1.5,
+    "carbs": 28,
+    "fat": 9.2,
+    "fiber": 0.8
+   },
+   "disagreesWithAi": false
+  },
+  "equipment": [
+   "stand mixer",
+   "hand mixer"
+  ]
+ },
+ {
+  "recipeId": "e20ae8c4-fefd-4173-a941-aede29744b39",
+  "title": "Chocolate Lava Cake",
+  "servings": 4,
+  "perServing": {
+   "kcal": 535,
+   "protein": 9.2,
+   "carbs": 56.3,
+   "fat": 31.3,
+   "fiber": 1
+  },
+  "confidence": "high",
+  "nutritionSource": "usda",
+  "lines": [
+   {
+    "index": 1,
+    "raw": "1 stick butter",
+    "ingredient": {
+     "id": "butter",
+     "name": "Butter",
+     "aisle": "Dairy & Eggs"
+    },
+    "grams": 113,
+    "prep": "melted",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 2,
+    "raw": "20g bittersweet chocolate",
+    "ingredient": {
+     "id": "chocolate-chips",
+     "name": "Chocolate chips",
+     "aisle": "Baking"
+    },
+    "grams": 20,
+    "prep": "chopped",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 3,
+    "raw": "20g semisweet chocolate",
+    "ingredient": {
+     "id": "chocolate-chips",
+     "name": "Chocolate chips",
+     "aisle": "Baking"
+    },
+    "grams": 20,
+    "prep": "chopped",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 4,
+    "raw": "1 1/4 cup conf. sugar",
+    "ingredient": {
+     "id": "powdered-sugar",
+     "name": "Powdered sugar",
+     "aisle": "Baking"
+    },
+    "grams": 150,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 5,
+    "raw": "2 eggs & 3 egg yolks",
+    "ingredient": {
+     "id": "egg",
+     "name": "Eggs",
+     "aisle": "Dairy & Eggs"
+    },
+    "grams": 220,
+    "prep": "separated",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 6,
+    "raw": "1 Tsp vanilla",
+    "ingredient": {
+     "id": "vanilla",
+     "name": "Vanilla extract",
+     "aisle": "Baking"
+    },
+    "grams": 4.2,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 7,
+    "raw": "1/2 cup flour",
+    "ingredient": {
+     "id": "flour",
+     "name": "All-purpose flour",
+     "aisle": "Baking"
+    },
+    "grams": 62.5,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 8,
+    "raw": "- vanilla Ice cream for serving.",
+    "ingredient": {
+     "id": "ice-cream",
+     "name": "Ice cream",
+     "aisle": "Frozen"
+    },
+    "grams": 264,
+    "prep": "optional for serving",
+    "optional": true,
+    "confidence": "high"
+   }
+  ],
+  "mealTypes": [
+   "dessert"
+  ],
+  "cuisines": [
+   "French",
+   "American"
+  ],
+  "mainProtein": "eggs",
+  "allergens": [
+   "dairy",
+   "egg",
+   "gluten"
+  ],
+  "activeMinutes": 13,
+  "totalMinutes": 23,
   "storage": {
    "fridgeDays": 5,
    "freezerDays": null,
@@ -3559,15 +3984,178 @@
    "favorite": false,
    "recentCount": 0
   },
-  "cost": 0.95,
+  "cost": 6.25,
   "component": "complete",
   "nutritionCheck": {
    "coverage": 1,
    "aiPerServing": {
-    "kcal": 83,
-    "protein": 8.3,
-    "carbs": 5,
-    "fat": 2.5,
+    "kcal": 552,
+    "protein": 8,
+    "carbs": 53,
+    "fat": 36,
+    "fiber": 1
+   },
+   "disagreesWithAi": false
+  },
+  "equipment": []
+ },
+ {
+  "recipeId": "50177966-e3f2-4523-9281-a2e6f4e41976",
+  "title": "Chocolate Pecan Pie",
+  "servings": 8,
+  "perServing": {
+   "kcal": 424,
+   "protein": 4.4,
+   "carbs": 52.4,
+   "fat": 23.6,
+   "fiber": 2.2
+  },
+  "confidence": "high",
+  "nutritionSource": "usda",
+  "lines": [
+   {
+    "index": 0,
+    "raw": "Betty Crocker Pie Crust Mix* & a deep dish pie plate",
+    "ingredient": {
+     "id": "pie-crust",
+     "name": "Pie crust",
+     "aisle": "Baking"
+    },
+    "grams": 180,
+    "prep": "unbaked, fitted into deep-dish 9-inch pie plate",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 1,
+    "raw": "1/4 cup butter (1/2 stick) melted",
+    "ingredient": {
+     "id": "butter-unsalted",
+     "name": "Unsalted butter",
+     "aisle": "Dairy & Eggs"
+    },
+    "grams": 56.8,
+    "prep": "melted",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 2,
+    "raw": "1/2 cup sugar",
+    "ingredient": {
+     "id": "sugar",
+     "name": "Sugar",
+     "aisle": "Baking"
+    },
+    "grams": 100.8,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 3,
+    "raw": "1/4 teaspoon salt",
+    "ingredient": {
+     "id": "salt",
+     "name": "Salt",
+     "aisle": "Spices & Seasonings"
+    },
+    "grams": 1.5,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 4,
+    "raw": "2 eggs",
+    "ingredient": {
+     "id": "egg",
+     "name": "Eggs",
+     "aisle": "Dairy & Eggs"
+    },
+    "grams": 100,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 5,
+    "raw": "3/4 cup Karo Dark Corn Syrup",
+    "ingredient": {
+     "id": "maple-syrup",
+     "name": "Maple syrup",
+     "aisle": "Oils, Vinegars & Condiments"
+    },
+    "grams": 240,
+    "prep": null,
+    "optional": false,
+    "confidence": "medium"
+   },
+   {
+    "index": 6,
+    "raw": "3/4 cups pecan halves (not chopped!)",
+    "ingredient": {
+     "id": "pecans",
+     "name": "Pecans",
+     "aisle": "Snacks"
+    },
+    "grams": 81.8,
+    "prep": "whole, not chopped",
+    "optional": false,
+    "confidence": "high"
+   },
+   {
+    "index": 7,
+    "raw": "1/2 cup Nestlé semi-sweet chocolate chips",
+    "ingredient": {
+     "id": "chocolate-chips",
+     "name": "Chocolate chips",
+     "aisle": "Baking"
+    },
+    "grams": 91,
+    "prep": null,
+    "optional": false,
+    "confidence": "high"
+   }
+  ],
+  "mealTypes": [
+   "dessert"
+  ],
+  "cuisines": [
+   "American",
+   "Southern"
+  ],
+  "mainProtein": "eggs",
+  "allergens": [
+   "dairy",
+   "egg",
+   "gluten",
+   "soy",
+   "tree-nut"
+  ],
+  "activeMinutes": 42,
+  "totalMinutes": 120,
+  "storage": {
+   "fridgeDays": 1,
+   "freezerDays": 60,
+   "reheat": "Rewarm slices in a 300°F oven for 8–10 minutes to refresh the crust and soften the chocolate.",
+   "notes": [],
+   "reheatsWell": true
+  },
+  "preference": {
+   "rating": null,
+   "favorite": false,
+   "recentCount": 0
+  },
+  "cost": 8.5,
+  "component": "complete",
+  "nutritionCheck": {
+   "coverage": 1,
+   "aiPerServing": {
+    "kcal": 412,
+    "protein": 4,
+    "carbs": 55,
+    "fat": 24,
     "fiber": 2
    },
    "disagreesWithAi": false

@@ -30,6 +30,9 @@ take((f) => main(f) && f.mainProtein == null, 2);
 take((f) => f.mealTypes.includes("breakfast") && f.perServing.kcal >= 150, 3);
 take((f) => f.mealTypes.includes("lunch") && !f.mealTypes.includes("dinner"), 2);
 take((f) => f.mealTypes.length === 1 && f.mealTypes[0] === "snack" && f.perServing.kcal < 400, 3);
+// Desserts: a few classic ones and a high-protein one
+take((f) => f.mealTypes.includes("dessert") && /protein/i.test(f.title), 1);
+take((f) => f.mealTypes.includes("dessert") && f.perServing.kcal >= 100 && f.perServing.kcal <= 600 && f.servings >= 4, 3);
 take((f) => f.component === "sauce", 1);
 take((f) => f.confidence === "low", 1);
 take((f) => main(f) && f.confidence === "medium" && !!f.nutritionCheck?.disagreesWithAi, 1);

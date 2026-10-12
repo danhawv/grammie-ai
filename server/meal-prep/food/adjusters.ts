@@ -4,6 +4,7 @@
 // food is cooked); shelf life follows FoodKeeper's safe end.
 
 import type { Adjuster, MealSlot, StorageInfo } from "@shared/meal-prep/contract";
+import { PROTEIN_SHAKES, shakeAdjusterId, type ProteinShake } from "@shared/meal-prep/shakes";
 import type { Catalog } from "./catalog";
 
 interface AdjusterSpec {
@@ -15,6 +16,7 @@ interface AdjusterSpec {
   slots: MealSlot[];
   needsCooking: boolean;
   storage: StorageInfo;
+  topUp?: Adjuster["topUp"];
 }
 
 const MICROWAVE = "Microwave covered 1–2 minutes until steaming hot (165°F).";
@@ -27,7 +29,7 @@ const SPECS: AdjusterSpec[] = [
     storage: { fridgeDays: 4, freezerDays: 180, reheat: "Sprinkle with a little water, cover and microwave 1–2 minutes until steaming hot.", notes: ["Cool and refrigerate within 1 hour of cooking."], reheatsWell: true } },
   { id: "quinoa-cooked", name: "Cooked quinoa", ingredientId: "quinoa-cooked", stepGrams: 25, maxGrams: 220, slots: ["lunch", "dinner"], needsCooking: true,
     storage: { fridgeDays: 4, freezerDays: 180, reheat: MICROWAVE, notes: ["Good cold in salads too."], reheatsWell: true } },
-  { id: "chicken-breast-cooked", name: "Cooked chicken breast", ingredientId: "chicken-cooked", stepGrams: 25, maxGrams: 200, slots: ["lunch", "dinner"], needsCooking: true,
+  { id: "chicken-breast-cooked", name: "Cooked chicken breast", ingredientId: "chicken-cooked", stepGrams: 25, maxGrams: 200, slots: ["lunch", "dinner"], needsCooking: true, topUp: "chicken",
     storage: { fridgeDays: 4, freezerDays: 60, reheat: MICROWAVE, notes: ["Cook to 165°F inside.", "Slice after cooling so it stays juicy."], reheatsWell: true } },
   { id: "eggs-hard-boiled", name: "Hard-boiled eggs", ingredientId: "egg-hard-boiled", stepGrams: 50, maxGrams: 150, slots: ["breakfast", "lunch", "snack"], needsCooking: true,
     storage: { fridgeDays: 7, freezerDays: null, reheat: COLD, notes: ["Keep in the shell until eating."], reheatsWell: false } },
@@ -53,7 +55,43 @@ const SPECS: AdjusterSpec[] = [
     storage: { fridgeDays: 3, freezerDays: null, reheat: COLD, notes: ["Keep dry and separate; dress just before eating."], reheatsWell: false } },
 ];
 
+/** Bottled shakes: bought ready-made, kept in the pantry until opened, one bottle per plate */
+const SHAKE_STORAGE: StorageInfo = {
+  fridgeDays: 30,
+  freezerDays: null,
+  reheat: "Serve cold. Shake well before opening.",
+  notes: ["Shelf-stable until opened (check the date on the bottle); chill before drinking.", "Once opened, keep in the fridge and finish within 1 day."],
+  reheatsWell: false,
+};
+
+export function shakeAdjuster(s: ProteinShake): Adjuster {
+  const per = (n: number) => n / s.grams;
+  return {
+    id: shakeAdjusterId(s.id),
+    name: `${s.product} protein shake`,
+    ingredient: { id: shakeAdjusterId(s.id), name: `${s.product} protein shake`, aisle: "Beverages" },
+    perGram: { kcal: per(s.kcal), protein: per(s.protein), carbs: per(s.carbs), fat: per(s.fat), fiber: per(s.fiber) },
+    stepGrams: s.grams,
+    maxGrams: s.grams,
+    slots: ["breakfast", "lunch", "snack"],
+    needsCooking: false,
+    storage: SHAKE_STORAGE,
+    topUp: "shake",
+    product: s.product,
+    unitGrams: s.grams,
+  };
+}
+
+/**
+ * Plate add-ons: the plain foods below (cooked chicken breast is the
+ * "chicken" protein top-up) plus one adjuster per bottled protein shake
+ * (topUp "shake"). The planner uses one shake brand per plan.
+ */
 export function buildAdjusters(catalog: Catalog): Adjuster[] {
+  return [...plainAdjusters(catalog), ...PROTEIN_SHAKES.map(shakeAdjuster)];
+}
+
+function plainAdjusters(catalog: Catalog): Adjuster[] {
   return SPECS.map((s) => {
     const ing = catalog.byId.get(s.ingredientId);
     if (!ing) throw new Error(`Adjuster ${s.id}: no catalog ingredient ${s.ingredientId}`);
@@ -68,6 +106,7 @@ export function buildAdjusters(catalog: Catalog): Adjuster[] {
       slots: s.slots,
       needsCooking: s.needsCooking,
       storage: s.storage,
+      ...(s.topUp ? { topUp: s.topUp } : {}),
     };
   });
 }

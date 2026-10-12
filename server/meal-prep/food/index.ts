@@ -19,11 +19,15 @@ import itemMapSeed from "./data/item-map.json";
 
 export { computeRecipeFacts, type RecipeInput } from "./facts";
 export { seedCatalog, Catalog } from "./catalog";
-export { buildAdjusters } from "./adjusters";
+export { buildAdjusters, shakeAdjuster } from "./adjusters";
+export { PROTEIN_SHAKES, DEFAULT_SHAKE_ID, DEFAULT_SHAKE_ADJUSTER_ID } from "@shared/meal-prep/shakes";
 export { parseUnit, toGrams } from "./units";
 
-/** Bumped automatically when the seeds change, so cached facts are recomputed */
-export const FOOD_DATA_VERSION = `v2-${hash(JSON.stringify(ingredientsSeed) + JSON.stringify(itemMapSeed))}`;
+/**
+ * Bumped automatically when the seeds change, so cached facts are recomputed.
+ * v3: dessert meal slot, shake adjusters, ingredient swaps.
+ */
+export const FOOD_DATA_VERSION = `v3-${hash(JSON.stringify(ingredientsSeed) + JSON.stringify(itemMapSeed))}`;
 
 type Package = { label: string; grams: number; price?: number };
 

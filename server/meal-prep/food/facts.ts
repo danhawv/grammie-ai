@@ -62,19 +62,39 @@ function add(a: Macros, b: Macros) {
   a.fiber = (a.fiber ?? 0) + (b.fiber ?? 0);
 }
 
-/** "Dinner", "lunch/dinner", "Main Course" -> slots. Mains suit lunch too (that's what meal prep is). */
-export function mealSlotsFor(types: string[] | null): MealSlot[] {
+// Sweet dishes by name, for recipes whose tags don't say dessert ("High Protein
+// Chocolate Lava Cake" tagged only "snack"); savory words veto it ("Chili Pie",
+// "Tomato Tart", "Cheese Cookies").
+const SWEET_TITLE = /\b(cookies?|cookie dough|brownies?|blondies?|cakes?|cupcakes?|cheesecakes?|pies?|tarts?|cobblers?|crisp|crumble|puddings?|fudge|cand(y|ies)|truffles?|toffee|brittle|mousse|ice cream|sorbet|gelato|frosting|icing|custards?|meringues?|macaroons?|shortbread|biscotti|baklava|desserts?|chocolate|nutella)\b/i;
+const SAVORY_TITLE = /\b(cheese cookies?|chili|hamburger|burger|potato(es)?|spaghetti|chicken|beef|pork|bacon|ham|sausage|crab|tuna|salmon|shrimp|fish|tomato(es)?|zucchini|broccoli|spinach|savou?ry|corn|onion|cauliflower|feta|gruy[eè]re|truffle oil|truffled|salad|soup|pizza|quiche|pot pie|shepherd|cottage pie|meat|pissaladi\w*|appetizer)\b/i;
+
+/**
+ * "Dinner", "lunch/dinner", "Main Course", "Dessert" -> slots. Mains suit lunch
+ * too (that's what meal prep is). Desserts, sweets, baking and treats are
+ * "dessert", kept apart from "snack" (appetizers, dips, drinks); a recipe
+ * tagged both keeps both. A sweet title on a recipe tagged only as a snack
+ * (or not at all) adds "dessert".
+ */
+export function mealSlotsFor(types: string[] | null, title = ""): MealSlot[] {
   const out = new Set<MealSlot>();
+  let mealTagged = false;
   for (const raw of types ?? []) {
     for (const t of raw.toLowerCase().split(/[\/,&]| and /).map((s) => s.trim())) {
+      if (!t) continue;
       if (/breakfast|brunch/.test(t)) out.add("breakfast");
       if (/lunch/.test(t)) out.add("lunch");
-      if (/dinner|main|entree|entrée|soup|stew|grain bowl|bowl/.test(t)) { out.add("dinner"); out.add("lunch"); }
+      if (/dinner|main|entree|entrée|soup|stew|grain ?bowl|bowl/.test(t)) { out.add("dinner"); out.add("lunch"); }
       if (/^salad/.test(t)) out.add("lunch");
-      if (/snack|appetizer|dip|dessert|beverage|drink|treat/.test(t)) out.add("snack");
+      if (/snack|beverage|drink|smoothie/.test(t)) out.add("snack");
+      if (/appetizer|dip/.test(t)) out.add("snack");
+      if (/dessert|sweet|baking|baked good|bakery|treat|pastr|confection|candy|cookie/.test(t)) out.add("dessert");
+      if (/appetizer|dip|side|sauce|marinade|condiment|dressing|rub/.test(t)) mealTagged = true;
     }
   }
-  const order: MealSlot[] = ["breakfast", "lunch", "dinner", "snack"];
+  if (out.has("breakfast") || out.has("lunch") || out.has("dinner")) mealTagged = true;
+  // Only for recipes not already placed as a meal, side, appetizer or sauce
+  if (!out.has("dessert") && !mealTagged && SWEET_TITLE.test(title) && !SAVORY_TITLE.test(title)) out.add("dessert");
+  const order: MealSlot[] = ["breakfast", "lunch", "dinner", "snack", "dessert"];
   return order.filter((s) => out.has(s));
 }
 
@@ -230,7 +250,7 @@ export function computeRecipeFacts(r: RecipeInput, catalog: Catalog, opts: Facts
     return g / totalGrams;
   };
   const kinds = (r.mealType ?? []).map((t) => t.toLowerCase());
-  const mealTypes = mealSlotsFor(r.mealType);
+  const mealTypes = mealSlotsFor(r.mealType, r.title);
 
   const storage = storageFor({
     mainProtein, kinds, cookingMethods: r.cookingMethods ?? [], tips: r.tips ?? [], title: r.title,

@@ -126,7 +126,8 @@
     "Slice after cooling so it stays juicy."
    ],
    "reheatsWell": true
-  }
+  },
+  "topUp": "chicken"
  },
  {
   "id": "eggs-hard-boiled",
@@ -476,5 +477,264 @@
    ],
    "reheatsWell": false
   }
+ },
+ {
+  "id": "shake-premier-protein-30g",
+  "name": "Premier Protein 30g protein shake",
+  "ingredient": {
+   "id": "shake-premier-protein-30g",
+   "name": "Premier Protein 30g protein shake",
+   "aisle": "Beverages"
+  },
+  "perGram": {
+   "kcal": 0.47337278106508873,
+   "protein": 0.08875739644970414,
+   "carbs": 0.011834319526627219,
+   "fat": 0.008875739644970414,
+   "fiber": 0.0029585798816568047
+  },
+  "stepGrams": 338,
+  "maxGrams": 338,
+  "slots": [
+   "breakfast",
+   "lunch",
+   "snack"
+  ],
+  "needsCooking": false,
+  "storage": {
+   "fridgeDays": 30,
+   "freezerDays": null,
+   "reheat": "Serve cold. Shake well before opening.",
+   "notes": [
+    "Shelf-stable until opened (check the date on the bottle); chill before drinking.",
+    "Once opened, keep in the fridge and finish within 1 day."
+   ],
+   "reheatsWell": false
+  },
+  "topUp": "shake",
+  "product": "Premier Protein 30g",
+  "unitGrams": 338
+ },
+ {
+  "id": "shake-fairlife-core-power-26g",
+  "name": "Fairlife Core Power 26g protein shake",
+  "ingredient": {
+   "id": "shake-fairlife-core-power-26g",
+   "name": "Fairlife Core Power 26g protein shake",
+   "aisle": "Beverages"
+  },
+  "perGram": {
+   "kcal": 0.39443155452436196,
+   "protein": 0.060324825986078884,
+   "carbs": 0.018561484918793503,
+   "fat": 0.010440835266821345,
+   "fiber": 0.004640371229698376
+  },
+  "stepGrams": 431,
+  "maxGrams": 431,
+  "slots": [
+   "breakfast",
+   "lunch",
+   "snack"
+  ],
+  "needsCooking": false,
+  "storage": {
+   "fridgeDays": 30,
+   "freezerDays": null,
+   "reheat": "Serve cold. Shake well before opening.",
+   "notes": [
+    "Shelf-stable until opened (check the date on the bottle); chill before drinking.",
+    "Once opened, keep in the fridge and finish within 1 day."
+   ],
+   "reheatsWell": false
+  },
+  "topUp": "shake",
+  "product": "Fairlife Core Power 26g",
+  "unitGrams": 431
+ },
+ {
+  "id": "shake-fairlife-core-power-elite-42g",
+  "name": "Fairlife Core Power Elite 42g protein shake",
+  "ingredient": {
+   "id": "shake-fairlife-core-power-elite-42g",
+   "name": "Fairlife Core Power Elite 42g protein shake",
+   "aisle": "Beverages"
+  },
+  "perGram": {
+   "kcal": 0.5336426914153132,
+   "protein": 0.09744779582366589,
+   "carbs": 0.02088167053364269,
+   "fat": 0.008120649651972157,
+   "fiber": 0.004640371229698376
+  },
+  "stepGrams": 431,
+  "maxGrams": 431,
+  "slots": [
+   "breakfast",
+   "lunch",
+   "snack"
+  ],
+  "needsCooking": false,
+  "storage": {
+   "fridgeDays": 30,
+   "freezerDays": null,
+   "reheat": "Serve cold. Shake well before opening.",
+   "notes": [
+    "Shelf-stable until opened (check the date on the bottle); chill before drinking.",
+    "Once opened, keep in the fridge and finish within 1 day."
+   ],
+   "reheatsWell": false
+  },
+  "topUp": "shake",
+  "product": "Fairlife Core Power Elite 42g",
+  "unitGrams": 431
+ },
+ {
+  "id": "shake-fairlife-nutrition-plan-30g",
+  "name": "Fairlife Nutrition Plan 30g protein shake",
+  "ingredient": {
+   "id": "shake-fairlife-nutrition-plan-30g",
+   "name": "Fairlife Nutrition Plan 30g protein shake",
+   "aisle": "Beverages"
+  },
+  "perGram": {
+   "kcal": 0.423728813559322,
+   "protein": 0.0847457627118644,
+   "carbs": 0.00847457627118644,
+   "fat": 0.007062146892655367,
+   "fiber": 0
+  },
+  "stepGrams": 354,
+  "maxGrams": 354,
+  "slots": [
+   "breakfast",
+   "lunch",
+   "snack"
+  ],
+  "needsCooking": false,
+  "storage": {
+   "fridgeDays": 30,
+   "freezerDays": null,
+   "reheat": "Serve cold. Shake well before opening.",
+   "notes": [
+    "Shelf-stable until opened (check the date on the bottle); chill before drinking.",
+    "Once opened, keep in the fridge and finish within 1 day."
+   ],
+   "reheatsWell": false
+  },
+  "topUp": "shake",
+  "product": "Fairlife Nutrition Plan 30g",
+  "unitGrams": 354
+ },
+ {
+  "id": "shake-ensure-max-protein-30g",
+  "name": "Ensure Max Protein 30g protein shake",
+  "ingredient": {
+   "id": "shake-ensure-max-protein-30g",
+   "name": "Ensure Max Protein 30g protein shake",
+   "aisle": "Beverages"
+  },
+  "perGram": {
+   "kcal": 0.43731778425655976,
+   "protein": 0.08746355685131195,
+   "carbs": 0.01749271137026239,
+   "fat": 0.004373177842565598,
+   "fiber": 0.0058309037900874635
+  },
+  "stepGrams": 343,
+  "maxGrams": 343,
+  "slots": [
+   "breakfast",
+   "lunch",
+   "snack"
+  ],
+  "needsCooking": false,
+  "storage": {
+   "fridgeDays": 30,
+   "freezerDays": null,
+   "reheat": "Serve cold. Shake well before opening.",
+   "notes": [
+    "Shelf-stable until opened (check the date on the bottle); chill before drinking.",
+    "Once opened, keep in the fridge and finish within 1 day."
+   ],
+   "reheatsWell": false
+  },
+  "topUp": "shake",
+  "product": "Ensure Max Protein 30g",
+  "unitGrams": 343
+ },
+ {
+  "id": "shake-muscle-milk-genuine-25g",
+  "name": "Muscle Milk Genuine 25g protein shake",
+  "ingredient": {
+   "id": "shake-muscle-milk-genuine-25g",
+   "name": "Muscle Milk Genuine 25g protein shake",
+   "aisle": "Beverages"
+  },
+  "perGram": {
+   "kcal": 0.46647230320699706,
+   "protein": 0.0728862973760933,
+   "carbs": 0.026239067055393587,
+   "fat": 0.013119533527696793,
+   "fiber": 0.014577259475218658
+  },
+  "stepGrams": 343,
+  "maxGrams": 343,
+  "slots": [
+   "breakfast",
+   "lunch",
+   "snack"
+  ],
+  "needsCooking": false,
+  "storage": {
+   "fridgeDays": 30,
+   "freezerDays": null,
+   "reheat": "Serve cold. Shake well before opening.",
+   "notes": [
+    "Shelf-stable until opened (check the date on the bottle); chill before drinking.",
+    "Once opened, keep in the fridge and finish within 1 day."
+   ],
+   "reheatsWell": false
+  },
+  "topUp": "shake",
+  "product": "Muscle Milk Genuine 25g",
+  "unitGrams": 343
+ },
+ {
+  "id": "shake-owyn-pro-elite-32g",
+  "name": "OWYN Pro Elite 32g (plant-based) protein shake",
+  "ingredient": {
+   "id": "shake-owyn-pro-elite-32g",
+   "name": "OWYN Pro Elite 32g (plant-based) protein shake",
+   "aisle": "Beverages"
+  },
+  "perGram": {
+   "kcal": 0.5420054200542005,
+   "protein": 0.08672086720867209,
+   "carbs": 0.008130081300813009,
+   "fat": 0.018970189701897018,
+   "fiber": 0.008130081300813009
+  },
+  "stepGrams": 369,
+  "maxGrams": 369,
+  "slots": [
+   "breakfast",
+   "lunch",
+   "snack"
+  ],
+  "needsCooking": false,
+  "storage": {
+   "fridgeDays": 30,
+   "freezerDays": null,
+   "reheat": "Serve cold. Shake well before opening.",
+   "notes": [
+    "Shelf-stable until opened (check the date on the bottle); chill before drinking.",
+    "Once opened, keep in the fridge and finish within 1 day."
+   ],
+   "reheatsWell": false
+  },
+  "topUp": "shake",
+  "product": "OWYN Pro Elite 32g (plant-based)",
+  "unitGrams": 369
  }
 ]
