@@ -86,6 +86,9 @@ export function matchExclusion(r: RecipeFacts, words: string[]): string | null {
 
 export function adjusterExcluded(a: Adjuster, words: string[]): boolean {
   const texts = [norm(a.id), norm(a.name), norm(a.ingredient.id), norm(a.ingredient.name)];
+  if (a.product) texts.push(norm(a.product));
+  // a bottled shake is milk-based (whey, milk protein) unless it says plant-based
+  if (a.topUp === "shake" && !/plant|vegan|owyn/i.test(`${a.id} ${a.name} ${a.product ?? ""}`)) texts.push("milk protein shake", "whey", "dairy");
   return words.some((w) => {
     const re = wordStart(w);
     return texts.some((t) => re.test(t));
@@ -101,11 +104,12 @@ export const MIN_MEAL_KCAL = 150;
 
 /**
  * Whether a recipe suits a meal. Recipes with no meal types (rubs, sauces,
- * unknowns) suit nothing on their own; very light recipes suit snacks only.
+ * unknowns) suit nothing on their own; very light recipes suit snacks (and
+ * desserts) only. Only recipes marked as desserts go on a dessert plate.
  */
 export function suitsSlot(r: RecipeFacts, slot: MealSlot): boolean {
   if (!r.mealTypes.includes(slot)) return false;
-  return slot === "snack" || r.perServing.kcal >= MIN_MEAL_KCAL;
+  return slot === "snack" || slot === "dessert" || r.perServing.kcal >= MIN_MEAL_KCAL;
 }
 
 /** Days between the session and eating day `day` (0 = eaten the day of the session). */
