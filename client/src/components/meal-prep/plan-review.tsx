@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils";
 import { photoOf, titleFor, useOwnerRecipes } from "./cook-data";
 import { DishPhoto, PersonWeek, usePlanNames } from "./plan-bits";
 import { SetupStepSheet } from "./setup-sheet";
+import { ChangesSection, DishSwaps, OptionCards } from "./plan-changes";
 
 // Plan review: the dishes, each person's week, how well each day fits, and
 // the controls to change it (swap, always include, leave out, adjust the
@@ -24,7 +25,7 @@ import { SetupStepSheet } from "./setup-sheet";
 
 export function PlanReview({ record, onRecord }: { record: PrepPlanView; onRecord: (r: PrepPlanView) => void }) {
   const { toast } = useToast();
-  const names = usePlanNames(record.recipeTitles);
+  const names = usePlanNames(record.recipeTitles, { adjusters: record.adjusters, plan: record.plan });
   const { setup } = record;
   const plan = record.plan!;
   const session = record.session!;
@@ -40,6 +41,24 @@ export function PlanReview({ record, onRecord }: { record: PrepPlanView; onRecor
     onSuccess: onRecord,
     onError: (err) => toast({ title: "Couldn't update the plan", description: errorText(err, "Nothing changed. Check your connection and try again."), variant: "destructive" }),
   });
+
+  const pickOption = useMutation({
+    mutationFn: (key: NonNullable<PrepPlanView["options"]>[number]["key"]) => mealPrepApi.chooseOption(record.id, key),
+    onSuccess: (r) => { onRecord(r); toast({ title: "Switched plans", description: "The shopping list and cooking day are updated." }); },
+    onError: (err) => toast({ title: "Couldn't switch plans", description: errorText(err, "Nothing changed. Try again."), variant: "destructive" }),
+  });
+  const busy = replan.isPending || pickOption.isPending;
+  const keepAsWritten = (key: string) =>
+    replan.mutate({ keepAsWritten: [key] }, {
+      onSuccess: () =>
+        toast({
+          title: `${title(key.split(":")[0])} stays as written`,
+          description: "Grammie re-planned the week without that swap.",
+          duration: 10_000,
+          action: <ToastAction altText="Undo" onClick={() => replan.mutate({ allowSwapsAgain: [key] })}>Undo</ToastAction>,
+        }),
+    });
+  const swapsFor = (id: string) => (plan.swapsApplied ?? []).filter((s) => s.recipeId === id);
 
   const pinned = new Set(setup.pinnedRecipeIds ?? []);
   const title = (id: string) => titleFor(record.recipeTitles, id);
@@ -72,11 +91,13 @@ export function PlanReview({ record, onRecord }: { record: PrepPlanView; onRecor
         description={`Cooking ${formatDay(setup.session.date)} · about ${formatMinutes(session.totalMinutes)} in the kitchen · ${setup.days} ${setup.days === 1 ? "day" : "days"} of food`}
       />
 
-      {replan.isPending && (
+      {busy && (
         <div role="status" className="mb-4 flex items-center gap-2 rounded-md bg-secondary p-3 text-base">
-          <Loader2 className="h-4 w-4 motion-safe:animate-spin" aria-hidden /> Re-planning the week…
+          <Loader2 className="h-4 w-4 motion-safe:animate-spin" aria-hidden /> {pickOption.isPending ? "Switching plans…" : "Re-planning the week…"}
         </div>
       )}
+
+      <OptionCards options={record.options ?? []} onPick={(k) => pickOption.mutate(k)} pendingKey={pickOption.isPending ? pickOption.variables : null} disabled={busy} />
 
       {record.explanation && (
         <section className={cn("mb-6 rounded-lg border p-4", record.explanationByAI && "border-primary/30 bg-primary/5")} aria-label="About this plan">
@@ -89,6 +110,14 @@ export function PlanReview({ record, onRecord }: { record: PrepPlanView; onRecor
         </section>
       )}
 
+      <ChangesSection
+        changes={record.changes ?? { swaps: [], topUps: [] }}
+        keptAsWritten={setup.excludedSwaps ?? []}
+        titleOf={title}
+        onAllowAgain={(key) => replan.mutate({ allowSwapsAgain: [key] })}
+        disabled={busy}
+      />
+
       {wishes && wishes.source === "ai" && (wishes.more.length > 0 || wishes.less.length > 0 || wishes.excludedRecipeIds.length > 0) && (
         <section className="mb-6 space-y-2 rounded-lg border p-4" aria-labelledby="wishes-heading">
           <h2 id="wishes-heading" className="inline-flex items-center gap-1.5 text-base font-semibold">
@@ -99,7 +128,7 @@ export function PlanReview({ record, onRecord }: { record: PrepPlanView; onRecor
             {wishes.less.length > 0 && <li>Leaning away from: {wishTitles(wishes.less)}</li>}
             {wishes.excludedRecipeIds.length > 0 && <li>Left out: {wishTitles(wishes.excludedRecipeIds)}</li>}
           </ul>
-          <Button variant="outline" onClick={() => replan.mutate({ clearWishes: true })} disabled={replan.isPending}>
+          <Button variant="outline" onClick={() => replan.mutate({ clearWishes: true })} disabled={busy}>
             Plan without my wishes
           </Button>
         </section>
@@ -135,15 +164,16 @@ export function PlanReview({ record, onRecord }: { record: PrepPlanView; onRecor
                   {pinned.has(b.recipeId) && (
                     <p className="inline-flex items-center gap-1 text-sm text-primary"><Pin className="h-3.5 w-3.5" aria-hidden /> Always included</p>
                   )}
+                  <DishSwaps swaps={swapsFor(b.recipeId)} onKeep={keepAsWritten} disabled={busy} />
                 </div>
                 {/* Actions sit under the text on phones, beside it when there's room */}
                 <div className="flex w-full items-center justify-end gap-2 sm:w-auto sm:flex-col sm:items-end sm:justify-start">
-                  <Button variant="outline" onClick={() => setSwapFor(b.recipeId)} disabled={replan.isPending} aria-label={`Swap ${name}`}>
+                  <Button variant="outline" onClick={() => setSwapFor(b.recipeId)} disabled={busy} aria-label={`Swap ${name}`}>
                     <Repeat aria-hidden /> Swap
                   </Button>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon" aria-label={`More for ${name}`} disabled={replan.isPending}>
+                      <Button variant="ghost" size="icon" aria-label={`More for ${name}`} disabled={busy}>
                         <MoreHorizontal aria-hidden />
                       </Button>
                     </DropdownMenuTrigger>
@@ -178,7 +208,7 @@ export function PlanReview({ record, onRecord }: { record: PrepPlanView; onRecor
         {person && (
           <>
             <p className="text-base text-muted-foreground">
-              {person.targets ? prepAimText(person, { you: setup.people.length === 1 }) : "Normal portions, no targets."}
+              {person.targets ? prepAimText(person, { you: setup.people.length === 1, dessertsPerWeek: setup.dessertsPerWeek }) : "Normal portions, no targets."}
             </p>
             <PersonWeek setup={setup} plates={plan.plates} fit={plan.fit} personId={person.id} names={names} rough={rough} />
           </>
@@ -187,10 +217,10 @@ export function PlanReview({ record, onRecord }: { record: PrepPlanView; onRecor
 
       <div className="fixed inset-x-0 bottom-[calc(4.5rem+env(safe-area-inset-bottom,0px))] z-30 border-t bg-background/95 backdrop-blur md:bottom-0">
         <div className="mx-auto flex max-w-3xl items-center gap-2 px-4 py-3">
-          <Button variant="outline" onClick={() => setAdjustOpen(true)} disabled={replan.isPending}>
+          <Button variant="outline" onClick={() => setAdjustOpen(true)} disabled={busy}>
             <SlidersHorizontal aria-hidden /> Adjust
           </Button>
-          <Button size="lg" className="ml-auto min-w-0 flex-1 sm:flex-none" onClick={() => setApproveOpen(true)} disabled={replan.isPending} data-testid="button-approve-plan">
+          <Button size="lg" className="ml-auto min-w-0 flex-1 sm:flex-none" onClick={() => setApproveOpen(true)} disabled={busy} data-testid="button-approve-plan">
             <CheckCircle2 aria-hidden /> Approve plan
           </Button>
         </div>

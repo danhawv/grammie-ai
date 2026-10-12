@@ -10,6 +10,7 @@ import type {
   PrepSetup,
   ScheduledTask,
 } from "@shared/meal-prep/contract";
+import { isShake, shakeText, SLOT_SHARE as SHARED_SLOT_SHARE, type AdjusterDisplay } from "@shared/meal-prep/callouts";
 
 // Pure helpers for the meal-prep screens: plate wording, macro bars, dates,
 // the cook's "Now / Next" view, the target estimator and label sheets. Kept
@@ -51,16 +52,24 @@ export function adjusterLabel(id: string, names?: Record<string, string>): strin
 export interface PlateNames {
   recipeTitle: (id: string) => string;
   adjusterNames?: Record<string, string>;
+  /** add-on details (bottled shakes are said in bottles) */
+  adjusters?: Record<string, AdjusterDisplay>;
+  /** recipes cooked with a swap in this plan: "… (with swap)" */
+  swapped?: Set<string>;
 }
 
-/** "1¼ servings Mom's Chili + 150 g rice" */
+/** "1¼ servings Mom's Chili (with swap) + 150 g rice + 1 bottle Fairlife Core Power (26 g protein)" */
 export function describePlate(plate: Pick<Plate, "items">, names: PlateNames): string {
   return plate.items
-    .map((item) =>
-      item.kind === "recipe"
-        ? `${formatServings(item.amount)} ${names.recipeTitle(item.refId)}`
-        : `${formatGrams(item.amount)} ${adjusterLabel(item.refId, names.adjusterNames)}`,
-    )
+    .map((item) => {
+      if (item.kind === "recipe") {
+        return `${formatServings(item.amount)} ${names.recipeTitle(item.refId)}${names.swapped?.has(item.refId) ? " (with swap)" : ""}`;
+      }
+      const a = names.adjusters?.[item.refId];
+      if (a && isShake(a)) return shakeText(a, item.grams ?? item.amount);
+      const label = a ? a.name.replace(/\s*\((cooked|plain)\)/i, "").toLowerCase() : adjusterLabel(item.refId, names.adjusterNames);
+      return `${formatGrams(item.grams ?? item.amount)} ${names.adjusterNames?.[item.refId] ?? label}`;
+    })
     .join(" + ");
 }
 
@@ -220,12 +229,13 @@ export function fitChangeText(before: number, after: number): string {
 /**
  * Targets are for the whole day; the planner aims each person's prepped
  * meals at their share of it (breakfast 25%, lunch 30%, dinner 35%, snack
- * 10%), so lunch + dinner covers 65%.
+ * 10%, dessert about 10%), so lunch + dinner covers 65%. Desserts on fewer
+ * days count for that part of the week. (Mirrors the planner's shares.)
  */
-export const SLOT_SHARE: Record<MealSlot, number> = { breakfast: 0.25, lunch: 0.3, dinner: 0.35, snack: 0.1 };
+export const SLOT_SHARE: Record<MealSlot, number> = SHARED_SLOT_SHARE;
 
-export function prepShare(slots: MealSlot[]): number {
-  return Math.min(1, Array.from(new Set(slots)).reduce((n, s) => n + SLOT_SHARE[s], 0));
+export function prepShare(slots: MealSlot[], dessertsPerWeek = 7): number {
+  return Math.min(1, Array.from(new Set(slots)).reduce((n, s) => n + SLOT_SHARE[s] * (s === "dessert" ? Math.min(7, Math.max(0, dessertsPerWeek)) / 7 : 1), 0));
 }
 
 /** "lunches and dinners", "breakfasts, lunches and dinners" */
@@ -238,21 +248,23 @@ export function slotListText(slots: MealSlot[]): string {
  * Plain words for what the prep covers: "Your prepped lunches and dinners
  * will cover about 1,430 of your 2,200 calories a day." Null without targets.
  */
-export function prepAimText(person: Pick<PrepPerson, "name" | "slots" | "targets">, opts: { you?: boolean } = {}): string | null {
+export function prepAimText(person: Pick<PrepPerson, "name" | "slots" | "targets">, opts: { you?: boolean; dessertsPerWeek?: number } = {}): string | null {
   if (!person.targets || person.slots.length === 0) return null;
-  const share = prepShare(person.slots);
+  const share = prepShare(person.slots, opts.dessertsPerWeek);
   const aim = Math.round((person.targets.kcal * share) / 10) * 10;
   const kcal = person.targets.kcal.toLocaleString("en-US");
   // Named people get "Dan: …" rather than a guessed pronoun
   const who = opts.you ? "Your prepped" : `${person.name || "This person"}: prepped`;
   const of = opts.you ? "of your" : "of";
   if (share >= 1) return `${who} meals will cover all ${kcal} calories of the day.`;
-  return `${who} ${slotListText(person.slots)} will cover about ${aim.toLocaleString("en-US")} ${of} ${kcal} calories a day.`;
+  const desserts = opts.dessertsPerWeek ?? 7;
+  const averaged = person.slots.includes("dessert") && desserts < 7 ? ` on average (dessert ${desserts} ${desserts === 1 ? "day" : "days"} a week)` : "";
+  return `${who} ${slotListText(person.slots)} will cover about ${aim.toLocaleString("en-US")} ${of} ${kcal} calories a day${averaged}.`;
 }
 
 // ---------- The plan grid ----------
 
-export const SLOT_ORDER: MealSlot[] = ["breakfast", "lunch", "dinner", "snack"];
+export const SLOT_ORDER: MealSlot[] = ["breakfast", "lunch", "dinner", "snack", "dessert"];
 
 /** Plates for one person as rows of days, each with its slots in meal order */
 export function personWeek(plates: Plate[], personId: string, days: number): Array<{ day: number; plates: Plate[] }> {
@@ -422,6 +434,9 @@ export function defaultSetup(opts: { today: string; ownerName?: string; allergie
     session: { date: nextSunday(opts.today), maxMinutes: 240, cooks: 1, helper: false, skill: opts.skill ?? "home" },
     maxDishes: 4,
     wishes: "",
+    recipeSource: { kind: "all" },
+    allowSwaps: true,
+    topUps: "both",
   };
 }
 

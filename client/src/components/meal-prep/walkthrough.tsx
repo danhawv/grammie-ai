@@ -12,7 +12,7 @@ import { setupProblems, setupSteps, stepSummary } from "./setup-steps";
 
 const WELCOME_POINTS = [
   { icon: ChefHat, text: "Pick a few dishes from your own recipes" },
-  { icon: Scale, text: "Hit everyone's goals by adjusting portions — never the recipe" },
+  { icon: Scale, text: "Hit everyone's goals by sizing portions, and tell you about any recipe swap it makes" },
   { icon: ShoppingBasket, text: "Make one shopping list for the whole week" },
   { icon: CalendarCheck, text: "Plan one cooking session, with the oven and stove overlapping" },
   { icon: Printer, text: "Print a packet a helper can follow, with container labels" },

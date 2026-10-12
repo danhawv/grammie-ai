@@ -591,6 +591,14 @@ describe("recipe swaps and top-ups", () => {
     expect(again.body.changes.swaps).toHaveLength(1);
   });
 
+  it("uses one shake brand: the chosen one by its brand id", async () => {
+    ctx.engines.food.adjusterList = [{ ...shake, id: "shake-premier-protein-30g" }, { ...shake, id: "shake-fairlife-core-power-26g" }, chicken];
+    await makePlan(sampleSetup({ topUps: "both", shakeId: "fairlife-core-power-26g" }));
+    expect(ctx.engines.planner.calls[0].adjusters!.map(a => a.id)).toEqual(["shake-fairlife-core-power-26g", "chicken-breast-cooked"]);
+    await makePlan(sampleSetup({ topUps: "shake" }));
+    expect(ctx.engines.planner.calls[1].adjusters!.map(a => a.id)).toEqual(["shake-premier-protein-30g"]);
+  });
+
   it("turns swaps off entirely, and limits top-ups to what the owner allows", async () => {
     const plan = await makePlan(sampleSetup({ allowSwaps: false, topUps: "shake", shakeId: "shake-core-power" }));
     expect(plan.changes.swaps).toEqual([]);
@@ -603,10 +611,8 @@ describe("recipe swaps and top-ups", () => {
 
   it("lists the shakes to choose from, and names shake top-ups in bottles", async () => {
     const shakes = await call("GET", "/shakes");
-    expect(shakes.body).toEqual([
-      { id: "shake-core-power", product: "Fairlife Core Power", proteinPerBottle: 26, kcalPerBottle: 170 },
-      { id: "shake-premier", product: "Premier Protein", proteinPerBottle: 26, kcalPerBottle: 170 },
-    ]);
+    expect(shakes.body).toContainEqual({ id: "premier-protein-30g", product: "Premier Protein", proteinPerBottle: 30, kcalPerBottle: 160, isDefault: true });
+    expect(shakes.body).toContainEqual({ id: "fairlife-core-power-26g", product: "Fairlife Core Power", proteinPerBottle: 26, kcalPerBottle: 170, isDefault: false });
     const original = ctx.engines.planner.plan.bind(ctx.engines.planner);
     ctx.engines.planner.plan = async (...args) => {
       const p = await original(...args);

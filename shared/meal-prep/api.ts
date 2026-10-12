@@ -46,8 +46,10 @@ export interface PrepCookbookChoice {
 
 /** GET /shakes: the bottled protein shakes top-ups can use */
 export interface PrepShakeChoice {
-  /** adjuster id (PrepSetup.shakeId) */
+  /** PROTEIN_SHAKES id (PrepSetup.shakeId) */
   id: string;
+  /** used when nothing is picked (DEFAULT_SHAKE_ID) */
+  isDefault?: boolean;
   /** "Fairlife Core Power" */
   product: string;
   proteinPerBottle: number | null;

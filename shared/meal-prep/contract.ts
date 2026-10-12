@@ -129,9 +129,10 @@ export interface PrepSetup {
    */
   excludedSwaps?: string[];
   /**
-   * The bottled shake to use for "shake" top-ups (an Adjuster id with
-   * topUp "shake"); missing = any. (The API also drops the other shake
-   * adjusters before planning.)
+   * The bottled shake brand for "shake" top-ups: a PROTEIN_SHAKES id
+   * (shared/meal-prep/shakes.ts, e.g. "premier-protein-30g"); its adjuster
+   * is shakeAdjusterId(id) = "shake-<id>". Missing = DEFAULT_SHAKE_ID.
+   * (The API also drops the other shake adjusters before planning.)
    */
   shakeId?: string;
 }

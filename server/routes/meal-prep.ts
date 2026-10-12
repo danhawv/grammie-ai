@@ -9,7 +9,8 @@ import { Router, type RequestHandler, type Response } from "express";
 import { z } from "zod";
 import type { Adjuster, PrepSetup } from "@shared/meal-prep/contract";
 import type { PrepShakeChoice, PrepSubstitution, StoredPlanOptions, SwapOptionView } from "@shared/meal-prep/api";
-import { adjusterDisplay, productName } from "@shared/meal-prep/callouts";
+import { productName } from "@shared/meal-prep/callouts";
+import { DEFAULT_SHAKE_ID, PROTEIN_SHAKES } from "@shared/meal-prep/shakes";
 import type { PrepPlanRow, PrepPlanShareRow, PrepRecipes, PrepStore } from "../meal-prep/store";
 import type { PrepIntegrations } from "../meal-prep/calendar";
 import { calendarEntries, eatingDate, groceryLines, prepPlanName } from "../meal-prep/calendar";
@@ -206,17 +207,13 @@ export function createMealPrepRouter(deps: MealPrepRouterDeps): Router {
     } catch (err) { fail(res, err, "loading your cookbooks"); }
   });
 
-  /** Bottled protein shakes the top-ups can use (empty until food data has them) */
+  /** Bottled protein shakes the top-ups can use (the brand list in shared/meal-prep/shakes.ts) */
   router.get("/shakes", ...signedIn, async (_req, res) => {
-    try {
-      const shakes: PrepShakeChoice[] = (await allAdjusters())
-        .filter(a => a.topUp === "shake")
-        .map(a => {
-          const d = adjusterDisplay(a);
-          return { id: a.id, product: productName(d), proteinPerBottle: d.proteinPerUnit ?? null, kcalPerBottle: d.kcalPerUnit ?? null };
-        });
-      res.json(shakes);
-    } catch (err) { fail(res, err, "loading the shakes"); }
+    const shakes: PrepShakeChoice[] = PROTEIN_SHAKES.map(s => ({
+      id: s.id, product: productName({ product: s.product, name: s.brand }), proteinPerBottle: s.protein, kcalPerBottle: s.kcal,
+      isDefault: s.id === DEFAULT_SHAKE_ID,
+    }));
+    res.json(shakes);
   });
 
   // ---------------------------------------------------------------- plans

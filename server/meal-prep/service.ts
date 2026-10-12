@@ -7,6 +7,7 @@ import type {
 } from "@shared/meal-prep/contract";
 import type { StoredPlanOptions, WishesResult } from "@shared/meal-prep/api";
 import { enrichSwaps, swapKey } from "@shared/meal-prep/callouts";
+import { DEFAULT_SHAKE_ID, shakeAdjusterId } from "@shared/meal-prep/shakes";
 import type { PrepPlanRow, PrepRecipes, PrepStore } from "./store";
 import type { MealPrepAI } from "./ai";
 import { DEFAULT_PLAN_WEIGHTS, type MealPrepEngines } from "./engines";
@@ -136,13 +137,16 @@ export function applyPlanningChoices(setup: PrepSetup, facts: RecipeFacts[], adj
     swaps: noSwaps ? [] : f.swaps.filter(s => !excluded.has(swapKey(f.recipeId, s.id))),
   }));
   const topUps = setup.topUps ?? "both";
-  const shakeChosen = !!setup.shakeId && adjusters.some(a => a.id === setup.shakeId && a.topUp === "shake");
+  // One brand at a time: the chosen one (a PROTEIN_SHAKES id, or an adjuster id), else the default when it's there
+  const wanted = setup.shakeId ?? DEFAULT_SHAKE_ID;
+  const isWanted = (id: string) => id === wanted || id === shakeAdjusterId(wanted);
+  const shakeChosen = adjusters.some(a => a.topUp === "shake" && isWanted(a.id));
   const usableAdjusters = adjusters.filter(a => {
     if (!a.topUp) return true;
     if (topUps === "none") return false;
     if (topUps === "chicken" && a.topUp === "shake") return false;
     if (topUps === "shake" && a.topUp === "chicken") return false;
-    if (a.topUp === "shake" && shakeChosen && a.id !== setup.shakeId) return false;
+    if (a.topUp === "shake" && shakeChosen && !isWanted(a.id)) return false;
     return true;
   });
   return { facts: usableFacts, adjusters: usableAdjusters };

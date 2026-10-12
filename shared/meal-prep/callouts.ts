@@ -154,7 +154,7 @@ export function bottles(grams: number, unitGrams: number | undefined): number {
 
 /** "Fairlife Core Power 26g" -> "Fairlife Core Power" (the protein is said separately) */
 export function productName(a: Pick<AdjusterDisplay, "product" | "name">): string {
-  return (a.product ?? a.name).replace(/\s*\d+\s*g(?:\s*protein)?\s*$/i, "").trim() || a.name;
+  return (a.product ?? a.name).replace(/\s*\b\d+\s*g\b(?:\s*protein)?/i, "").replace(/\s+protein shake$/i, "").trim() || a.name;
 }
 
 /** "1 bottle Fairlife Core Power (26 g protein)" */
