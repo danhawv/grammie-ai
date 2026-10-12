@@ -7,7 +7,7 @@ import type { UserPreferences } from "./food-profile";
 import type { CreditKind, CreditSource } from "./credits";
 import type { IntakeStatus, PhotoCatalog } from "./bulk-intake";
 import type { PrepPlan, PrepSession, PrepSetup, ShoppingList, MealSlot } from "./meal-prep/contract";
-import type { CheckinOutcome, PrepBuildStatus, PrepPlanStatus, PrepProfileDefaults, PrepSubstitution, WishesResult } from "./meal-prep/api";
+import type { CheckinOutcome, PrepBuildStatus, PrepPlanStatus, PrepProfileDefaults, PrepSubstitution, StoredPlanOptions, WishesResult } from "./meal-prep/api";
 
 // Constant maps for comprehensive recipe enrichment
 export const DIETARY_FLAGS = {
@@ -2209,6 +2209,8 @@ export const prepPlans = pgTable("prep_plans", {
   recipeTitles: jsonb("recipe_titles").$type<Record<string, string>>().notNull().default(sql`'{}'::jsonb`),
   swapOptions: jsonb("swap_options").$type<{ forRecipeId: string; options: Array<{ recipeId: string; plan: PrepPlan }> }>(),
   substitutions: jsonb("substitutions").$type<PrepSubstitution[]>().notNull().default(sql`'[]'::jsonb`),
+  /** plans offered side by side (migrations/2026-10-meal-prep-options.sql) */
+  options: jsonb("options").$type<StoredPlanOptions>(),
   sessionDate: date("session_date", { mode: "string" }),
   calendarMealPlanId: varchar("calendar_meal_plan_id").references(() => mealPlans.id, { onDelete: 'set null' }),
   groceryListId: varchar("grocery_list_id").references(() => groceryLists.id, { onDelete: 'set null' }),

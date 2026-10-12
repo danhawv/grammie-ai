@@ -2,6 +2,8 @@ import type {
   Adjuster, Confidence, ContainerLabel, Macros, Plate, PrepPlan, PrepSetup, RecipeFacts, ScheduledTask,
 } from "@shared/meal-prep/contract";
 import { niceNumber } from "@shared/meal-prep/amounts";
+import { adjusterDisplay, enrichSwaps, shakeText, swapLabelNote } from "@shared/meal-prep/callouts";
+import { packedPart, shakeIds } from "./swaps";
 import { packSeparately, plainAdjusterName, shortNote, type SessionGraph } from "./merge";
 import type { RecipeSteps } from "./types";
 
@@ -50,11 +52,17 @@ export function buildLabels(setup: PrepSetup, plan: PrepPlan, facts: RecipeFacts
   const people = new Map(setup.people.map((p) => [p.id, p.name]));
   const madeOn = setup.session.date.slice(0, 10);
   const labels: ContainerLabel[] = [];
+  const shakes = shakeIds(adjusters);
+  const swaps = enrichSwaps(plan, facts);
   for (const plate of plan.plates) {
     if (plate.storage === "fresh") continue;
+    // A plate that's only a bottled shake has no container to label
+    if (!packedPart(plate, shakes)) continue;
     const storage = plate.storage;
     const names: string[] = [];
     const portion: string[] = [];
+    const withIt: string[] = [];
+    const swapNotes: string[] = [];
     const reheat = new Set<string>();
     const notes = new Set<string>();
     const allergens = new Set<string>();
@@ -65,6 +73,7 @@ export function buildLabels(setup: PrepSetup, plan: PrepPlan, facts: RecipeFacts
         const f = factsById.get(item.refId);
         const name = f?.title ?? "Dish";
         names.push(name);
+        for (const sw of swaps) if (sw.recipeId === item.refId) swapNotes.push(swapLabelNote(sw));
         portion.push(item.grams != null
           ? `${Math.round(item.grams / 5) * 5} g ${name}`
           : `${fmtServings(item.amount)} ${name}`);
@@ -78,6 +87,9 @@ export function buildLabels(setup: PrepSetup, plan: PrepPlan, facts: RecipeFacts
           const limit = addDays(madeOn, days);
           if (limit < eatBy) eatBy = limit;
         } else confidence = "low";
+      } else if (shakes.has(item.refId)) {
+        // Kept in the fridge as bought; the label says to have it with the meal
+        withIt.push(shakeText(adjusterDisplay(adjById.get(item.refId)!), item.grams ?? item.amount));
       } else {
         const a = adjById.get(item.refId);
         const name = adjusterLabel(a, item.refId);
@@ -104,7 +116,12 @@ export function buildLabels(setup: PrepSetup, plan: PrepPlan, facts: RecipeFacts
       confidence,
       reheat: storage === "freezer" ? `Thaw overnight in the fridge. ${reheatText}` : reheatText,
       allergens: Array.from(allergens).sort(),
-      portion: [portion.join(" + "), ...Array.from(notes).map((n) => n.charAt(0).toLowerCase() + n.slice(1))].join("; "),
+      portion: [
+        portion.join(" + "),
+        ...Array.from(notes).map((n) => n.charAt(0).toLowerCase() + n.slice(1)),
+        ...withIt.map((w) => `have with ${w} from the fridge`),
+      ].join("; "),
+      ...(swapNotes.length ? { swapNotes: Array.from(new Set(swapNotes)) } : {}),
     });
   }
   return labels.sort((a, b) => a.eatBy.localeCompare(b.eatBy) || a.person.localeCompare(b.person));
@@ -181,6 +198,11 @@ export function beforeSessionList(
     const long = s.tasks.find((t) => t.kind === "marinate" && t.passiveMin >= 120);
     const f = factsById.get(s.recipeId);
     if (long && f) out.push(`Optional: marinate the ${f.title} the night before. It saves about ${Math.round(long.passiveMin / 60)} hours of waiting.`);
+  }
+  // Swaps change what's bought: say so before the shop
+  const titles = new Map(facts.map((f) => [f.recipeId, f.title]));
+  for (const sw of plan.swapsApplied ?? []) {
+    out.push(`${titles.get(sw.recipeId) ?? "One dish"} uses a swap: ${sw.title}. The shopping list already has the swapped ingredient.`);
   }
   out.push("Check the pantry items on the shopping list, then shop.");
   const fridge = graph.fridgeCount;

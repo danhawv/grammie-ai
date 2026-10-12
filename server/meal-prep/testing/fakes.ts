@@ -3,9 +3,10 @@
 // allowed dishes, the session builder makes one task per dish.
 
 import type {
-  Adjuster, FoodData, Macros, Planner, PlanWeights, PrepPlan, PrepSession, PrepSetup,
+  Adjuster, FoodData, Macros, PlanOption, Planner, PlanWeights, PrepPlan, PrepSession, PrepSetup,
   RecipeFacts, SessionBuilder, ShoppingList,
 } from "@shared/meal-prep/contract";
+import type { PrepCookbookChoice } from "@shared/meal-prep/api";
 import type { PrepPlanRow, PrepPlanShareRow, PrepRecipes, PrepStore, ProgressRecord, CheckinRecord, ProfileRecord } from "../store";
 import type { CalendarEntry, GroceryLine, PrepIntegrations } from "../calendar";
 import type { MealPrepEngines } from "../engines";
@@ -39,9 +40,10 @@ export function fakeFacts(id: string, title: string, extra: Partial<RecipeFacts>
 }
 
 export class FakeFood implements FoodData {
+  adjusterList: Adjuster[] = [];
   constructor(public facts: RecipeFacts[], public nutrition: Record<string, Macros> = {}) {}
   async factsFor(ids: string[]) { return this.facts.filter(f => ids.includes(f.recipeId)); }
-  async adjusters(): Promise<Adjuster[]> { return []; }
+  async adjusters(): Promise<Adjuster[]> { return this.adjusterList; }
   async packagesFor() { return {}; }
   async ingredientNutrition(names: string[]) {
     const out: Record<string, { ingredient: { id: string; name: string; aisle: "Other" }; perGram: Macros } | null> = {};
@@ -51,8 +53,25 @@ export class FakeFood implements FoodData {
 }
 
 export class FakePlanner implements Planner {
-  calls: Array<{ setup: PrepSetup; weights?: PlanWeights }> = [];
+  calls: Array<{ setup: PrepSetup; weights?: PlanWeights; facts?: RecipeFacts[]; adjusters?: Adjuster[] }> = [];
   delayMs = 0;
+  /** false = behave like a planner without planOptions (it throws) */
+  offersOptions = true;
+  /** swaps to use, by recipe id (only ones still in the facts are used) */
+  useSwaps: Record<string, string[]> = {};
+
+  async planOptions(setup: PrepSetup, facts: RecipeFacts[], adjusters: Adjuster[], weights?: PlanWeights): Promise<PlanOption[]> {
+    if (!this.offersOptions) throw new Error("planOptions isn't built yet");
+    const first = await this.plan(setup, facts, adjusters, weights);
+    this.calls[this.calls.length - 1].adjusters = adjusters;
+    const used = new Set(first.batches.map(b => b.recipeId));
+    const others = facts.filter(f => !used.has(f.recipeId) && !(setup.excludedRecipeIds ?? []).includes(f.recipeId)).map(f => f.recipeId);
+    const options: PlanOption[] = [{ key: "balanced", label: "Best fit", summary: "Closest to everyone's goals", plan: first }];
+    if (others.length) {
+      options.push({ key: "variety", label: "Most variety", summary: "Different dishes", plan: this.withSwaps(planFrom(setup, others.slice(0, setup.maxDishes ?? 2), 70), facts) });
+    }
+    return options;
+  }
 
   async plan(setup: PrepSetup, facts: RecipeFacts[], _adjusters: Adjuster[], weights?: PlanWeights): Promise<PrepPlan> {
     this.calls.push({ setup, weights });
@@ -62,7 +81,23 @@ export class FakePlanner implements Planner {
     const bonus = weights?.recipeBonus ?? {};
     const allowed = facts.filter(f => !excluded.has(f.recipeId))
       .sort((a, b) => Number(pinned.includes(b.recipeId)) - Number(pinned.includes(a.recipeId)) || (bonus[b.recipeId] ?? 0) - (bonus[a.recipeId] ?? 0));
-    return planFrom(setup, allowed.slice(0, setup.maxDishes ?? 2).map(f => f.recipeId), 80);
+    this.calls[this.calls.length - 1].facts = facts;
+    return this.withSwaps(planFrom(setup, allowed.slice(0, setup.maxDishes ?? 2).map(f => f.recipeId), 80), facts);
+  }
+
+  private withSwaps(plan: PrepPlan, facts: RecipeFacts[]): PrepPlan {
+    const applied: NonNullable<PrepPlan["swapsApplied"]> = [];
+    for (const b of plan.batches) {
+      const known = facts.find(f => f.recipeId === b.recipeId)?.swaps ?? [];
+      const ids = (this.useSwaps[b.recipeId] ?? []).filter(id => known.some(s => s.id === id));
+      if (!ids.length) continue;
+      b.swapIds = ids;
+      for (const id of ids) {
+        const s = known.find(x => x.id === id)!;
+        applied.push({ recipeId: b.recipeId, swapId: id, title: s.title, goal: s.goal, perServingDelta: s.perServingDelta, note: `${s.title}: +14 g protein, 95 fewer calories per serving` });
+      }
+    }
+    return applied.length ? { ...plan, swapsApplied: applied } : plan;
   }
 
   async swapOptions(setup: PrepSetup, plan: PrepPlan, recipeId: string, facts: RecipeFacts[]) {
@@ -168,7 +203,7 @@ export class MemoryStore implements PrepStore {
     const row: PrepPlanRow = {
       id: nextId("plan"), ownerUserId: ownerId, status: "draft", buildStatus: "building", buildError: null,
       setup, plan: null, shopping: null, session: null, explanation: null, explanationAi: false, wishesResult: null,
-      recipeTitles: {}, swapOptions: null, substitutions: [], sessionDate: setup.session.date,
+      recipeTitles: {}, swapOptions: null, substitutions: [], options: null, sessionDate: setup.session.date,
       calendarMealPlanId: null, groceryListId: null, createdAt: now, updatedAt: now, approvedAt: null,
     };
     this.plans.set(row.id, row);
@@ -212,7 +247,17 @@ export class MemoryStore implements PrepStore {
 }
 
 export class FakeRecipes implements PrepRecipes {
+  /** cookbook id -> recipe ids, and who can open each */
+  cookbooks: Array<PrepCookbookChoice & { ownerId: string; recipeIds: string[] }> = [];
+  favorites: Record<string, string[]> = {};
   constructor(public owned: Record<string, string[]>, public publicIds: string[] = []) {}
+  async cookbooksFor(ownerId: string) {
+    return this.cookbooks.filter(c => c.ownerId === ownerId).map(({ ownerId: _o, recipeIds: _r, ...c }) => c);
+  }
+  async recipeIdsInCookbooks(ownerId: string, ids: number[]) {
+    return Array.from(new Set(this.cookbooks.filter(c => c.ownerId === ownerId && ids.includes(c.id)).flatMap(c => c.recipeIds)));
+  }
+  async favoriteRecipeIds(ownerId: string) { return this.favorites[ownerId] ?? []; }
   async ownRecipeIds(ownerId: string) { return this.owned[ownerId] ?? []; }
   async usableRecipeIds(ownerId: string, ids: string[]) {
     const mine = new Set([...(this.owned[ownerId] ?? []), ...this.publicIds]);

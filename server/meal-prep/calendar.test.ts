@@ -23,9 +23,34 @@ describe("calendar mapping", () => {
     expect(dinner.notes).toBe("From meal prep · for Mom, Grandpa");
     expect(entries.some(e => e.recipeId === "rice")).toBe(false);
   });
+
+  it("puts desserts on the calendar as snacks, marked Dessert", () => {
+    const setup = sampleSetup({ days: 1 });
+    setup.people[0].slots = ["dinner", "dessert"];
+    const plan = planFrom(setup, ["r1", "r2"], 80);
+    plan.plates.push({
+      personId: "p1", day: 0, slot: "dessert", storage: "fridge", eatBy: "2026-10-20",
+      items: [{ kind: "recipe", refId: "r9", amount: 1, grams: 120, macros: { kcal: 200, protein: 5, carbs: 30, fat: 6 } }],
+      macros: { kcal: 200, protein: 5, carbs: 30, fat: 6 },
+    });
+    const dessert = calendarEntries(setup, plan).find(e => e.recipeId === "r9")!;
+    expect(dessert.mealSlot).toBe("snack");
+    expect(dessert.notes).toBe("Dessert · From meal prep · for Mom");
+  });
 });
 
 describe("grocery lines", () => {
+  it("counts protein shakes in bottles", () => {
+    const lines = groceryLines({
+      byAisle: [{ aisle: "Beverages", items: [{
+        ingredient: { id: "shake-core-power", name: "Fairlife Core Power protein shake", aisle: "Beverages" },
+        neededGrams: null, display: "6 bottles", buy: "6 bottles Fairlife Core Power (26 g protein each)", have: false, forRecipes: ["Plate add-ons"], substitutes: [],
+      }] }],
+      pantryCheck: [], estimatedCost: null,
+    }, {});
+    expect(lines[0]).toMatchObject({ quantity: 6, unit: "bottles", displayName: "Fairlife Core Power protein shake (6 bottles)" });
+  });
+
   it("adds what's left to buy with its amount and package", async () => {
     const plan = planFrom(sampleSetup(), ["r1"], 80);
     const shopping = await new FakeSessionBuilder().shopping(plan);

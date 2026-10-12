@@ -7,8 +7,9 @@
 import crypto from "node:crypto";
 import { Router, type RequestHandler, type Response } from "express";
 import { z } from "zod";
-import type { PrepSetup } from "@shared/meal-prep/contract";
-import type { PrepSubstitution, SwapOptionView } from "@shared/meal-prep/api";
+import type { Adjuster, PrepSetup } from "@shared/meal-prep/contract";
+import type { PrepShakeChoice, PrepSubstitution, StoredPlanOptions, SwapOptionView } from "@shared/meal-prep/api";
+import { adjusterDisplay, productName } from "@shared/meal-prep/callouts";
 import type { PrepPlanRow, PrepPlanShareRow, PrepRecipes, PrepStore } from "../meal-prep/store";
 import type { PrepIntegrations } from "../meal-prep/calendar";
 import { calendarEntries, eatingDate, groceryLines, prepPlanName } from "../meal-prep/calendar";
@@ -18,11 +19,11 @@ import type { InstacartClient } from "../meal-prep/instacart";
 import { instacartLineItems } from "../meal-prep/instacart";
 import { limit, mealPrepLimiters } from "../meal-prep/limits";
 import {
-  approveSchema, checkinSchema, chooseSwapSchema, firstIssue, patchPlanSchema, prepSetupSchema,
+  approveSchema, checkinSchema, chooseOptionSchema, chooseSwapSchema, firstIssue, patchPlanSchema, prepSetupSchema,
   progressSchema, putProfileSchema, shareSchema, substitutionSchema, swapSchema,
 } from "../meal-prep/validation";
 import {
-  buildPlan, effectiveSetup, factsForPlan, finishPlan, PrepProblem, requireEngines, type MealPrepDeps,
+  buildPlan, effectiveSetup, factsForPlan, finishPlan, PrepProblem, requireEngines, withSwapDetails, type MealPrepDeps,
 } from "../meal-prep/service";
 import { emptyWishes, withoutWishFor } from "../meal-prep/wishes";
 import { hashShareToken, looksLikeShareToken, newShareToken, shareExpiry, shareState } from "../meal-prep/share";
@@ -120,10 +121,20 @@ export function createMealPrepRouter(deps: MealPrepRouterDeps): Router {
     return row;
   }
 
+  /** Plate add-ons, for naming them (shake bottles) in views; empty when the engines are off */
+  async function allAdjusters(): Promise<Adjuster[]> {
+    try {
+      return (await deps.engines()?.food.adjusters()) ?? [];
+    } catch (err) {
+      console.warn("[MealPrep] Add-on names unavailable:", (err as Error).message);
+      return [];
+    }
+  }
+
   async function planResponse(res: Response, row: PrepPlanRow, status = 200) {
-    const progress = await deps.store.listProgress(row.id);
+    const [progress, adjusters] = await Promise.all([deps.store.listProgress(row.id), allAdjusters()]);
     res.setHeader("Cache-Control", "no-store");
-    return res.status(status).json(toPlanView(row, progress));
+    return res.status(status).json(toPlanView(row, progress, adjusters));
   }
 
   /** Starts a build and waits a moment: 201/200 with the plan if it finished, else 202 to poll */
@@ -183,6 +194,29 @@ export function createMealPrepRouter(deps: MealPrepRouterDeps): Router {
       const saved = await deps.store.putProfile(owner(req)!, body.defaults, body.walkthroughDone);
       res.json({ defaults: saved.defaults, walkthroughDone: saved.walkthroughDone, updatedAt: saved.updatedAt.toISOString() });
     } catch (err) { fail(res, err, "saving your meal prep settings"); }
+  });
+
+  // ---------------------------------------------------------------- choices for the walkthrough
+
+  /** Cookbooks to plan from ("Plan from" step), with recipe counts */
+  router.get("/cookbooks", ...signedIn, async (req, res) => {
+    try {
+      res.setHeader("Cache-Control", "no-store");
+      res.json(await deps.recipes.cookbooksFor(owner(req)!));
+    } catch (err) { fail(res, err, "loading your cookbooks"); }
+  });
+
+  /** Bottled protein shakes the top-ups can use (empty until food data has them) */
+  router.get("/shakes", ...signedIn, async (_req, res) => {
+    try {
+      const shakes: PrepShakeChoice[] = (await allAdjusters())
+        .filter(a => a.topUp === "shake")
+        .map(a => {
+          const d = adjusterDisplay(a);
+          return { id: a.id, product: productName(d), proteinPerBottle: d.proteinPerUnit ?? null, kcalPerBottle: d.kcalPerUnit ?? null };
+        });
+      res.json(shakes);
+    } catch (err) { fail(res, err, "loading the shakes"); }
   });
 
   // ---------------------------------------------------------------- plans
@@ -246,6 +280,11 @@ export function createMealPrepRouter(deps: MealPrepRouterDeps): Router {
       for (const id of changes.unexclude ?? []) excluded.delete(id);
       merged.pinnedRecipeIds = Array.from(pinned);
       merged.excludedRecipeIds = Array.from(excluded);
+      // "Keep it as written": the swap stays off for this plan's re-plans
+      const keep = new Set(merged.excludedSwaps ?? []);
+      for (const key of changes.keepAsWritten ?? []) keep.add(key);
+      for (const key of changes.allowSwapsAgain ?? []) keep.delete(key);
+      merged.excludedSwaps = keep.size > 0 ? Array.from(keep) : undefined;
       if (changes.wishes !== undefined) merged.wishes = changes.wishes || undefined;
 
       const setup = await checkRecipes(row.ownerUserId, prepSetupSchema.parse(merged) as PrepSetup);
@@ -315,10 +354,13 @@ export function createMealPrepRouter(deps: MealPrepRouterDeps): Router {
         excludedRecipeIds: Array.from(new Set([...(row.setup.excludedRecipeIds ?? []), out])).filter(id => id !== recipeId),
       };
       const { facts, adjusters } = await factsForPlan(service, row.ownerUserId, setup);
-      const done = await finishPlan(service, row.ownerUserId, effectiveSetup(setup, row.wishesResult), option.plan, facts, adjusters);
+      const plan = withSwapDetails(option.plan, facts);
+      const done = await finishPlan(service, row.ownerUserId, effectiveSetup(setup, row.wishesResult), plan, facts, adjusters);
       const updated = await deps.store.updatePlan(row.id, {
         setup,
-        plan: option.plan,
+        plan,
+        // The plan is now its own mix, not one of the offered options
+        options: row.options ? { ...row.options, chosenKey: null } : null,
         shopping: done.shopping,
         session: done.session,
         explanation: done.explanation.text,
@@ -328,6 +370,58 @@ export function createMealPrepRouter(deps: MealPrepRouterDeps): Router {
       });
       await planResponse(res, updated ?? row);
     } catch (err) { fail(res, err, "swapping the dish"); }
+  });
+
+  // ---------------------------------------------------------------- plan options
+
+  /**
+   * Pick one of the offered plans. Its shopping list and timeline are built
+   * the first time it's picked (no charge: the plan was paid for once) and
+   * kept, so switching back and forth is instant.
+   */
+  router.post("/plans/:id/options", ...signedIn, async (req, res) => {
+    try {
+      const { key } = chooseOptionSchema.parse(req.body);
+      const row = await ownedPlan(req, res);
+      if (!row) return;
+      if (row.status !== "draft") return res.status(409).json({ error: "This plan is already approved. Start a new plan to change it." });
+      if (row.buildStatus !== "ready" || !row.plan) return notReady(res, row);
+      if (building.has(row.id)) return res.status(409).json({ error: "Still working on the last change. Try again in a moment." });
+      const stored = row.options;
+      const target = stored?.items.findIndex(i => i.option.key === key) ?? -1;
+      if (!stored || target < 0) return res.status(409).json({ error: "That choice isn't available any more. Build the plan again to see fresh choices." });
+      if (stored.chosenKey === key) return planResponse(res, row);
+
+      const item = stored.items[target];
+      let finished = item.finished ?? null;
+      let titles: Record<string, string> = {};
+      if (!finished) {
+        if (overPlanLimit(req, res)) return;
+        const { facts, adjusters } = await factsForPlan(service, row.ownerUserId, row.setup);
+        const done = await finishPlan(service, row.ownerUserId, effectiveSetup(row.setup, row.wishesResult), item.option.plan, facts, adjusters);
+        finished = { shopping: done.shopping, session: done.session, explanation: done.explanation.text, explanationAi: done.explanation.byAI };
+        titles = done.titles;
+      }
+      // Keep what the current option already has, so going back costs nothing
+      const items: StoredPlanOptions["items"] = stored.items.map((it, i) => {
+        if (i === target) return { ...it, finished: null };
+        if (it.option.key === stored.chosenKey && row.shopping && row.session) {
+          return { ...it, finished: { shopping: row.shopping, session: row.session, explanation: row.explanation ?? "", explanationAi: row.explanationAi } };
+        }
+        return it;
+      });
+      const updated = await deps.store.updatePlan(row.id, {
+        plan: item.option.plan,
+        shopping: finished.shopping,
+        session: finished.session,
+        explanation: finished.explanation || null,
+        explanationAi: finished.explanationAi,
+        recipeTitles: { ...row.recipeTitles, ...item.titles, ...titles },
+        options: { chosenKey: key, items },
+        swapOptions: null,
+      });
+      await planResponse(res, updated ?? row);
+    } catch (err) { fail(res, err, "switching plans"); }
   });
 
   // ---------------------------------------------------------------- approve
@@ -527,8 +621,8 @@ export function createMealPrepRouter(deps: MealPrepRouterDeps): Router {
       const found = await cookPlan(req, res, false);
       if (!found) return;
       const ids = (found.row.plan?.batches ?? []).map(b => b.recipeId);
-      const [progress, recipes] = await Promise.all([deps.store.listProgress(found.row.id), deps.recipes.forCook(ids)]);
-      res.json(toCookView(found.row, found.share, progress, recipes));
+      const [progress, recipes, adjusters] = await Promise.all([deps.store.listProgress(found.row.id), deps.recipes.forCook(ids), allAdjusters()]);
+      res.json(toCookView(found.row, found.share, progress, recipes, adjusters));
     } catch (err) { fail(res, err, "opening the cook page"); }
   });
 
@@ -592,7 +686,7 @@ export function createMealPrepRouter(deps: MealPrepRouterDeps): Router {
       const ids = row.plan.batches.map(b => b.recipeId);
       res.status(201).json({
         substitution: { id: substitution.id, ingredient: substitution.ingredient, replacement: substitution.replacement, at: substitution.at, note: substitution.note },
-        view: toCookView(updated ?? row, found.share, progress, await deps.recipes.forCook(ids)),
+        view: toCookView(updated ?? row, found.share, progress, await deps.recipes.forCook(ids), await allAdjusters()),
       });
     } catch (err) { fail(res, err, "saving the swap"); }
   });
