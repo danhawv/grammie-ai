@@ -122,6 +122,19 @@ export interface PrepSetup {
   topUps?: "chicken" | "shake" | "both" | "none";
   /** desserts per person per week when "dessert" is a chosen slot (default 7 = every day) */
   dessertsPerWeek?: number;
+  /**
+   * Swaps the owner turned off ("Keep it as written"), as "recipeId:swapId".
+   * The planner must not use them. (The API also strips them from
+   * RecipeFacts.swaps before planning.)
+   */
+  excludedSwaps?: string[];
+  /**
+   * The bottled shake brand for "shake" top-ups: a PROTEIN_SHAKES id
+   * (shared/meal-prep/shakes.ts, e.g. "premier-protein-30g"); its adjuster
+   * is shakeAdjusterId(id) = "shake-<id>". Missing = DEFAULT_SHAKE_ID.
+   * (The API also drops the other shake adjusters before planning.)
+   */
+  shakeId?: string;
 }
 
 // ---------- Food data (part 1 produces, parts 2-3 consume) ----------
@@ -297,6 +310,19 @@ export interface AppliedSwap {
   perServingDelta: Macros;
   /** plain sentence: "Greek yogurt instead of sour cream: +14 g protein, 95 fewer calories per serving" */
   note: string;
+  /**
+   * Filled in by the API from RecipeFacts.swaps (the planner may leave it
+   * out): each ingredient change at the batch's scale, for the cook packet.
+   */
+  changes?: Array<{
+    lineIndex: number;
+    /** the line as written */
+    from: string;
+    /** "1 cup nonfat Greek yogurt", for the recipe's stated servings */
+    toDisplay: string;
+    /** "Use nonfat Greek yogurt instead of sour cream (1 cup)", at the batch's scale */
+    use: string;
+  }>;
 }
 
 export interface PlateItem {
@@ -443,6 +469,8 @@ export interface ContainerLabel {
   allergens: string[];
   /** "350 g chili + 150 g rice; sauce in a separate cup" */
   portion: string;
+  /** recipe swaps in this container: "Made lighter: Greek yogurt instead of sour cream" */
+  swapNotes?: string[];
 }
 
 export interface PrepSession {

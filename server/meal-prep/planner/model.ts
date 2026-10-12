@@ -2,15 +2,21 @@
 //   - which recipes to cook and how many batches (0.5x … 3x), at most maxDishes
 //   - which recipe goes on each person's plate for each day and meal, and how
 //     many servings (0.5 … 2 in quarter steps)
-//   - grams of simple adjusters (rice, chicken, yogurt) per person-day
+//   - grams of simple adjusters (rice, chicken, yogurt) per plate, and whole
+//     bottles of a protein shake
+//   - which of a recipe's own ingredient swaps to use for a whole batch
 // Hard rules: allergies/dislikes, shelf life, servings eaten ≤ servings made,
 // pinned/excluded dishes, dish count. Everything else is a penalty, so the
 // solver always returns a plan and we can say which limit gave way. Penalty
 // sizes put the limits in the agreed order of giving way: repeats first, then
 // protein variety, then session time, then the macro bands.
+//
+// Levers for hitting the macro bands, cheapest first (the owner's order):
+// portions, then a recipe's own swaps, then picking higher-protein / lighter
+// recipes, then plain top-ups (extra chicken, a shake) last.
 
 import type {
-  Adjuster, MacroKey, MacroTargets, MealSlot, PlanWeights, PrepPerson, PrepSetup, RecipeFacts,
+  Adjuster, IngredientSwap, MacroKey, MacroTargets, MealSlot, PlanWeights, PrepPerson, PrepSetup, RecipeFacts,
 } from "@shared/meal-prep/contract";
 import { LpModel, type Term } from "./lp";
 import { SOFT_APPLIANCES, normalizeAppliance } from "@shared/meal-prep/equipment";
@@ -22,23 +28,33 @@ export const SCALES = [0.5, 1, 1.5, 2, 3] as const;
 /** portion range in quarter servings */
 export const MIN_QUARTERS = 2;
 export const MAX_QUARTERS = 8;
-const SLOT_ORDER: MealSlot[] = ["breakfast", "lunch", "dinner", "snack"];
+/** desserts go from half to one and a half servings */
+export const MAX_DESSERT_QUARTERS = 6;
+export const SLOT_ORDER: MealSlot[] = ["breakfast", "lunch", "dinner", "snack", "dessert"];
+const MEAL_SLOTS: MealSlot[] = ["breakfast", "lunch", "dinner", "snack"];
+
+export function maxQuarters(slot: MealSlot): number {
+  return slot === "dessert" ? MAX_DESSERT_QUARTERS : MAX_QUARTERS;
+}
 
 /**
  * Daily targets are for the whole day; the prep only covers some meals. We aim
  * each person's prep plates at this share of the day for the slots they eat
- * from the prep (all four slots = the whole day).
+ * from the prep (all four slots = the whole day). When a person also has
+ * dessert, it takes its share and the other slots shrink to make room (see
+ * shareFor), so the day as a whole stays the same.
  */
 export const DEFAULT_SLOT_SHARE: Record<MealSlot, number> = {
   breakfast: 0.25,
   lunch: 0.3,
   dinner: 0.35,
   snack: 0.1,
+  dessert: 0.1,
 };
 
 /** Same values the API sends (DEFAULT_PLAN_WEIGHTS), used when weights are undefined. */
 export const DEFAULT_WEIGHTS: PlanWeights = { macro: 1, preference: 0.5, cost: 0.2, handsOn: 0.3, waste: 0.3 };
-export const DEFAULT_REPEATS: Record<MealSlot, number> = { breakfast: 7, lunch: 4, dinner: 2, snack: 7 };
+export const DEFAULT_REPEATS: Record<MealSlot, number> = { breakfast: 7, lunch: 4, dinner: 2, snack: 7, dessert: 7 };
 const DEFAULT_TOL: Record<MacroKey, number> = { kcal: 0.05, protein: 0, carbs: 0.15, fat: 0.15 };
 /** extra room for numbers we're less sure of, as a share of that food's macros */
 export const CONFIDENCE_WIDEN = { high: 0, medium: 0.05, low: 0.1 } as const;
@@ -108,7 +124,50 @@ export const PEN = {
   wishPlate: 2,
   wishDish: 4,
   overlapShared: 0.4,
+  // --- the levers, in the owner's order: a quarter-serving portion change
+  // costs portionOffUsual (0.4); a swap costs this once per batch (more when
+  // we're less sure of its numbers); top-ups cost per gram / per bottle, so
+  // that protein from a swap used on a few plates is cheaper than the same
+  // protein from extra chicken or a shake
+  swap: 3,
+  swapMedium: 1.5,
+  swapLow: 5,
+  /** extra cost per gram of a side (rice, veg, yogurt…) and, more, of a plain chicken top-up */
+  sideGram: 0.02,
+  topUpGram: 0.05,
+  /** cost of one bottled shake on a plate */
+  shakeBottle: 7,
+  /** plan options: reward per 1% of protein above the floor (protein option, up to 20%) */
+  proteinAbove: 0,
 };
+
+export type Penalties = typeof PEN;
+
+/** The plan options the planner can offer side by side. */
+export type PlanMode = "balanced" | "protein" | "variety" | "quick";
+
+/** How each option leans, as changes to the penalties and weights. */
+export function modeTuning(mode: PlanMode, weights: PlanWeights): { pen: Penalties; weights: PlanWeights } {
+  const pen = { ...PEN };
+  const w = { ...weights };
+  if (mode === "protein") {
+    pen.proteinShort *= 1.5;
+    pen.proteinAbove = 6;
+    pen.swap *= 0.5;
+    pen.swapMedium *= 0.5;
+  } else if (mode === "variety") {
+    pen.repeat *= 2;
+    pen.weekDishOver3 *= 3;
+    pen.weekDishOver5 *= 2;
+    pen.proteinRepeat *= 1.5;
+    pen.dish = -8; // each distinct dish is now a plus
+  } else if (mode === "quick") {
+    w.handsOn = Math.max(w.handsOn, 0.3) * 4;
+    pen.dish *= 5;
+    pen.sessionMinute *= 2;
+  }
+  return { pen, weights: w };
+}
 
 export interface Occasion {
   idx: number;
@@ -122,6 +181,17 @@ export interface Aim {
   targets: MacroTargets;
   tol: Record<MacroKey, number>;
   share: number;
+  /** this person's share of the day per slot, and the total over the slots counted */
+  slotShare: Record<MealSlot, number>;
+  slotTotal: number;
+}
+
+/** A recipe swap the model may use for a whole batch. */
+export interface SwapChoice {
+  recipeIdx: number;
+  swap: IngredientSwap;
+  /** objective cost of using it */
+  cost: number;
 }
 
 export interface PlateVar {
@@ -140,7 +210,12 @@ export interface Prepared {
   recipes: RecipeFacts[];
   adjusters: Adjuster[];
   people: PrepPerson[];
+  /** per person: the aim for a full day of their slots (with dessert, if they have it) */
   aims: Array<Aim | null>;
+  /** per person and day: the aim for the slots actually planned that day */
+  dayAims: Array<Array<Aim | null>>;
+  /** per person: the days that get a dessert plate */
+  dessertDays: Array<Set<number>>;
   /** words to exclude per person */
   words: string[][];
   /** per person: may eat recipe i */
@@ -160,6 +235,14 @@ export interface Prepared {
   /** share of a day's targets per slot */
   share: Record<MealSlot, number>;
   sessionTimeFactor: number;
+  /** penalties, after the plan option's tuning */
+  pen: Penalties;
+  /** usable recipe swaps (empty when swaps are off) */
+  swaps: SwapChoice[];
+  /** dish sets earlier plan options used: keep at least `drop` of each out */
+  cuts: Array<{ ids: string[]; drop: number }>;
+  /** the bottled shake the plan uses, if any */
+  shakeIdx: number | null;
 }
 
 export interface PrepareOptions {
@@ -171,6 +254,10 @@ export interface PrepareOptions {
   dishCount?: number;
   /** multiplies the session-time estimate (1 = the calibrated model) */
   sessionTimeFactor?: number;
+  /** which plan option to lean toward (default balanced) */
+  mode?: PlanMode;
+  /** dish sets to differ from (plan options) */
+  cuts?: Array<{ ids: string[]; drop: number }>;
 }
 
 function macroOf(r: RecipeFacts, m: MacroKey): number {
@@ -186,14 +273,42 @@ export function personSlots(p: PrepPerson): MealSlot[] {
   return SLOT_ORDER.filter((s) => p.slots.includes(s));
 }
 
-export function aimFor(p: PrepPerson, share: Record<MealSlot, number>): Aim | null {
+/**
+ * A person's share of the day per slot. Dessert keeps its share (about 10%);
+ * when the person's meals plus dessert would come to more than the whole day,
+ * the meals shrink so they still add up to one day.
+ */
+export function shareFor(p: PrepPerson, base: Record<MealSlot, number> = DEFAULT_SLOT_SHARE): Record<MealSlot, number> {
+  const out = { ...DEFAULT_SLOT_SHARE, ...base };
+  if (!p.slots.includes("dessert")) return out;
+  const d = Math.min(0.5, Math.max(0, out.dessert));
+  const meals = MEAL_SLOTS.filter((s) => p.slots.includes(s)).reduce((a, s) => a + out[s], 0);
+  const f = meals + d > 1 && meals > 0 ? (1 - d) / meals : 1;
+  for (const s of MEAL_SLOTS) out[s] *= f;
+  out.dessert = d;
+  return out;
+}
+
+/** Days (0-based) that get dessert: dessertsPerWeek of them (default every day), spread out. */
+export function dessertDaysFor(setup: PrepSetup): Set<number> {
+  const per = setup.dessertsPerWeek ?? 7;
+  const n = Math.max(0, Math.min(setup.days, Math.round(per)));
+  const out = new Set<number>();
+  for (let k = 0; k < n; k++) out.add(Math.floor(((k + 0.5) * setup.days) / n));
+  return out;
+}
+
+export function aimFor(p: PrepPerson, share: Record<MealSlot, number>, slots: MealSlot[] = personSlots(p)): Aim | null {
   const t = p.targets;
   if (!t || !(t.kcal > 0)) return null;
-  const slots = personSlots(p);
-  const f = Math.min(1, slots.reduce((a, s) => a + share[s], 0)) || 1;
+  const slotShare = shareFor(p, share);
+  const total = slots.reduce((a, s) => a + slotShare[s], 0);
+  const f = Math.min(1, total) || 1;
   const tol = { ...DEFAULT_TOL, ...(t.tolerance ?? {}) } as Record<MacroKey, number>;
   return {
     share: f,
+    slotShare,
+    slotTotal: total || 1,
     tol,
     targets: {
       kcal: t.kcal * f,
@@ -209,7 +324,8 @@ export function aimFor(p: PrepPerson, share: Record<MealSlot, number>): Aim | nu
 export function prepare(setup: PrepSetup, facts: RecipeFacts[], adjusters: Adjuster[], opts: PrepareOptions = {}): Prepared {
   const notes: string[] = [];
   const relaxed: string[] = [];
-  const weights = { ...DEFAULT_WEIGHTS, ...(opts.weights ?? {}) };
+  const tuned = modeTuning(opts.mode ?? "balanced", { ...DEFAULT_WEIGHTS, ...(opts.weights ?? {}) });
+  const weights = tuned.weights;
   const share = opts.slotShare ?? DEFAULT_SLOT_SHARE;
   const people = setup.people.filter((p) => personSlots(p).length > 0);
   const words = people.map(personWords);
@@ -257,22 +373,78 @@ export function prepare(setup: PrepSetup, facts: RecipeFacts[], adjusters: Adjus
 
   // Slots with too few suitable recipes may borrow other dishes, with a penalty.
   const usedSlots = Array.from(new Set(people.flatMap(personSlots)));
-  const thinSlots = usedSlots.filter((s) => pool.filter((r) => suitsSlot(r, s)).length < 2);
+  // (dessert never borrows: only real desserts go on a dessert plate)
+  const thinSlots = usedSlots.filter((s) => s !== "dessert" && pool.filter((r) => suitsSlot(r, s)).length < 2);
+  // a recipe that suits none of the meals planned (a dessert when nobody has
+  // dessert, say) can't go on a plate, so it doesn't take a place in the pool
+  pool = pool.filter((r) => pinned.has(r.recipeId) || usedSlots.some((s) => suitsSlot(r, s)) || (thinSlots.length > 0 && isMeal(r)));
 
   // Rank and cap the pool so the model stays small enough to solve in seconds.
   const aims = people.map((p) => aimFor(p, share));
   const pool2 = capPool(pool, aims, usedSlots, pinned, setup);
 
   const allowed = people.map((_, i) => pool2.map((r) => allowedById.get(r.recipeId)![i]));
-  const adjAllowed = people.map((_, i) => adjusters.map((a) => !adjusterExcluded(a, words[i])));
 
+  // Protein top-ups follow the setup (chicken, a shake, both or none), and a
+  // plan uses one shake product, not a mix of brands.
+  const topUps = setup.topUps ?? "both";
+  const okTopUp = (a: Adjuster) => {
+    const k = topUpKind(a);
+    if (!k) return true;
+    if (topUps === "none") return false;
+    return topUps === "both" || topUps === k;
+  };
+  let adj = adjusters.filter(okTopUp);
+  const shakes = adj.filter((a) => topUpKind(a) === "shake");
+  if (shakes.length > 1) {
+    // the shake the person picked (PrepSetup.shakeId), else the default
+    const picked = setup.shakeId;
+    const keep = shakes.find((a) => picked && (a.id === `shake-${picked}` || a.id === picked))
+      ?? shakes.find((a) => a.id === DEFAULT_SHAKE_ADJUSTER_ID)
+      ?? shakes[0];
+    adj = adj.filter((a) => topUpKind(a) !== "shake" || a === keep);
+  }
+  const shakeIdx = adj.findIndex((a) => topUpKind(a) === "shake");
+  const adjAllowed = people.map((_, i) => adj.map((a) => !adjusterExcluded(a, words[i])));
+
+  // Dessert plates only on the chosen days (the same days for everyone).
+  const dDays = dessertDaysFor(setup);
+  const dessertDays = people.map((p) => (p.slots.includes("dessert") ? dDays : new Set<number>()));
+  const slotsOn = (pi: number, d: number) => personSlots(people[pi]).filter((s) => s !== "dessert" || dessertDays[pi].has(d));
   const occasions: Occasion[] = [];
   people.forEach((p, pi) => {
-    for (let d = 0; d < setup.days; d++) for (const s of personSlots(p)) occasions.push({ idx: occasions.length, personIdx: pi, day: d, slot: s });
+    for (let d = 0; d < setup.days; d++) for (const s of slotsOn(pi, d)) occasions.push({ idx: occasions.length, personIdx: pi, day: d, slot: s });
   });
+  const dayAims = people.map((p, pi) => Array.from({ length: setup.days }, (_, d) => aimFor(p, share, slotsOn(pi, d))));
 
-  const perPerson = Math.max(...people.map((p) => personSlots(p).length * setup.days), 0);
-  let maxDishes = setup.maxDishes ?? (perPerson >= 10 ? 5 : 4);
+  // A recipe's own swaps, when allowed and someone has targets to aim for.
+  // A swap is used for the whole batch, so it must suit everyone eating it.
+  const swaps: SwapChoice[] = [];
+  // swaps the person turned off ("recipeId:swapId")
+  const offSwaps = new Set(setup.excludedSwaps ?? []);
+  if (setup.allowSwaps !== false && aims.some(Boolean)) {
+    pool2.forEach((r, ri) => {
+      const eaters = people.map((_, i) => i).filter((i) => allowed[i][ri]);
+      const ok = (r.swaps ?? []).filter((sw) =>
+        !offSwaps.has(`${r.recipeId}:${sw.id}`) &&
+        sw.changes.length > 0 &&
+        MACROS.every((m) => Number.isFinite(sw.perServingDelta[m] ?? 0)) &&
+        sw.changes.every((c) => c.lineIndex >= 0) &&
+        !eaters.some((i) => swapExcluded(sw, words[i])));
+      // the most useful few: protein gained plus calories saved
+      const worth = (sw: IngredientSwap) => (sw.perServingDelta.protein ?? 0) * 4 - (sw.perServingDelta.kcal ?? 0);
+      ok.sort((a, b) => worth(b) - worth(a)).slice(0, 4).forEach((sw) => {
+        const lean = opts.mode === "protein" && sw.goal !== "lighter" ? 0.5 : 1;
+        const cost = (tuned.pen.swap + (sw.confidence === "low" ? tuned.pen.swapLow : sw.confidence === "medium" ? tuned.pen.swapMedium : 0)) * lean;
+        swaps.push({ recipeIdx: ri, swap: sw, cost });
+      });
+    });
+  }
+
+  const perPerson = Math.max(...people.map((p) => personSlots(p).filter((s) => s !== "dessert").length * setup.days), 0);
+  // dessert is one more dish to cook, on top of the usual count
+  const hasDessert = occasions.some((o) => o.slot === "dessert");
+  let maxDishes = setup.maxDishes ?? (perPerson >= 10 ? 5 : 4) + (hasDessert ? 1 : 0);
   if (opts.dishCount != null) maxDishes = opts.dishCount;
   if (pinned.size > maxDishes) {
     relaxed.push(`${pinned.size} dishes were asked for, more than the ${maxDishes}-dish limit, so the plan cooks ${pinned.size}.`);
@@ -280,10 +452,48 @@ export function prepare(setup: PrepSetup, facts: RecipeFacts[], adjusters: Adjus
   }
 
   return {
-    setup, weights, recipes: pool2, adjusters, people, aims, words, allowed, adjAllowed, occasions,
+    setup, weights, recipes: pool2, adjusters: adj, people, aims, dayAims, dessertDays, words, allowed, adjAllowed, occasions,
     maxDishes, maxRepeats: { ...DEFAULT_REPEATS, ...(setup.maxRepeats ?? {}) } as Record<MealSlot, number>,
     pinned, exactDishes: opts.dishCount != null, notes, relaxed, thinSlots, share, sessionTimeFactor: opts.sessionTimeFactor ?? 1,
+    pen: tuned.pen, swaps, cuts: opts.cuts ?? [], shakeIdx: shakeIdx >= 0 ? shakeIdx : null,
   };
+}
+
+const MACROS: MacroKey[] = ["kcal", "protein", "carbs", "fat"];
+
+/** Mirrors DEFAULT_SHAKE_ADJUSTER_ID in shared/meal-prep/shakes.ts (food data): Premier Protein 30g. */
+export const DEFAULT_SHAKE_ADJUSTER_ID = "shake-premier-protein-30g";
+
+/**
+ * Which protein top-up an adjuster is. Uses Adjuster.topUp; adjusters from
+ * before that field existed are recognized by id.
+ */
+export function topUpKind(a: Adjuster): "chicken" | "shake" | null {
+  if (a.topUp) return a.topUp;
+  if (/shake/.test(a.id)) return "shake";
+  if (/^chicken/.test(a.id)) return "chicken";
+  return null;
+}
+
+/** grams one unit of the adjuster's variable stands for: a whole bottle for a shake */
+export function adjusterUnit(a: Adjuster): number {
+  return topUpKind(a) === "shake" ? Math.max(1, a.unitGrams ?? a.stepGrams) : 1;
+}
+
+/** Whether an adjuster may go on a plate for this slot (desserts never get savory top-ups). */
+export function adjusterFitsSlot(a: Adjuster, slot: MealSlot): boolean {
+  if (!a.slots.includes(slot)) return false;
+  if (slot === "dessert" && topUpKind(a) === "chicken") return false;
+  return true;
+}
+
+function swapExcluded(sw: IngredientSwap, words: string[]): boolean {
+  if (!words.length) return false;
+  const texts = sw.changes.flatMap((c) => [c.to.id, c.to.name, c.toDisplay]).map((t) => t.toLowerCase().replace(/[-_]/g, " "));
+  return words.some((w) => {
+    const re = new RegExp("(^|[^a-z])" + w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    return texts.some((t) => re.test(t));
+  });
 }
 
 function capPool(pool: RecipeFacts[], aims: Array<Aim | null>, slots: MealSlot[], pinned: Set<string>, setup: PrepSetup): RecipeFacts[] {
@@ -328,8 +538,11 @@ function capPool(pool: RecipeFacts[], aims: Array<Aim | null>, slots: MealSlot[]
 export interface DayMacroVars {
   personIdx: number;
   day: number;
-  /** grams of adjuster j on the plate for occasion occ */
-  adj: Array<{ occ: number; j: number; v: string }>;
+  /**
+   * adjuster j on the plate for occasion occ: v counts units of `unit` grams
+   * (whole steps, whole bottles, or grams when `int` is false)
+   */
+  adj: Array<{ occ: number; j: number; v: string; unit: number; int: boolean }>;
 }
 
 export interface Built {
@@ -345,6 +558,8 @@ export interface Built {
   plateFloors: Array<{ v: string; occ: number; aim: number }>;
   /** chosen dishes that need an appliance the kitchen doesn't list */
   equipment: Array<{ recipeIdx: number; missing: string[]; soft: boolean }>;
+  /** one binary per usable swap (same order as P.swaps): on = the whole batch uses it */
+  swapVars: string[];
   slack: {
     repeats: Array<{ v: string; personIdx: number; slot: MealSlot; recipeIdx: number; limit: number }>;
     protein: Array<{ v: string; personIdx: number; slot: MealSlot; day: number; protein: string }>;
@@ -364,14 +579,28 @@ export const PLATE_BAND = 0.25;
 export const PLATE_FLOOR = 0.6;
 
 /** calories one plate should carry: the meal's share of the person's prep aim */
-export function plateAim(aim: Aim, person: PrepPerson, slot: MealSlot, share: Record<MealSlot, number> = DEFAULT_SLOT_SHARE): number {
-  const total = personSlots(person).reduce((a, s) => a + share[s], 0) || 1;
-  return (aim.targets.kcal * share[slot]) / total;
+export function plateAim(aim: Aim, slot: MealSlot): number {
+  return (aim.targets.kcal * aim.slotShare[slot]) / aim.slotTotal;
 }
 
-/** objective cost of one gram of an adjuster */
+/**
+ * objective cost of one gram of an adjuster. Protein top-ups cost more than
+ * a portion change or a recipe swap, so they're the last lever used.
+ */
 export function adjusterCost(a: Adjuster): number {
-  return PEN.adjusterGram + PEN.adjusterKcal * (a.perGram.kcal ?? 0);
+  const k = topUpKind(a);
+  if (k === "shake") return PEN.shakeBottle / adjusterUnit(a);
+  return PEN.adjusterGram + PEN.adjusterKcal * (a.perGram.kcal ?? 0) + (k === "chicken" ? PEN.topUpGram : PEN.sideGram);
+}
+
+/** A person's usual portion of a meal (quarter servings); a dessert is one serving. */
+export function usualFor(P: Prepared, pi: number, slot?: MealSlot): number {
+  if (slot === "dessert") return 4;
+  const aim = P.aims[pi];
+  if (!aim) return 4;
+  const meals = personSlots(P.people[pi]).filter((s) => s !== "dessert");
+  const kcal = meals.reduce((a, s) => a + plateAim(aim, s), 0);
+  return usualQuarters({ ...aim, targets: { ...aim.targets, kcal } }, meals.length, P.recipes.filter((r) => !r.mealTypes.every((t) => t === "dessert")));
 }
 
 /**
@@ -408,6 +637,7 @@ function overlapIds(r: RecipeFacts): Set<string> {
 
 export function buildModel(P: Prepared): Built {
   const { setup, weights: W, recipes: R, occasions } = P;
+  const PEN = P.pen; // tuned for the plan option
   const lp = new LpModel();
   const nR = R.length;
 
@@ -435,6 +665,30 @@ export function buildModel(P: Prepared): Built {
   );
   R.forEach((_, i) => lp.addRow([...b[i].map((v): Term => [v, 1]), [y[i], -1]], "=", 0));
   lp.addRow(y.map((v): Term => [v, 1]), P.exactDishes ? "=" : "<=", P.maxDishes);
+  // plan options: differ from earlier options by at least `drop` of their dishes
+  for (const cut of P.cuts) {
+    const idx = R.map((r, i) => (cut.ids.includes(r.recipeId) && !P.pinned.has(r.recipeId) ? i : -1)).filter((i) => i >= 0);
+    const drop = Math.min(cut.drop, idx.length);
+    if (drop > 0) lp.addRow(idx.map((i): Term => [y[i], 1]), "<=", idx.length - drop);
+  }
+
+  // --- recipe swaps: one binary per swap, for the whole batch
+  const swapVars = P.swaps.map((c) => {
+    const v = lp.addVar({ type: "B", obj: c.cost * W.macro });
+    lp.addRow([[v, 1], [y[c.recipeIdx], -1]], "<=", 0);
+    return v;
+  });
+  R.forEach((_, i) => {
+    const mine = P.swaps.map((c, k) => (c.recipeIdx === i ? k : -1)).filter((k) => k >= 0);
+    if (mine.length > 2) lp.addRow(mine.map((k): Term => [swapVars[k], 1]), "<=", 2);
+    // at most one swap per ingredient line
+    const lines = new Map<number, number[]>();
+    for (const k of mine) for (const c of P.swaps[k].swap.changes) lines.set(c.lineIndex, [...(lines.get(c.lineIndex) ?? []), k]);
+    lines.forEach((ks) => {
+      const uniq = Array.from(new Set(ks));
+      if (uniq.length > 1) lp.addRow(uniq.map((k): Term => [swapVars[k], 1]), "<=", 1);
+    });
+  });
 
   // --- plates
   const freezerOk = setup.kitchen.freezerSpace !== "none";
@@ -463,9 +717,10 @@ export function buildModel(P: Prepared): Built {
       lp.addRow([[x, 1], [y[i], -1]], "<=", 0);
       let n: string | null = null;
       if (hasAim) {
-        n = lp.addVar({ type: "I", lb: 0, ub: MAX_QUARTERS, obj: (-W.waste * PEN.wasteServing) / 4 });
+        const maxQ = maxQuarters(o.slot);
+        n = lp.addVar({ type: "I", lb: 0, ub: maxQ, obj: (-W.waste * PEN.wasteServing) / 4 });
         lp.addRow([[n, 1], [x, -MIN_QUARTERS]], ">=", 0);
-        lp.addRow([[n, 1], [x, -MAX_QUARTERS]], "<=", 0);
+        lp.addRow([[n, 1], [x, -maxQ]], "<=", 0);
         servedTerms[i].push([n, 0.25]);
       } else {
         lp.addObj(x, -W.waste * PEN.wasteServing);
@@ -483,14 +738,31 @@ export function buildModel(P: Prepared): Built {
     return m;
   });
   // keep portions near the person's usual size
-  const usual = P.people.map((p, pi) => (P.aims[pi] ? usualQuarters(P.aims[pi]!, personSlots(p).length, R) : 4));
+  const usual = P.people.map((_, pi) => usualFor(P, pi));
   for (const o of occasions) {
     const ps = platesByOcc[o.idx].filter((p) => p.n);
     if (!ps.length) continue;
     const up = lp.addVar({ obj: PEN.portionOffUsual });
     const down = lp.addVar({ obj: PEN.portionOffUsual });
-    lp.addRow([...ps.map((p): Term => [p.n!, 1]), ...ps.map((p): Term => [p.x, -usual[o.personIdx]]), [up, -1], [down, 1]], "=", 0);
+    const u = o.slot === "dessert" ? usualFor(P, o.personIdx, "dessert") : usual[o.personIdx];
+    lp.addRow([...ps.map((p): Term => [p.n!, 1]), ...ps.map((p): Term => [p.x, -u]), [up, -1], [down, 1]], "=", 0);
   }
+  // swap amounts per plate: w = servings (quarters) when the batch uses the
+  // swap, else 0 (a product of a binary and an integer, written linearly)
+  const swapOnPlate = new Map<PlateVar, Array<{ k: number; w: string }>>();
+  P.swaps.forEach((c, k) => {
+    for (const p of plates) {
+      if (p.recipeIdx !== c.recipeIdx || !p.n) continue;
+      const maxQ = maxQuarters(occasions[p.occ].slot);
+      const w = lp.addVar({ lb: 0, ub: maxQ });
+      lp.addRow([[w, 1], [p.n, -1]], "<=", 0);
+      lp.addRow([[w, 1], [swapVars[k], -maxQ]], "<=", 0);
+      lp.addRow([[w, 1], [p.n, -1], [swapVars[k], -maxQ]], ">=", -maxQ);
+      swapOnPlate.set(p, [...(swapOnPlate.get(p) ?? []), { k, w }]);
+    }
+  });
+  const swapTerms = (p: PlateVar, m: MacroKey): Term[] =>
+    (swapOnPlate.get(p) ?? []).map(({ k, w }): Term => [w, (P.swaps[k].swap.perServingDelta[m] ?? 0) / 4]);
   // servings eaten ≤ servings made
   R.forEach((r, i) => {
     lp.addRow([...servedTerms[i], ...SCALES.map((k, s): Term => [b[i][s], -k * r.servings])], "<=", 0);
@@ -529,10 +801,12 @@ export function buildModel(P: Prepared): Built {
         lp.addRow([...xs.map((p): Term => [p.x, 1]), [v, -1]], "<=", 1);
         slack.sameDay.push({ v, personIdx: pi, day: d, recipeIdx: i });
       }
+      // (a week of the same dessert is fine: one batch of brownies)
+      const meals = mine.filter((p) => occasions[p.occ].slot !== "dessert");
       for (const [over, pen] of [[3, PEN.weekDishOver3], [5, PEN.weekDishOver5]] as const) {
-        if (mine.length <= over) continue;
+        if (meals.length <= over) continue;
         const e = lp.addVar({ obj: pen });
-        lp.addRow([...mine.map((p): Term => [p.x, 1]), [e, -1]], "<=", over);
+        lp.addRow([...meals.map((p): Term => [p.x, 1]), [e, -1]], "<=", over);
       }
     }
   });
@@ -619,11 +893,10 @@ export function buildModel(P: Prepared): Built {
   // --- macros per person-day
   const days: DayMacroVars[] = [];
   const plateFloors: Built["plateFloors"] = [];
-  P.people.forEach((person, pi) => {
-    const aim = P.aims[pi];
-    if (!aim) return;
-    const slots = personSlots(person);
+  P.people.forEach((_, pi) => {
+    if (!P.aims[pi]) return;
     for (let d = 0; d < setup.days; d++) {
+      const aim = P.dayAims[pi][d]!;
       const age = ageOnDay(setup, d);
       const dayPlates = plates.filter((p) => occasions[p.occ].personIdx === pi && occasions[p.occ].day === d);
       // adjusters belong to a plate (so each plate can be balanced), and only
@@ -634,18 +907,27 @@ export function buildModel(P: Prepared): Built {
         const xs = plates.filter((p) => p.occ === o.idx);
         if (!xs.length) continue;
         P.adjusters.forEach((a, j) => {
-          if (!P.adjAllowed[pi][j] || !a.slots.includes(o.slot)) return;
+          if (!P.adjAllowed[pi][j] || !adjusterFitsSlot(a, o.slot)) return;
           if (keepingFor(a.storage, age, freezerOk) === "no") return;
+          const unit = adjusterUnit(a);
+          if (unit > 1) {
+            // a shake: at most one whole bottle on a plate
+            const v = lp.addVar({ type: "B", obj: adjusterCost(a) * unit * W.macro });
+            lp.addRow([[v, 1], ...xs.map((p): Term => [p.x, -1])], "<=", 0);
+            adj.push({ occ: o.idx, j, v, unit, int: true });
+            return;
+          }
           const v = lp.addVar({ lb: 0, ub: a.maxGrams, obj: adjusterCost(a) * W.macro });
           lp.addRow([[v, 1], ...xs.map((p): Term => [p.x, -a.maxGrams])], "<=", 0);
-          adj.push({ occ: o.idx, j, v });
+          adj.push({ occ: o.idx, j, v, unit, int: false });
         });
       }
       days.push({ personIdx: pi, day: d, adj });
 
       const amount = (m: MacroKey): Term[] => {
         const t: Term[] = dayPlates.map((p) => [p.n!, macroOf(R[p.recipeIdx], m) / 4]);
-        adj.forEach(({ j, v }) => t.push([v, P.adjusters[j].perGram[m] ?? 0]));
+        dayPlates.forEach((p) => t.push(...swapTerms(p, m)));
+        adj.forEach(({ j, v, unit }) => t.push([v, (P.adjusters[j].perGram[m] ?? 0) * unit]));
         return t;
       };
 
@@ -655,10 +937,11 @@ export function buildModel(P: Prepared): Built {
         if (o.personIdx !== pi || o.day !== d) continue;
         const xs = dayPlates.filter((p) => p.occ === o.idx);
         if (!xs.length) continue;
-        const T = plateAim(aim, person, o.slot, P.share);
+        const T = plateAim(aim, o.slot);
         const kc: Term[] = [
           ...xs.map((p): Term => [p.n!, macroOf(R[p.recipeIdx], "kcal") / 4]),
-          ...adj.filter((a) => a.occ === o.idx).map(({ j, v }): Term => [v, P.adjusters[j].perGram.kcal ?? 0]),
+          ...xs.flatMap((p) => swapTerms(p, "kcal")),
+          ...adj.filter((a) => a.occ === o.idx).map(({ j, v, unit }): Term => [v, (P.adjusters[j].perGram.kcal ?? 0) * unit]),
         ];
         const pctP = (100 / Math.max(T, 1)) * W.macro;
         const lo = lp.addVar({ obj: PEN.plateOut * pctP });
@@ -689,6 +972,13 @@ export function buildModel(P: Prepared): Built {
       if (Pt > 0) {
         const up = lp.addVar({ obj: PEN.proteinShort * pct(Pt) });
         lp.addRow([...amount("protein"), ...widen("protein"), [up, 1]], ">=", Pt * (1 - aim.tol.protein));
+        if (PEN.proteinAbove > 0) {
+          // protein option: a reward for protein above the floor (up to 20%);
+          // `g` pays the reward back whenever protein is under the floor
+          const above = lp.addVar({ ub: 0.2 * Pt, obj: -PEN.proteinAbove * pct(Pt) });
+          const g = lp.addVar({ obj: (PEN.proteinAbove + 0.01) * pct(Pt) });
+          lp.addRow([[above, 1], ...amount("protein").map(([v, c]): Term => [v, -c]), [g, -1]], "<=", -Pt);
+        }
       }
       for (const m of ["carbs", "fat"] as const) {
         const T = aim.targets[m];
@@ -703,5 +993,5 @@ export function buildModel(P: Prepared): Built {
 
   const sessionMinutes = (bs: Array<{ recipeIdx: number; scale: number }>, n: number) =>
     bs.reduce((a, x) => a + activeFor(x.recipeIdx, x.scale), 0) + (M.session + M.perPlate * n) * skill * P.sessionTimeFactor;
-  return { lp, y, b, plates, miss, days, plateFloors, equipment, slack, sessionCap, activeFor, sessionMinutes };
+  return { lp, y, b, plates, miss, days, plateFloors, equipment, swapVars, slack, sessionCap, activeFor, sessionMinutes };
 }

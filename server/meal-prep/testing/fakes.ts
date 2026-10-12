@@ -3,7 +3,7 @@
 // allowed dishes, the session builder makes one task per dish.
 
 import type {
-  Adjuster, FoodData, Macros, Planner, PlanWeights, PrepPlan, PrepSession, PrepSetup,
+  Adjuster, FoodData, Macros, PlanOption, Planner, PlanWeights, PrepPlan, PrepSession, PrepSetup,
   RecipeFacts, SessionBuilder, ShoppingList,
 } from "@shared/meal-prep/contract";
 import type { PrepPlanRow, PrepPlanShareRow, PrepRecipes, PrepStore, ProgressRecord, CheckinRecord, ProfileRecord } from "../store";
@@ -63,6 +63,22 @@ export class FakePlanner implements Planner {
     const allowed = facts.filter(f => !excluded.has(f.recipeId))
       .sort((a, b) => Number(pinned.includes(b.recipeId)) - Number(pinned.includes(a.recipeId)) || (bonus[b.recipeId] ?? 0) - (bonus[a.recipeId] ?? 0));
     return planFrom(setup, allowed.slice(0, setup.maxDishes ?? 2).map(f => f.recipeId), 80);
+  }
+
+  /** up to three options, each from the next dishes in line (fewer when the recipes run out) */
+  async planOptions(setup: PrepSetup, facts: RecipeFacts[], adjusters: Adjuster[], weights?: PlanWeights): Promise<PlanOption[]> {
+    const first = await this.plan(setup, facts, adjusters, weights);
+    const n = Math.max(1, first.batches.length);
+    const used = new Set(first.batches.map(b => b.recipeId));
+    const rest = facts.filter(f => !used.has(f.recipeId) && !(setup.excludedRecipeIds ?? []).includes(f.recipeId)).map(f => f.recipeId);
+    const options: PlanOption[] = [{ key: "balanced", label: "Best fit", summary: `${n} dishes · about 1 hr hands-on · 90 g protein/day avg`, plan: first }];
+    const more: Array<Pick<PlanOption, "key" | "label">> = [{ key: "protein", label: "Most protein" }, { key: "variety", label: "Most variety" }];
+    more.forEach((o, i) => {
+      const ids = rest.slice(i * n, (i + 1) * n);
+      if (ids.length < n) return;
+      options.push({ ...o, summary: `${n} dishes · about 1 hr hands-on · ${100 + 10 * i} g protein/day avg`, plan: planFrom(setup, ids, 75) });
+    });
+    return options;
   }
 
   async swapOptions(setup: PrepSetup, plan: PrepPlan, recipeId: string, facts: RecipeFacts[]) {

@@ -7,7 +7,7 @@ import { LpModel } from "./lp";
 import { solveLp } from "./solver";
 import { ageOnDay, expandTerms, keepingFor, matchExclusion } from "./eligibility";
 import { DEFAULT_REPEATS, handsOnMinutes, personSlots } from "./model";
-import { adjusterFacts, person, recipeFacts, scenarios, setupFor } from "./test-fixtures";
+import { adjusterFacts, dessertFacts, person, recipeFacts, scenarios, setupFor, shakeAdjusters } from "./test-fixtures";
 
 const planner = createPlanner({ timeLimit: 2 });
 const API_WEIGHTS = { macro: 1, preference: 0.5, cost: 0.2, handsOn: 0.3, waste: 0.3 };
@@ -44,9 +44,23 @@ function checkInvariants(plan: PrepPlan, setup: PrepSetup, facts: RecipeFacts[],
     }
     expect(p.eatBy >= addDaysIso(setup.session.date, age)).toBe(true);
     // adjusters in whole steps, within limits, in suitable slots
+    // portions: desserts half to one and a half servings
+    if (p.slot === "dessert") {
+      expect(r.mealTypes).toContain("dessert");
+      expect(rec[0].amount).toBeLessThanOrEqual(1.5);
+    }
+    // plate macros include any swaps the batch uses
+    const batch = plan.batches.find((b) => b.recipeId === r.recipeId)!;
+    const delta = (plan.swapsApplied ?? []).filter((x) => x.recipeId === r.recipeId && batch.swapIds?.includes(x.swapId));
+    const perKcal = r.perServing.kcal + delta.reduce((a, x) => a + x.perServingDelta.kcal, 0);
+    expect(Math.abs(rec[0].macros.kcal - perKcal * rec[0].amount)).toBeLessThanOrEqual(2);
+    const shakes = p.items.filter((x) => x.kind === "adjuster" && adjusters.find((a) => a.id === x.refId)?.topUp === "shake");
+    expect(shakes.length).toBeLessThanOrEqual(1);
     for (const i of p.items.filter((x) => x.kind === "adjuster")) {
       const a = adjusters.find((x) => x.id === i.refId)!;
-      expect(i.amount % a.stepGrams).toBe(0);
+      if (a.topUp === "shake") expect(i.amount).toBe(a.unitGrams); // one whole bottle
+      else expect(i.amount % a.stepGrams).toBe(0);
+      if (p.slot === "dessert") expect(a.topUp).not.toBe("chicken");
       expect(i.amount).toBeLessThanOrEqual(a.maxGrams);
       expect(a.slots).toContain(p.slot);
     }
@@ -267,7 +281,7 @@ describe("balanced plates and kitchen equipment", () => {
         const person = s.setup.people.find((x) => x.id === p.personId)!;
         const fit = plan.fit.find((f) => f.personId === p.personId && f.day === p.day)!;
         if (!fit.target) continue;
-        const share = { breakfast: 0.25, lunch: 0.3, dinner: 0.35, snack: 0.1 };
+        const share = { breakfast: 0.25, lunch: 0.3, dinner: 0.35, snack: 0.1, dessert: 0.1 };
         const total = personSlots(person).reduce((a, sl) => a + share[sl], 0);
         const aim = (fit.target.kcal * share[p.slot]) / total;
         expect(p.macros.kcal).toBeGreaterThanOrEqual(aim * 0.6);
@@ -361,6 +375,144 @@ describe("swapOptions", () => {
   });
 });
 
+describe("dessert", () => {
+  const facts = [...recipeFacts(), ...dessertFacts()];
+
+  it("puts a dessert on dessertsPerWeek days, spread out, from dessert recipes only", async () => {
+    const setup = setupFor([person("sam", "Sam", { targets: { kcal: 2200, protein: 160 }, slots: ["lunch", "dinner", "dessert"] })], { dessertsPerWeek: 3 });
+    const plan = await planner.plan(setup, facts, adjusterFacts());
+    checkInvariants(plan, setup, facts);
+    const desserts = plan.plates.filter((p) => p.slot === "dessert");
+    expect(desserts.map((p) => p.day).sort()).toEqual([0, 2, 4]);
+    expect(plan.plates.filter((p) => p.slot !== "dessert")).toHaveLength(10);
+    expect(plan.fitScore).toBe(100);
+    // dessert takes about a tenth of the day; the day's aim is bigger on dessert days
+    const aim = (d: number) => plan.fit.find((f) => f.day === d)!.target!.kcal;
+    expect(aim(0)).toBe(Math.round(2200 * 0.75));
+    expect(aim(1)).toBe(Math.round(2200 * 0.65));
+    for (const p of desserts) expect(p.macros.kcal).toBeLessThan(2200 * 0.1 * 1.6);
+    expect(plan.notes.some((n) => n.includes("dessert on 3 of the 5 days"))).toBe(true);
+  });
+
+  it("defaults to dessert every day, and says so when there are no desserts to pick", async () => {
+    const setup = setupFor([person("gma", "Grandma", { slots: ["dinner", "dessert"] })], { days: 4 });
+    const plan = await planner.plan(setup, facts, adjusterFacts());
+    expect(plan.plates.filter((p) => p.slot === "dessert")).toHaveLength(4);
+    const none = await planner.plan(setup, recipeFacts(), adjusterFacts());
+    expect(none.plates.filter((p) => p.slot === "dessert")).toHaveLength(0);
+    expect(none.relaxed.some((r) => r.startsWith("Desserts are left off"))).toBe(true);
+  });
+});
+
+describe("recipe swaps", () => {
+  // a high-protein, lower-calorie aim from dishes that have swaps
+  const facts = recipeFacts().filter((f) => ["tikka-masala", "meatloaf", "veggie-lasagna", "chickpea-curry"].includes(f.recipeId));
+  const setup = setupFor([person("sam", "Sam", { targets: { kcal: 1800, protein: 150 }, slots: ["lunch", "dinner"] })], { days: 4, topUps: "none" });
+
+  it("uses a recipe's swaps when they help, and calls each one out", async () => {
+    const plan = await planner.plan(setup, facts, adjusterFacts());
+    checkInvariants(plan, setup, facts);
+    const applied = plan.swapsApplied ?? [];
+    expect(applied.length).toBeGreaterThan(0);
+    for (const x of applied) {
+      expect(plan.batches.find((b) => b.recipeId === x.recipeId)!.swapIds).toContain(x.swapId);
+      expect(x.note).toMatch(/ instead of .+: .*per serving$/);
+      expect(plan.notes.some((n) => n.startsWith("Swap in") && n.includes(x.title))).toBe(true);
+    }
+    expect(applied.find((x) => x.swapId === "coconut->greek-yogurt")?.note).toBe("Nonfat Greek yogurt instead of coconut milk: +8 g protein, 95 fewer calories per serving");
+    // at most one swap per ingredient line (meatloaf has two for its beef)
+    expect(plan.batches.find((b) => b.recipeId === "meatloaf")?.swapIds?.length ?? 0).toBeLessThanOrEqual(1);
+  });
+
+  it("uses none when swaps are off or turned off one by one, and none an eater can't have", async () => {
+    const off = await planner.plan({ ...setup, allowSwaps: false }, facts, adjusterFacts());
+    expect(off.swapsApplied ?? []).toEqual([]);
+    expect(off.batches.every((b) => !b.swapIds?.length)).toBe(true);
+    expect(off.notes.some((n) => n.startsWith("Swap in"))).toBe(false);
+
+    const excludedSwaps = ["tikka-masala:coconut->greek-yogurt"];
+    const some = await planner.plan({ ...setup, excludedSwaps }, facts, adjusterFacts());
+    expect((some.swapsApplied ?? []).map((x) => x.swapId)).not.toContain("coconut->greek-yogurt");
+
+    // someone who won't eat turkey never gets the turkey swap in the meatloaf
+    const noTurkey = { ...setup, people: [{ ...setup.people[0], dislikes: ["turkey"] }] };
+    const plan = await planner.plan(noTurkey, facts, adjusterFacts(), { ...API_WEIGHTS, recipeBonus: { meatloaf: 3 } });
+    expect((plan.swapsApplied ?? []).map((x) => x.swapId)).not.toContain("beef->turkey-93");
+  });
+});
+
+describe("protein top-ups setting", () => {
+  // low-protein dishes, so top-ups are needed; no tofu side, so the top-up setting decides
+  const facts = recipeFacts().filter((f) => ["lentil-soup", "chickpea-curry", "quinoa-salad", "egg-muffins", "overnight-oats", "bean-enchiladas", "yogurt-parfait"].includes(f.recipeId));
+  const adjusters = [...adjusterFacts().filter((a) => a.id !== "tofu-baked"), ...shakeAdjusters()];
+  const base = setupFor([person("sam", "Sam", { targets: { kcal: 2400, protein: 170 }, slots: ["breakfast", "lunch", "dinner"] })], { days: 4 });
+  const used = (plan: PrepPlan, kind: "chicken" | "shake") =>
+    plan.plates.flatMap((p) => p.items).filter((i) => adjusters.find((a) => a.id === i.refId)?.topUp === kind);
+
+  it("none: no chicken and no shakes", async () => {
+    const plan = await planner.plan({ ...base, topUps: "none" }, facts, adjusters);
+    checkInvariants(plan, base, facts, adjusters);
+    expect(used(plan, "chicken")).toEqual([]);
+    expect(used(plan, "shake")).toEqual([]);
+  });
+
+  it("shake: whole bottles of one product, at most one a plate, on its slots, with a plain note", async () => {
+    const setup = { ...base, topUps: "shake" as const };
+    const plan = await planner.plan(setup, facts, adjusters);
+    checkInvariants(plan, setup, facts, adjusters);
+    expect(used(plan, "chicken")).toEqual([]);
+    const shakes = used(plan, "shake");
+    expect(shakes.length).toBeGreaterThan(0);
+    expect(new Set(shakes.map((i) => i.refId)).size).toBe(1);
+    expect(plan.plates.filter((p) => p.slot === "dinner").every((p) => !p.items.some((i) => i.refId.startsWith("shake")))).toBe(true);
+    expect(plan.notes.some((n) => /^Added a Fairlife Core Power shake to .* to reach Sam's protein\.$/.test(n))).toBe(true);
+    // a picked shake (PrepSetup.shakeId) is the one used
+    const picked = await planner.plan({ ...setup, shakeId: "premier" }, facts, adjusters);
+    expect(new Set(used(picked, "shake").map((i) => i.refId))).toEqual(new Set(["shake-premier"]));
+  });
+
+  it("a milk-based shake is never given to someone avoiding dairy", async () => {
+    const setup = { ...base, topUps: "shake" as const, people: [{ ...base.people[0], allergies: ["dairy"] }] };
+    const plan = await planner.plan(setup, facts, adjusters);
+    expect(used(plan, "shake")).toEqual([]);
+  });
+});
+
+describe("planOptions", () => {
+  it("offers up to three plans with different dishes, labelled and summarized", async () => {
+    const s = byName("one-lifter");
+    const t0 = Date.now();
+    const options = await planner.planOptions(s.setup, s.facts, s.adjusters);
+    const ms = Date.now() - t0;
+    expect(options.length).toBe(3);
+    expect(ms).toBeLessThan(10_000);
+    expect(new Set(options.map((o) => o.key)).size).toBe(3);
+    const sets = options.map((o) => o.plan.batches.map((b) => b.recipeId).sort().join(","));
+    expect(new Set(sets).size).toBe(3);
+    for (const o of options) {
+      checkInvariants(o.plan, s.setup, s.facts);
+      expect(o.label.length).toBeGreaterThan(0);
+      expect(o.summary).toMatch(/^\d+ dish(es)? · about .+ hands-on · \d+ g protein\/day avg/);
+      expect(o.plan.fitScore).toBe(100);
+    }
+    // each option leaves out at least two of each other option's dishes
+    for (let i = 0; i < options.length; i++) for (let j = 0; j < options.length; j++) {
+      if (i === j) continue;
+      const a = options[i].plan.batches.map((b) => b.recipeId);
+      const b = options[j].plan.batches.map((x) => x.recipeId);
+      // (the later of the two left out two of the earlier one's dishes)
+      expect(Math.max(a.filter((x) => !b.includes(x)).length, b.filter((x) => !a.includes(x)).length)).toBeGreaterThanOrEqual(2);
+    }
+  });
+
+  it("returns fewer when the recipes don't allow more distinct plans", async () => {
+    const s = byName("thin-pool");
+    const options = await planner.planOptions(s.setup, s.facts, s.adjusters);
+    expect(options.length).toBeGreaterThanOrEqual(1);
+    expect(options.length).toBeLessThan(3);
+  });
+});
+
 // The food-data part's fixtures (real family recipes). They land with that
 // branch; until then point MP_FIXTURES_DIR at its worktree to run these.
 const FIXTURES_DIR = process.env.MP_FIXTURES_DIR ?? path.resolve(__dirname, "../../../shared/meal-prep/fixtures");
@@ -392,5 +544,22 @@ describe.skipIf(!haveFixtures)("planner on the food-data fixtures", () => {
       expect(r.mealTypes).toContain(p.slot);
       if (p.personId === "mom") expect(r.allergens).not.toContain("tree-nut");
     }
+  });
+
+  it("adds dessert days, one shake brand and called-out swaps on real recipes (once the fixtures have them)", async () => {
+    const { facts, adjusters } = load();
+    const hasNew = facts.some((f) => f.mealTypes.includes("dessert")) && adjusters.some((a) => a.topUp === "shake") && facts.some((f) => f.swaps?.length);
+    if (!hasNew) return;
+    const setup = setupFor([person("sam", "Sam", { targets: { kcal: 2200, protein: 180 }, slots: ["breakfast", "lunch", "dinner", "dessert"] })], { dessertsPerWeek: 3, topUps: "shake" });
+    const plan = await planner.plan(setup, facts, adjusters);
+    checkInvariants(plan, setup, facts, adjusters);
+    expect(plan.fitScore).toBeGreaterThanOrEqual(80);
+    expect(plan.plates.filter((p) => p.slot === "dessert").map((p) => p.day).sort()).toEqual([0, 2, 4]);
+    const items = plan.plates.flatMap((p) => p.items).filter((i) => i.kind === "adjuster");
+    expect(items.some((i) => adjusters.find((a) => a.id === i.refId)?.topUp === "chicken")).toBe(false);
+    const shakes = new Set(items.filter((i) => adjusters.find((a) => a.id === i.refId)?.topUp === "shake").map((i) => i.refId));
+    expect(shakes.size).toBeLessThanOrEqual(1);
+    if (shakes.size) expect(Array.from(shakes)[0]).toBe("shake-premier-protein-30g");
+    for (const x of plan.swapsApplied ?? []) expect(plan.notes.some((n) => n.includes(x.note))).toBe(true);
   });
 });
