@@ -204,14 +204,15 @@ export function OptionCards({
 type CookSwap = Pick<AppliedSwap, "swapId" | "title" | "goal" | "note" | "changes">;
 
 /** For the cook: "Swap in this batch" with exactly what to use instead */
-export function CookSwapBox({ swaps, className }: { swaps: CookSwap[] | undefined; className?: string }) {
+export function CookSwapBox({ swaps, scale = 1, className }: { swaps: CookSwap[] | undefined; scale?: number; className?: string }) {
   if (!swaps?.length) return null;
+  const batch = scale !== 1 ? " (amount already for the whole batch)" : "";
   return (
     <div className={cn("space-y-1 rounded-md border-2 border-emerald-700/50 bg-emerald-50 p-3 text-emerald-950 dark:border-emerald-400/50 dark:bg-emerald-950 dark:text-emerald-50", className)} role="note">
       {swaps.map((s) => (
         <div key={s.swapId}>
           <SwapChip goal={s.goal} />
-          {(s.changes?.length ? s.changes.map((c) => c.use) : [s.title]).map((u) => <p key={u} className="mt-1 font-semibold">{u}</p>)}
+          {(s.changes?.length ? s.changes.map((c) => `${c.use}${batch}`) : [s.title]).map((u) => <p key={u} className="mt-1 font-semibold">{u}</p>)}
           <p className="text-sm">{s.note}</p>
         </div>
       ))}
@@ -220,9 +221,10 @@ export function CookSwapBox({ swaps, className }: { swaps: CookSwap[] | undefine
 }
 
 /** The recipe's ingredient lines, with swapped ones marked and the replacement under them */
-export function IngredientsWithSwaps({ ingredients, swaps, className }: { ingredients: string[]; swaps: CookSwap[] | undefined; className?: string }) {
+export function IngredientsWithSwaps({ ingredients, swaps, scale = 1, className }: { ingredients: string[]; swaps: CookSwap[] | undefined; scale?: number; className?: string }) {
   const byLine = new Map<number, string>();
-  for (const s of swaps ?? []) for (const c of s.changes ?? []) byLine.set(c.lineIndex, c.use);
+  const batch = scale !== 1 ? " (for the whole batch)" : "";
+  for (const s of swaps ?? []) for (const c of s.changes ?? []) byLine.set(c.lineIndex, `${c.use}${batch}`);
   return (
     <ul className={cn("list-disc space-y-1 pl-6", className)}>
       {ingredients.map((x, i) => (

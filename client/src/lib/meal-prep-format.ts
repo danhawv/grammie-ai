@@ -10,7 +10,7 @@ import type {
   PrepSetup,
   ScheduledTask,
 } from "@shared/meal-prep/contract";
-import { isShake, shakeText, SLOT_SHARE as SHARED_SLOT_SHARE, type AdjusterDisplay } from "@shared/meal-prep/callouts";
+import { isShake, lowerStart, shakeText, SLOT_SHARE as SHARED_SLOT_SHARE, type AdjusterDisplay } from "@shared/meal-prep/callouts";
 
 // Pure helpers for the meal-prep screens: plate wording, macro bars, dates,
 // the cook's "Now / Next" view, the target estimator and label sheets. Kept
@@ -67,7 +67,7 @@ export function describePlate(plate: Pick<Plate, "items">, names: PlateNames): s
       }
       const a = names.adjusters?.[item.refId];
       if (a && isShake(a)) return shakeText(a, item.grams ?? item.amount);
-      const label = a ? a.name.replace(/\s*\((cooked|plain)\)/i, "").toLowerCase() : adjusterLabel(item.refId, names.adjusterNames);
+      const label = a ? lowerStart(a.name.replace(/\s*\((cooked|plain)\)/i, "")) : adjusterLabel(item.refId, names.adjusterNames);
       return `${formatGrams(item.grams ?? item.amount)} ${names.adjusterNames?.[item.refId] ?? label}`;
     })
     .join(" + ");

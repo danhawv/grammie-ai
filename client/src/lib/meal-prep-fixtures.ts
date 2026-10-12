@@ -118,7 +118,7 @@ const FIXTURE_SWAPS: AppliedSwap[] = [
     recipeId: "r-beef", swapId: "oil-3tbsp->oil-1tbsp", title: "1 tbsp oil instead of 3 for the stir-fry", goal: "lighter",
     perServingDelta: { kcal: -60, protein: 0, carbs: 0, fat: -7 },
     note: "1 tbsp oil instead of 3 for the stir-fry: 60 fewer calories per serving",
-    changes: [{ lineIndex: 4, from: "3 tbsp vegetable oil", toDisplay: "1 tbsp vegetable oil", use: "Use 1 tbsp vegetable oil instead of 3 tbsp (1 tbsp)" }],
+    changes: [{ lineIndex: 4, from: "3 tbsp vegetable oil", toDisplay: "1 tbsp vegetable oil", use: "Use 1 tbsp vegetable oil instead of 3 tbsp" }],
   },
 ];
 

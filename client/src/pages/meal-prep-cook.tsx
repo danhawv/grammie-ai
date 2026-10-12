@@ -234,7 +234,7 @@ function ReadyPart({ data, storageKey, onStart }: { data: CookData; storageKey: 
           {data.dishes.filter((d) => d.swaps?.length).map((d) => (
             <div key={d.id} className="space-y-1">
               <h3 className="text-lg font-semibold">{d.title}</h3>
-              <CookSwapBox swaps={d.swaps} />
+              <CookSwapBox swaps={d.swaps} scale={d.scale} />
             </div>
           ))}
         </section>
@@ -252,8 +252,8 @@ function ReadyPart({ data, storageKey, onStart }: { data: CookData; storageKey: 
               </CollapsibleTrigger>
               <CollapsibleContent className="space-y-4 border-t p-4 text-lg">
                 {d.scale !== 1 && <p className="font-medium">These are the amounts for one batch. Multiply each by {quarterFraction(d.scale)}.</p>}
-                <CookSwapBox swaps={d.swaps} />
-                <IngredientsWithSwaps ingredients={d.ingredients ?? []} swaps={d.swaps} />
+                <CookSwapBox swaps={d.swaps} scale={d.scale} />
+                <IngredientsWithSwaps ingredients={d.ingredients ?? []} swaps={d.swaps} scale={d.scale} />
                 <ol className="list-decimal space-y-2 pl-6">{d.instructions?.map((x, i) => <li key={i}>{x}</li>)}</ol>
               </CollapsibleContent>
             </Collapsible>

@@ -175,10 +175,10 @@ function Packet({ data, layout, owner }: { data: CookData; layout: LabelLayout; 
               {d.servingsMade ? `Make ${formatServings(d.servingsMade)}` : "Make one batch"}
               {d.scale !== 1 ? ` — ${quarterFraction(d.scale)}× the recipe, so multiply every amount below by ${quarterFraction(d.scale)}` : ""}.
             </p>
-            <CookSwapBox swaps={d.swaps} className="mt-2" />
+            <CookSwapBox swaps={d.swaps} scale={d.scale} className="mt-2" />
             {d.ingredients?.length ? (
               <div className="mt-2 grid gap-4 sm:grid-cols-[2fr_3fr] print:grid-cols-[2fr_3fr]">
-                <IngredientsWithSwaps ingredients={d.ingredients} swaps={d.swaps} className="pl-5" />
+                <IngredientsWithSwaps ingredients={d.ingredients} swaps={d.swaps} scale={d.scale} className="pl-5" />
                 <ol className="list-decimal pl-5">{d.instructions?.map((x, i) => <li key={i}>{x}</li>)}</ol>
               </div>
             ) : (
