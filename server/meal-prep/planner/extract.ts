@@ -9,7 +9,7 @@ import type {
 } from "@shared/meal-prep/contract";
 import { addDays, ageOnDay, keepingFor, type Keeping } from "./eligibility";
 import {
-  CONFIDENCE_WIDEN, PEN, PLATE_BAND, PLATE_FLOOR, SCALES, SLOT_ORDER, adjusterCost, adjusterFitsSlot, adjusterUnit,
+  CONFIDENCE_WIDEN, PEN, PLATE_BAND, PLATE_FLOOR, SCALES, SLOT_ORDER, adjusterCost, adjusterFitsRecipe, adjusterFitsSlot, adjusterUnit,
   maxQuarters, personSlots, plateAim, topUpKind, type Aim, type Built, type Prepared, type SwapChoice,
 } from "./model";
 
@@ -244,7 +244,7 @@ export function extractPlan(P: Prepared, B: Built, values: Record<string, number
       const out: Move[] = [];
       for (const w of ws) {
         A.forEach((a, j) => {
-          if (!P.adjAllowed[dv.personIdx][j] || !adjusterFitsSlot(a, w.slot)) return;
+          if (!P.adjAllowed[dv.personIdx][j] || !adjusterFitsSlot(a, w.slot) || !adjusterFitsRecipe(a, R[w.recipeIdx])) return;
           if (keepingFor(a.storage, age, freezerOk) === "no") return;
           const g0 = w.adj.get(j) ?? 0;
           const unit = adjusterUnit(a);
@@ -434,6 +434,7 @@ export function extractPlan(P: Prepared, B: Built, values: Record<string, number
     notes.push(`${plural(frozen.length, "plate")} (${list(dishes)}) ${frozen.length === 1 ? "goes" : "go"} in the freezer, since they'll be eaten more than ${plural(fridgeMax, "day")} after cooking.`);
   }
   work.filter((w) => w.mismatch).forEach((w) => notes.push(`${R[w.recipeIdx].title} is used for ${w.slot} on ${dayLabel(P, w.day)} because few ${w.slot} recipes were available.`));
+  if (batches.length > P.maxDishes) notes.push(`Cooks ${batches.length} dishes, one more than usual, so no one has the same dish twice in a day.`);
   const handsOn = B.sessionMinutes(batches.map((bt) => ({ recipeIdx: R.findIndex((r) => r.recipeId === bt.recipeId), scale: bt.scale })), work.length);
   notes.push(`About ${formatDuration(handsOn) ?? "a few minutes"} of hands-on work for ${plural(batches.length, "dish", "dishes")}, including portioning and washing up.`);
 

@@ -75,6 +75,8 @@ export const PEN = {
   repeat: 15,
   /** the same dish twice in one day for one person (gives way after repeats) */
   sameDayDish: 20,
+  /** one dish over the default dish limit (only when the person didn't set one) */
+  extraDish: 18,
   /** per plate of one dish beyond 3, and again beyond 5, in a person's plan */
   weekDishOver3: 3,
   weekDishOver5: 4,
@@ -226,6 +228,11 @@ export interface Prepared {
   maxDishes: number;
   maxRepeats: Record<MealSlot, number>;
   pinned: Set<string>;
+  /**
+   * the dish limit is our default, not the person's: one more dish may be
+   * cooked rather than serve the same dish twice in a day
+   */
+  softDishLimit: boolean;
   /** cook exactly maxDishes (swap), rather than at most */
   exactDishes: boolean;
   /** facts gathered while preparing, for notes */
@@ -454,7 +461,7 @@ export function prepare(setup: PrepSetup, facts: RecipeFacts[], adjusters: Adjus
   return {
     setup, weights, recipes: pool2, adjusters: adj, people, aims, dayAims, dessertDays, words, allowed, adjAllowed, occasions,
     maxDishes, maxRepeats: { ...DEFAULT_REPEATS, ...(setup.maxRepeats ?? {}) } as Record<MealSlot, number>,
-    pinned, exactDishes: opts.dishCount != null, notes, relaxed, thinSlots, share, sessionTimeFactor: opts.sessionTimeFactor ?? 1,
+    pinned, exactDishes: opts.dishCount != null, softDishLimit: setup.maxDishes == null && opts.dishCount == null, notes, relaxed, thinSlots, share, sessionTimeFactor: opts.sessionTimeFactor ?? 1,
     pen: tuned.pen, swaps, cuts: opts.cuts ?? [], shakeIdx: shakeIdx >= 0 ? shakeIdx : null,
   };
 }
@@ -480,11 +487,33 @@ export function adjusterUnit(a: Adjuster): number {
   return topUpKind(a) === "shake" ? Math.max(1, a.unitGrams ?? a.stepGrams) : 1;
 }
 
+/** A dessert-type recipe (brownies, cookies), wherever it's served: dessert or snack. */
+export function isSweetRecipe(r: RecipeFacts): boolean {
+  return r.mealTypes.includes("dessert");
+}
+
+/**
+ * Adjusters that go with something sweet: a bottled shake, yogurt, cottage
+ * cheese, fruit, milk. Eggs, chicken, oil, avocado, rice, veg and the like don't.
+ */
+export function isSweetAdjuster(a: Adjuster): boolean {
+  if (topUpKind(a) === "shake") return true;
+  if (topUpKind(a) === "chicken") return false;
+  if (a.slots.includes("dessert")) return true;
+  const text = `${a.id} ${a.name} ${a.ingredient.id} ${a.ingredient.name}`.toLowerCase();
+  return /yogh?urt|cottage|skyr|kefir|berr|fruit|banana|apple|granola|\bmilk|whey|honey/.test(text);
+}
+
 /** Whether an adjuster may go on a plate for this slot (desserts never get savory top-ups). */
 export function adjusterFitsSlot(a: Adjuster, slot: MealSlot): boolean {
   if (!a.slots.includes(slot)) return false;
-  if (slot === "dessert" && topUpKind(a) === "chicken") return false;
+  if (slot === "dessert" && !isSweetAdjuster(a)) return false;
   return true;
+}
+
+/** Whether an adjuster may go next to this recipe: nothing savory beside a dessert-type recipe, even as a snack. */
+export function adjusterFitsRecipe(a: Adjuster, r: RecipeFacts): boolean {
+  return !isSweetRecipe(r) || isSweetAdjuster(a);
 }
 
 function swapExcluded(sw: IngredientSwap, words: string[]): boolean {
@@ -664,7 +693,14 @@ export function buildModel(P: Prepared): Built {
     }),
   );
   R.forEach((_, i) => lp.addRow([...b[i].map((v): Term => [v, 1]), [y[i], -1]], "=", 0));
-  lp.addRow(y.map((v): Term => [v, 1]), P.exactDishes ? "=" : "<=", P.maxDishes);
+  if (P.softDishLimit) {
+    // one dish over the default limit is allowed, at a cost just under a
+    // same-day repeat: it's cooked mainly to avoid the same dish twice in a day
+    const extra = lp.addVar({ type: "B", obj: PEN.extraDish });
+    lp.addRow([...y.map((v): Term => [v, 1]), [extra, -1]], "<=", P.maxDishes);
+  } else {
+    lp.addRow(y.map((v): Term => [v, 1]), P.exactDishes ? "=" : "<=", P.maxDishes);
+  }
   // plan options: differ from earlier options by at least `drop` of their dishes
   for (const cut of P.cuts) {
     const idx = R.map((r, i) => (cut.ids.includes(r.recipeId) && !P.pinned.has(r.recipeId) ? i : -1)).filter((i) => i >= 0);
@@ -904,11 +940,14 @@ export function buildModel(P: Prepared): Built {
       const adj: DayMacroVars["adj"] = [];
       for (const o of occasions) {
         if (o.personIdx !== pi || o.day !== d) continue;
-        const xs = plates.filter((p) => p.occ === o.idx);
-        if (!xs.length) continue;
+        const xsAll = plates.filter((p) => p.occ === o.idx);
+        if (!xsAll.length) continue;
         P.adjusters.forEach((a, j) => {
           if (!P.adjAllowed[pi][j] || !adjusterFitsSlot(a, o.slot)) return;
           if (keepingFor(a.storage, age, freezerOk) === "no") return;
+          // only on the plates whose dish it goes with (no eggs beside a brownie)
+          const xs = xsAll.filter((p) => adjusterFitsRecipe(a, R[p.recipeIdx]));
+          if (!xs.length) return;
           const unit = adjusterUnit(a);
           if (unit > 1) {
             // a shake: at most one whole bottle on a plate

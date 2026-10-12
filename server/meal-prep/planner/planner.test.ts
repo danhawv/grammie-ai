@@ -478,6 +478,55 @@ describe("protein top-ups setting", () => {
   });
 });
 
+describe("adjusters beside desserts, and one more dish over a repeat", () => {
+  it("never puts a savory side next to a dessert-type recipe, even as a snack", async () => {
+    // a protein cookie that suits snack and dessert; hard-boiled eggs and chicken are on offer for snacks
+    const cookie = { ...dessertFacts()[0], recipeId: "protein-cookies", title: "Protein Cookies", swaps: undefined,
+      perServing: { kcal: 120, protein: 6, carbs: 16, fat: 4 }, mealTypes: ["snack", "dessert"] as RecipeFacts["mealTypes"] };
+    // the cookie is the only snack, so every snack plate is a cookie
+    const facts = [...recipeFacts().filter((f) => !f.mealTypes.includes("snack")), cookie];
+    const eggs: Adjuster = { ...adjusterFacts()[1], id: "eggs-hard-boiled", name: "Hard-boiled eggs", topUp: undefined,
+      ingredient: { id: "eggs-hard-boiled", name: "hard-boiled eggs", aisle: "Dairy & Eggs" },
+      perGram: { kcal: 1.55, protein: 0.13, carbs: 0.01, fat: 0.11 }, stepGrams: 50, maxGrams: 150, slots: ["breakfast", "lunch", "snack"] };
+    // savory sides on offer for snacks (yogurt and shakes stay allowed beside sweets)
+    const savory = adjusterFacts().filter((a) => a.id !== "greek-yogurt").map((a) => ({ ...a, slots: Array.from(new Set([...a.slots, "snack" as const])) }));
+    const adjusters = [...savory, eggs, adjusterFacts().find((a) => a.id === "greek-yogurt")!, ...shakeAdjusters()];
+    const setup = setupFor([person("sam", "Sam", { targets: { kcal: 2600, protein: 190 }, slots: ["lunch", "dinner", "snack"] })], { days: 4, topUps: "none" });
+    const plan = await planner.plan(setup, facts, adjusters);
+    checkInvariants(plan, setup, facts, adjusters);
+    const sweetPlates = plan.plates.filter((p) => p.items[0].refId === "protein-cookies");
+    expect(sweetPlates.length).toBeGreaterThan(0);
+    for (const p of sweetPlates) for (const i of p.items.slice(1)) {
+      expect(["greek-yogurt", "shake-core-power-26", "shake-premier"]).toContain(i.refId);
+    }
+  });
+
+  it("cooks one more dish than the default rather than repeat a dish in a day, but keeps a limit the person set", async () => {
+    // Ana won't eat beef, Ben won't eat tofu: they share no dishes, so 3 + 2
+    // meals a day need 5 dishes, one more than the default 4
+    const base = recipeFacts().find((f) => f.recipeId === "turkey-chili")!;
+    const dish = (id: string, main: "beef" | "tofu", kcal: number) => ({
+      ...base, recipeId: id, title: id, mainProtein: main, cuisines: [id], swaps: undefined,
+      mealTypes: ["breakfast", "lunch", "dinner"] as RecipeFacts["mealTypes"],
+      perServing: { kcal, protein: 30, carbs: 40, fat: 14 },
+      lines: [{ ...base.lines[0], raw: `500 g ${main}`, ingredient: { id: main, name: main, aisle: "Other" as const } }],
+    });
+    const facts = [dish("b1", "beef", 420), dish("b2", "beef", 430), dish("b3", "beef", 440), dish("t1", "tofu", 400), dish("t2", "tofu", 410), dish("t3", "tofu", 420)];
+    const setup = setupFor([
+      person("ana", "Ana", { slots: ["breakfast", "lunch", "dinner"], dislikes: ["beef"] }),
+      person("ben", "Ben", { slots: ["lunch", "dinner"], dislikes: ["tofu"] }),
+    ], { days: 3, maxRepeats: { breakfast: 3, lunch: 3, dinner: 3 } });
+    const plan = await planner.plan(setup, facts, adjusterFacts());
+    expect(plan.batches).toHaveLength(5);
+    expect(noSameDayDish(plan)).toBe(true);
+    expect(plan.notes.some((n) => n.includes("one more than usual"))).toBe(true);
+
+    const fixed = await planner.plan({ ...setup, maxDishes: 4 }, facts, adjusterFacts());
+    expect(fixed.batches.length).toBeLessThanOrEqual(4);
+    expect(fixed.relaxed.some((r) => r.includes("twice in one day"))).toBe(true);
+  });
+});
+
 describe("planOptions", () => {
   it("offers up to three plans with different dishes, labelled and summarized", async () => {
     const s = byName("one-lifter");
