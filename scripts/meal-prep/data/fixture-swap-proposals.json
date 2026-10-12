@@ -1,0 +1,522 @@
+{
+ "efd7ac2a-6b51-4f12-a113-16e67f7fd091": [
+  {
+   "source": "recipe_suggestion",
+   "changes": [
+    {
+     "line": 1,
+     "replacement": "sunflower seed butter",
+     "amount": "100g"
+    }
+   ]
+  }
+ ],
+ "888b6d7d-9c95-4350-9b38-94d8a30e8ae0": [
+  {
+   "source": "standard",
+   "changes": [
+    {
+     "line": 0,
+     "replacement": "extra-virgin olive oil",
+     "amount": "2.5 tablespoons"
+    }
+   ]
+  },
+  {
+   "source": "recipe_suggestion",
+   "changes": [
+    {
+     "line": 13,
+     "replacement": "light coconut milk",
+     "amount": "1 (13.5-ounce) can"
+    }
+   ]
+  }
+ ],
+ "61347159-23a0-421f-be15-f5cec430f4b8": [
+  {
+   "source": "standard",
+   "changes": [
+    {
+     "line": 2,
+     "replacement": "unsalted butter",
+     "amount": "3/8 cup"
+    }
+   ]
+  }
+ ],
+ "31511a1b-c0a3-4d41-adcc-6c37d0cb8a77": [
+  {
+   "source": "standard",
+   "changes": [
+    {
+     "line": 4,
+     "replacement": "EVOO",
+     "amount": "2 tbsp"
+    }
+   ]
+  }
+ ],
+ "e20ae8c4-fefd-4173-a941-aede29744b39": [
+  {
+   "source": "standard",
+   "changes": [
+    {
+     "line": 1,
+     "replacement": "butter",
+     "amount": "0.5 stick"
+    }
+   ]
+  }
+ ],
+ "838ef12e-1e0f-4222-b501-7f292a9b5d4a": [
+  {
+   "source": "recipe_suggestion",
+   "changes": [
+    {
+     "line": 0,
+     "replacement": "chickpea pasta",
+     "amount": "8 oz"
+    }
+   ]
+  }
+ ],
+ "55691f59-055f-4bb7-9538-33e646fb0596": [
+  {
+   "source": "standard",
+   "changes": [
+    {
+     "line": 1,
+     "replacement": "nonfat Greek yogurt",
+     "amount": "1 c."
+    }
+   ]
+  },
+  {
+   "source": "standard",
+   "changes": [
+    {
+     "line": 3,
+     "replacement": "reduced-fat parmesan",
+     "amount": "1 c."
+    }
+   ]
+  }
+ ],
+ "96343f8d-4e5e-4124-a493-1b63b356707f": [],
+ "8555d2fe-bf82-4f63-a97a-02bc0634fa05": [
+  {
+   "source": "standard",
+   "changes": [
+    {
+     "line": 0,
+     "replacement": "olive oil",
+     "amount": "3 Tbs."
+    }
+   ]
+  },
+  {
+   "source": "standard",
+   "changes": [
+    {
+     "line": 7,
+     "replacement": "part-skim mozzarella",
+     "amount": "1/4 lb"
+    }
+   ]
+  }
+ ],
+ "d84b0ccb-e715-4fae-966b-d3d4f2dc9b71": [
+  {
+   "source": "standard",
+   "changes": [
+    {
+     "line": 5,
+     "replacement": "nonfat Greek yogurt",
+     "amount": "1/2 c."
+    }
+   ]
+  },
+  {
+   "source": "standard",
+   "changes": [
+    {
+     "line": 6,
+     "replacement": "nonfat Greek yogurt",
+     "amount": "1/2 c."
+    }
+   ]
+  }
+ ],
+ "06dcc688-eb83-4d1f-89e5-9a92d6b0ec76": [
+  {
+   "source": "recipe_suggestion",
+   "changes": [
+    {
+     "line": 1,
+     "replacement": "smoked paprika",
+     "amount": "1/4 cup"
+    }
+   ]
+  }
+ ],
+ "95bb3c02-33e7-43bc-8291-fb6013b3b2c2": [
+  {
+   "source": "standard",
+   "changes": [
+    {
+     "line": 2,
+     "replacement": "nonfat Greek yogurt",
+     "amount": "1/4 cup"
+    }
+   ]
+  },
+  {
+   "source": "recipe_suggestion",
+   "changes": [
+    {
+     "line": 3,
+     "replacement": "nutritional yeast",
+     "amount": "1 cup"
+    }
+   ]
+  }
+ ],
+ "3fcd9c81-3186-4b1d-97dd-86a051e66f94": [
+  {
+   "source": "standard",
+   "changes": [
+    {
+     "line": 0,
+     "replacement": "butter",
+     "amount": "2 T."
+    },
+    {
+     "line": 9,
+     "replacement": "EVOO",
+     "amount": "0.5 T."
+    }
+   ]
+  },
+  {
+   "source": "standard",
+   "changes": [
+    {
+     "line": 6,
+     "replacement": "half-and-half",
+     "amount": "3/4 c."
+    }
+   ]
+  }
+ ],
+ "fb300602-483f-4d1e-92a9-ee5f0ea0a891": [],
+ "50177966-e3f2-4523-9281-a2e6f4e41976": [
+  {
+   "source": "standard",
+   "changes": [
+    {
+     "line": 1,
+     "replacement": "butter",
+     "amount": "2 tbsp"
+    }
+   ]
+  },
+  {
+   "source": "standard",
+   "changes": [
+    {
+     "line": 2,
+     "replacement": "zero-calorie sweetener",
+     "amount": "1/2 cup"
+    }
+   ]
+  },
+  {
+   "source": "standard",
+   "changes": [
+    {
+     "line": 4,
+     "replacement": "egg whites",
+     "amount": "4 large"
+    }
+   ]
+  }
+ ],
+ "5f05db76-d54e-4703-9f05-a4865d2962a5": [
+  {
+   "source": "standard",
+   "changes": [
+    {
+     "line": 2,
+     "replacement": "olive oil",
+     "amount": "2 tbsp"
+    }
+   ]
+  }
+ ],
+ "fc0d3800-252f-4ace-93dc-e7cae1928739": [
+  {
+   "source": "standard",
+   "changes": [
+    {
+     "line": 4,
+     "replacement": "egg whites",
+     "amount": "8 large"
+    }
+   ]
+  },
+  {
+   "source": "standard",
+   "changes": [
+    {
+     "line": 5,
+     "replacement": "skim milk",
+     "amount": "1 1/2 c"
+    }
+   ]
+  }
+ ],
+ "bf652ae8-cddd-452e-904f-daeec3b73db4": [
+  {
+   "source": "recipe_suggestion",
+   "changes": [
+    {
+     "line": 1,
+     "replacement": "melted vegan butter",
+     "amount": "1/2 cup"
+    }
+   ]
+  },
+  {
+   "source": "standard",
+   "changes": [
+    {
+     "line": 1,
+     "replacement": "butter",
+     "amount": "1/4 cup"
+    }
+   ]
+  }
+ ],
+ "ef6489c5-8c82-428f-9f1e-09f826bdd26c": [
+  {
+   "source": "standard",
+   "changes": [
+    {
+     "line": 3,
+     "replacement": "93% lean ground beef",
+     "amount": "2 Lb"
+    }
+   ]
+  },
+  {
+   "source": "standard",
+   "changes": [
+    {
+     "line": 0,
+     "replacement": "butter",
+     "amount": "1 Tsp"
+    },
+    {
+     "line": 7,
+     "replacement": "cooking oil",
+     "amount": "1 Tbs"
+    }
+   ]
+  }
+ ],
+ "434d4c94-c93a-44ed-b7f8-e29b875c1f69": [
+  {
+   "source": "recipe_suggestion",
+   "changes": [
+    {
+     "line": 0,
+     "replacement": "cauliflower rice",
+     "amount": "1 c."
+    }
+   ]
+  },
+  {
+   "source": "standard",
+   "changes": [
+    {
+     "line": 1,
+     "replacement": "butter",
+     "amount": "1 T."
+    }
+   ]
+  }
+ ],
+ "2f5fe932-edbb-4d16-99b6-b36720e6b4cf": [
+  {
+   "source": "standard",
+   "changes": [
+    {
+     "line": 1,
+     "replacement": "reduced-fat cheddar",
+     "amount": "8 cups"
+    },
+    {
+     "line": 3,
+     "replacement": "skim milk",
+     "amount": "3 ½ cups"
+    }
+   ]
+  }
+ ],
+ "dc1d77ab-a7c7-473b-b8d6-286f1d98b14a": [
+  {
+   "source": "standard",
+   "changes": [
+    {
+     "line": 0,
+     "replacement": "butter",
+     "amount": "2 T"
+    }
+   ]
+  },
+  {
+   "source": "standard",
+   "changes": [
+    {
+     "line": 6,
+     "replacement": "low-fat milk",
+     "amount": "1 c."
+    }
+   ]
+  }
+ ],
+ "47673f50-be99-4f45-a540-c13004c467d7": [],
+ "43909630-ceab-42c3-8956-bab1dbce5162": [
+  {
+   "source": "recipe_suggestion",
+   "changes": [
+    {
+     "line": 0,
+     "replacement": "lean ground turkey",
+     "amount": "1 lb"
+    }
+   ]
+  },
+  {
+   "source": "standard",
+   "changes": [
+    {
+     "line": 3,
+     "replacement": "nonfat Greek yogurt",
+     "amount": "8 oz"
+    },
+    {
+     "line": 4,
+     "replacement": "reduced-fat cheddar cheese",
+     "amount": "2 c"
+    }
+   ]
+  }
+ ],
+ "c3b7afe4-d594-45bd-b7e2-79f8687691ff": [
+  {
+   "source": "recipe_suggestion",
+   "changes": [
+    {
+     "line": 1,
+     "replacement": "egg whites",
+     "amount": "4 large"
+    }
+   ]
+  }
+ ],
+ "3f47d688-ff41-45c7-abcd-1142c51d5a90": [
+  {
+   "source": "standard",
+   "changes": [
+    {
+     "line": 0,
+     "replacement": "oil",
+     "amount": "0.25 cup"
+    },
+    {
+     "line": 1,
+     "replacement": "egg whites",
+     "amount": "4 large"
+    },
+    {
+     "line": 3,
+     "replacement": "skim milk",
+     "amount": "0.5 cup"
+    },
+    {
+     "line": 5,
+     "replacement": "zero-calorie sweetener",
+     "amount": "1.25 cup"
+    }
+   ]
+  }
+ ],
+ "67d4d5be-8e1f-4cfc-9eb5-1712ce47fe83": [
+  {
+   "source": "standard",
+   "changes": [
+    {
+     "line": 12,
+     "replacement": "avocado",
+     "amount": "0.5 avocado"
+    }
+   ]
+  }
+ ],
+ "05165f67-5f06-4153-a470-5df8e3320031": [
+  {
+   "source": "standard",
+   "changes": [
+    {
+     "line": 0,
+     "replacement": "butter",
+     "amount": "1 T."
+    }
+   ]
+  },
+  {
+   "source": "standard",
+   "changes": [
+    {
+     "line": 5,
+     "replacement": "evaporated skim milk",
+     "amount": "1 c."
+    }
+   ]
+  }
+ ],
+ "17c22ec5-1bae-4011-8b9b-43b444ac2313": [
+  {
+   "source": "standard",
+   "changes": [
+    {
+     "line": 2,
+     "replacement": "nonfat Greek yogurt",
+     "amount": "1/3 cup"
+    }
+   ]
+  },
+  {
+   "source": "standard",
+   "changes": [
+    {
+     "line": 3,
+     "replacement": "skim milk",
+     "amount": "1/4 cup"
+    }
+   ]
+  },
+  {
+   "source": "standard",
+   "changes": [
+    {
+     "line": 11,
+     "replacement": "melted butter",
+     "amount": "1/2 Tb"
+    }
+   ]
+  }
+ ]
+}

@@ -14,6 +14,8 @@ import { Catalog, seedCatalog, type ItemMapEntry } from "./catalog";
 import { buildAdjusters } from "./adjusters";
 import { computeRecipeFacts, type PreferenceInput, type RecipeInput } from "./facts";
 import { packagesFor } from "./packages";
+import { cachedSwaps, ensureSwapsWith, swapsTableReady, type EnsureSwapsOptions, type EnsureSwapsResult } from "./swaps-store";
+import type { ProposeSwaps } from "./swaps-ai";
 import ingredientsSeed from "./data/ingredients.json";
 import itemMapSeed from "./data/item-map.json";
 
@@ -22,6 +24,8 @@ export { seedCatalog, Catalog } from "./catalog";
 export { buildAdjusters, shakeAdjuster } from "./adjusters";
 export { PROTEIN_SHAKES, DEFAULT_SHAKE_ID, DEFAULT_SHAKE_ADJUSTER_ID } from "@shared/meal-prep/shakes";
 export { parseUnit, toGrams } from "./units";
+export { buildSwaps, classifySwap, SWAP_RULES, type SwapProposal } from "./swaps";
+export type { EnsureSwapsResult } from "./swaps-store";
 
 /**
  * Bumped automatically when the seeds change, so cached facts are recomputed.
@@ -97,6 +101,8 @@ function dbFoodData(queryIn: Query | undefined, catalog: Catalog): FoodData {
   });
   let tablesReady: boolean | null = null;
   let learnedAt = 0;
+  let swapsTable: boolean | null = null;
+  const swapsReady = async () => (swapsTable ??= await swapsTableReady(query));
 
   async function ready(): Promise<boolean> {
     if (tablesReady != null) return tablesReady;
@@ -151,6 +157,16 @@ function dbFoodData(queryIn: Query | undefined, catalog: Catalog): FoodData {
           ).catch((e) => console.warn("[MealPrep] facts cache write failed:", e.message));
         }
       }
+      // Swaps come only from the cache (filled by ensureSwaps / the backfill script)
+      try {
+        if (await swapsReady()) {
+          const updated = new Map(recipes.map((r) => [r.id, r.updated_at]));
+          const swaps = await cachedSwaps(query, Array.from(out.values()), updated, catalog, FOOD_DATA_VERSION);
+          swaps.forEach((list, id) => { const f = out.get(id); if (f && list.length) out.set(id, { ...f, swaps: list }); });
+        }
+      } catch (e: any) {
+        console.warn("[MealPrep] swaps not loaded:", e.message);
+      }
       return ids.map((id) => out.get(id)).filter((f): f is RecipeFacts => !!f);
     },
     async adjusters() {
@@ -164,6 +180,32 @@ function dbFoodData(queryIn: Query | undefined, catalog: Catalog): FoodData {
       return ingredientNutrition(catalog, names);
     },
   };
+}
+
+/**
+ * Fills the swaps cache for recipes that have no swaps for their current
+ * version: one Gemini call each (prepSwaps), 4 at a time. Never runs inside
+ * factsFor. write: false is a dry run (counts and a cost estimate only).
+ */
+export async function ensureSwaps(
+  recipeIds: string[],
+  opts: EnsureSwapsOptions & { query?: Query; propose?: ProposeSwaps; catalog?: Catalog } = {},
+): Promise<EnsureSwapsResult> {
+  const query: Query = opts.query ?? (async (sql, params) => {
+    const { getSharedPool } = await import("../../pg-pool");
+    return getSharedPool().query(sql, params as any[]);
+  });
+  const catalog = opts.catalog ?? seedCatalog();
+  const propose = opts.propose ?? (async (r) => (await import("./swaps-ai")).proposeSwapsWithGemini(r));
+  return ensureSwapsWith({
+    query, catalog, version: FOOD_DATA_VERSION, propose,
+    async load(ids) {
+      const { rows } = await query(`SELECT ${RECIPE_COLUMNS}, variations FROM recipes WHERE id = ANY($1::varchar[])`, [ids]);
+      return rows.filter((r) => Array.isArray(r.normalized_ingredients) && r.normalized_ingredients.length).map((r) => ({
+        facts: computeRecipeFacts(recipeInputFromRow(r), catalog), updatedAt: r.updated_at, variations: r.variations, tips: r.tips,
+      }));
+    },
+  }, recipeIds, opts);
 }
 
 /** Canonical ingredient + USDA macros per gram for free-text names ("almond milk", "chicken-thigh") */

@@ -40,6 +40,12 @@ const DEFAULTS = {
    * once per recipe; checked and corrected in code (server/meal-prep/session).
    */
   prepSteps: { model: "gemini-3.5-flash-lite", thinkingLevel: "low" },
+  /**
+   * Meal prep: up to 4 higher-protein / lighter ingredient swaps per recipe
+   * (which lines, what instead, how much; never macro numbers). Cached per
+   * recipe version; the macro changes are computed in code.
+   */
+  prepSwaps: { model: "gemini-3.5-flash-lite", thinkingLevel: "low" },
   /** Short helper answers (substitutions, generated steps) */
   quickText: { model: "gemini-3.5-flash-lite" },
   /** Dish photo for recipes without one */

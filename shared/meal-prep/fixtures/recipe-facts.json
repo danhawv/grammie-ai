@@ -159,7 +159,36 @@
    },
    "disagreesWithAi": false
   },
-  "equipment": []
+  "equipment": [],
+  "swaps": [
+   {
+    "id": "rice-white->cauliflower",
+    "goal": "lighter",
+    "title": "Cauliflower instead of white rice",
+    "changes": [
+     {
+      "lineIndex": 0,
+      "from": "1 c. Rice",
+      "to": {
+       "id": "cauliflower",
+       "name": "Cauliflower",
+       "aisle": "Produce"
+      },
+      "toGrams": 107,
+      "toDisplay": "1 cup cauliflower"
+     }
+    ],
+    "perServingDelta": {
+     "kcal": -162,
+     "protein": -2.8,
+     "carbs": -35.6,
+     "fat": -0.2,
+     "fiber": -0.1
+    },
+    "confidence": "high",
+    "source": "recipe_suggestion"
+   }
+  ]
  },
  {
   "recipeId": "17c22ec5-1bae-4011-8b9b-43b444ac2313",
@@ -375,7 +404,36 @@
    },
    "disagreesWithAi": false
   },
-  "equipment": []
+  "equipment": [],
+  "swaps": [
+   {
+    "id": "mayonnaise->greek-yogurt-nonfat",
+    "goal": "lighter",
+    "title": "Nonfat Greek yogurt instead of mayonnaise",
+    "changes": [
+     {
+      "lineIndex": 2,
+      "from": "1/3 cup Real mayonnaise",
+      "to": {
+       "id": "greek-yogurt-nonfat",
+       "name": "Nonfat Greek yogurt",
+       "aisle": "Dairy & Eggs"
+      },
+      "toGrams": 81.7,
+      "toDisplay": "¼ cup nonfat Greek yogurt"
+     }
+    ],
+    "perServingDelta": {
+     "kcal": -74,
+     "protein": 1.3,
+     "carbs": 0.4,
+     "fat": -9,
+     "fiber": 0
+    },
+    "confidence": "high",
+    "source": "standard"
+   }
+  ]
  },
  {
   "recipeId": "d84b0ccb-e715-4fae-966b-d3d4f2dc9b71",
@@ -590,7 +648,36 @@
    },
    "disagreesWithAi": false
   },
-  "equipment": []
+  "equipment": [],
+  "swaps": [
+   {
+    "id": "mayonnaise->greek-yogurt-nonfat",
+    "goal": "lighter",
+    "title": "Nonfat Greek yogurt instead of mayonnaise",
+    "changes": [
+     {
+      "lineIndex": 5,
+      "from": "1/2 c. mayo",
+      "to": {
+       "id": "greek-yogurt-nonfat",
+       "name": "Nonfat Greek yogurt",
+       "aisle": "Dairy & Eggs"
+      },
+      "toGrams": 122.5,
+      "toDisplay": "½ cup nonfat Greek yogurt"
+     }
+    ],
+    "perServingDelta": {
+     "kcal": -169,
+     "protein": 2.9,
+     "carbs": 1,
+     "fat": -20.5,
+     "fiber": 0
+    },
+    "confidence": "high",
+    "source": "standard"
+   }
+  ]
  },
  {
   "recipeId": "31511a1b-c0a3-4d41-adcc-6c37d0cb8a77",
@@ -791,7 +878,36 @@
    },
    "disagreesWithAi": false
   },
-  "equipment": []
+  "equipment": [],
+  "swaps": [
+   {
+    "id": "less-olive-oil",
+    "goal": "lighter",
+    "title": "Less olive oil",
+    "changes": [
+     {
+      "lineIndex": 4,
+      "from": "Sauce: 1/4 c. EVOO",
+      "to": {
+       "id": "olive-oil",
+       "name": "Olive oil",
+       "aisle": "Oils, Vinegars & Condiments"
+      },
+      "toGrams": 27,
+      "toDisplay": "2 tbsp olive oil"
+     }
+    ],
+    "perServingDelta": {
+     "kcal": -60,
+     "protein": 0,
+     "carbs": 0,
+     "fat": -6.7,
+     "fiber": 0
+    },
+    "confidence": "high",
+    "source": "standard"
+   }
+  ]
  },
  {
   "recipeId": "ef6489c5-8c82-428f-9f1e-09f826bdd26c",
@@ -1156,7 +1272,63 @@
    },
    "disagreesWithAi": false
   },
-  "equipment": []
+  "equipment": [],
+  "swaps": [
+   {
+    "id": "sour-cream->greek-yogurt-nonfat",
+    "goal": "both",
+    "title": "Nonfat Greek yogurt instead of sour cream",
+    "changes": [
+     {
+      "lineIndex": 3,
+      "from": "1 small (8 oz) sour cream",
+      "to": {
+       "id": "greek-yogurt-nonfat",
+       "name": "Nonfat Greek yogurt",
+       "aisle": "Dairy & Eggs"
+      },
+      "toGrams": 226.8,
+      "toDisplay": "1 cup (227 g) nonfat Greek yogurt"
+     }
+    ],
+    "perServingDelta": {
+     "kcal": -52,
+     "protein": 3,
+     "carbs": -0.4,
+     "fat": -7.2,
+     "fiber": 0
+    },
+    "confidence": "high",
+    "source": "standard"
+   },
+   {
+    "id": "beef-ground->turkey-ground",
+    "goal": "lighter",
+    "title": "Ground turkey instead of ground beef",
+    "changes": [
+     {
+      "lineIndex": 0,
+      "from": "1 lb hamburg",
+      "to": {
+       "id": "turkey-ground",
+       "name": "Ground turkey",
+       "aisle": "Meat & Seafood"
+      },
+      "toGrams": 453.6,
+      "toDisplay": "1 lb (454 g) ground turkey"
+     }
+    ],
+    "perServingDelta": {
+     "kcal": -49,
+     "protein": 0.1,
+     "carbs": 0,
+     "fat": -5,
+     "fiber": 0
+    },
+    "confidence": "high",
+    "source": "recipe_suggestion"
+   }
+  ]
  },
  {
   "recipeId": "95bb3c02-33e7-43bc-8291-fb6013b3b2c2",
@@ -1308,6 +1480,62 @@
   "equipment": [
    "blender",
    "food processor"
+  ],
+  "swaps": [
+   {
+    "id": "mayonnaise->greek-yogurt-nonfat",
+    "goal": "lighter",
+    "title": "Nonfat Greek yogurt instead of mayonnaise",
+    "changes": [
+     {
+      "lineIndex": 2,
+      "from": "1/4 cup mayonaise",
+      "to": {
+       "id": "greek-yogurt-nonfat",
+       "name": "Nonfat Greek yogurt",
+       "aisle": "Dairy & Eggs"
+      },
+      "toGrams": 61.3,
+      "toDisplay": "¼ cup nonfat Greek yogurt"
+     }
+    ],
+    "perServingDelta": {
+     "kcal": -56,
+     "protein": 1,
+     "carbs": 0.3,
+     "fat": -6.8,
+     "fiber": 0
+    },
+    "confidence": "high",
+    "source": "standard"
+   },
+   {
+    "id": "parmesan->nutritional-yeast",
+    "goal": "lighter",
+    "title": "Nutritional yeast instead of parmesan",
+    "changes": [
+     {
+      "lineIndex": 3,
+      "from": "1 cup grated parmesean cheese",
+      "to": {
+       "id": "nutritional-yeast",
+       "name": "Nutritional yeast",
+       "aisle": "Spices & Seasonings"
+      },
+      "toGrams": 60,
+      "toDisplay": "1 cup nutritional yeast"
+     }
+    ],
+    "perServingDelta": {
+     "kcal": -37,
+     "protein": 0.3,
+     "carbs": 0.7,
+     "fat": -4.1,
+     "fiber": 2
+    },
+    "confidence": "high",
+    "source": "recipe_suggestion"
+   }
   ]
  },
  {
@@ -1552,6 +1780,35 @@
   },
   "equipment": [
    "blender"
+  ],
+  "swaps": [
+   {
+    "id": "less-avocado",
+    "goal": "lighter",
+    "title": "Less avocado",
+    "changes": [
+     {
+      "lineIndex": 12,
+      "from": "1 avocado, cubed",
+      "to": {
+       "id": "avocado",
+       "name": "Avocado",
+       "aisle": "Produce"
+      },
+      "toGrams": 100.5,
+      "toDisplay": "½ avocado"
+     }
+    ],
+    "perServingDelta": {
+     "kcal": -54,
+     "protein": -0.7,
+     "carbs": -2.9,
+     "fat": -4.9,
+     "fiber": -2.2
+    },
+    "confidence": "high",
+    "source": "standard"
+   }
   ]
  },
  {
@@ -1766,7 +2023,63 @@
    },
    "disagreesWithAi": false
   },
-  "equipment": []
+  "equipment": [],
+  "swaps": [
+   {
+    "id": "heavy-cream->half-and-half",
+    "goal": "lighter",
+    "title": "Half-and-half instead of heavy cream",
+    "changes": [
+     {
+      "lineIndex": 6,
+      "from": "3/4 c. cream",
+      "to": {
+       "id": "half-and-half",
+       "name": "Half-and-half",
+       "aisle": "Dairy & Eggs"
+      },
+      "toGrams": 181.2,
+      "toDisplay": "¾ cup half-and-half"
+     }
+    ],
+    "perServingDelta": {
+     "kcal": -94,
+     "protein": 0.1,
+     "carbs": 0.7,
+     "fat": -11,
+     "fiber": 0
+    },
+    "confidence": "high",
+    "source": "standard"
+   },
+   {
+    "id": "less-butter",
+    "goal": "lighter",
+    "title": "Less butter",
+    "changes": [
+     {
+      "lineIndex": 0,
+      "from": "4 T. butter",
+      "to": {
+       "id": "butter",
+       "name": "Butter",
+       "aisle": "Dairy & Eggs"
+      },
+      "toGrams": 28.4,
+      "toDisplay": "2 tbsp butter"
+     }
+    ],
+    "perServingDelta": {
+     "kcal": -51,
+     "protein": -0.1,
+     "carbs": 0,
+     "fat": -5.8,
+     "fiber": 0
+    },
+    "confidence": "high",
+    "source": "standard"
+   }
+  ]
  },
  {
   "recipeId": "888b6d7d-9c95-4350-9b38-94d8a30e8ae0",
@@ -2029,6 +2342,62 @@
   },
   "equipment": [
    "blender"
+  ],
+  "swaps": [
+   {
+    "id": "less-olive-oil",
+    "goal": "lighter",
+    "title": "Less olive oil",
+    "changes": [
+     {
+      "lineIndex": 0,
+      "from": "5 tablespoons extra-virgin olive oil, divided",
+      "to": {
+       "id": "olive-oil",
+       "name": "Olive oil",
+       "aisle": "Oils, Vinegars & Condiments"
+      },
+      "toGrams": 33.8,
+      "toDisplay": "2½ tbsp olive oil"
+     }
+    ],
+    "perServingDelta": {
+     "kcal": -50,
+     "protein": 0,
+     "carbs": 0,
+     "fat": -5.6,
+     "fiber": 0
+    },
+    "confidence": "high",
+    "source": "standard"
+   },
+   {
+    "id": "less-coconut-milk-light",
+    "goal": "lighter",
+    "title": "Less light coconut milk",
+    "changes": [
+     {
+      "lineIndex": 13,
+      "from": "2 (13.5-ounce) cans light coconut milk, well shaken and stirred",
+      "to": {
+       "id": "coconut-milk-light",
+       "name": "Light coconut milk",
+       "aisle": "Canned & Jarred"
+      },
+      "toGrams": 382.7,
+      "toDisplay": "13½ oz (383 g), about 1 can light coconut milk"
+     }
+    ],
+    "perServingDelta": {
+     "kcal": -47,
+     "protein": -0.4,
+     "carbs": -1.2,
+     "fat": -4.5,
+     "fiber": 0
+    },
+    "confidence": "high",
+    "source": "recipe_suggestion"
+   }
   ]
  },
  {
@@ -2166,7 +2535,36 @@
    },
    "disagreesWithAi": false
   },
-  "equipment": []
+  "equipment": [],
+  "swaps": [
+   {
+    "id": "cheddar->cheddar-reduced-fat",
+    "goal": "lighter",
+    "title": "Reduced-fat cheddar instead of cheddar cheese",
+    "changes": [
+     {
+      "lineIndex": 1,
+      "from": "2 lbs. Mexican Blend Grated cheese OR 1 lb. block of cheddar + 1 lb. block of Monterey Jack [= 8 cups grated cheese]",
+      "to": {
+       "id": "cheddar-reduced-fat",
+       "name": "Reduced-fat cheddar",
+       "aisle": "Dairy & Eggs"
+      },
+      "toGrams": 896,
+      "toDisplay": "8 cups reduced-fat cheddar"
+     }
+    ],
+    "perServingDelta": {
+     "kcal": -103,
+     "protein": 1.6,
+     "carbs": 5.2,
+     "fat": -14.6,
+     "fiber": 0
+    },
+    "confidence": "high",
+    "source": "standard"
+   }
+  ]
  },
  {
   "recipeId": "dc1d77ab-a7c7-473b-b8d6-286f1d98b14a",
@@ -2329,6 +2727,62 @@
   },
   "equipment": [
    "blender"
+  ],
+  "swaps": [
+   {
+    "id": "half-and-half->milk-lowfat",
+    "goal": "lighter",
+    "title": "Low-fat milk instead of half-and-half",
+    "changes": [
+     {
+      "lineIndex": 6,
+      "from": "1 c. lt. cream",
+      "to": {
+       "id": "milk-lowfat",
+       "name": "Low-fat milk",
+       "aisle": "Dairy & Eggs"
+      },
+      "toGrams": 244,
+      "toDisplay": "1 cup low-fat milk"
+     }
+    ],
+    "perServingDelta": {
+     "kcal": -36,
+     "protein": 0.1,
+     "carbs": 0.3,
+     "fat": -4.2,
+     "fiber": 0
+    },
+    "confidence": "high",
+    "source": "standard"
+   },
+   {
+    "id": "less-butter",
+    "goal": "lighter",
+    "title": "Less butter",
+    "changes": [
+     {
+      "lineIndex": 0,
+      "from": "4 T butter",
+      "to": {
+       "id": "butter",
+       "name": "Butter",
+       "aisle": "Dairy & Eggs"
+      },
+      "toGrams": 28.4,
+      "toDisplay": "2 tbsp butter"
+     }
+    ],
+    "perServingDelta": {
+     "kcal": -34,
+     "protein": 0,
+     "carbs": 0,
+     "fat": -3.8,
+     "fiber": 0
+    },
+    "confidence": "high",
+    "source": "standard"
+   }
   ]
  },
  {
@@ -2505,6 +2959,35 @@
   },
   "equipment": [
    "blender"
+  ],
+  "swaps": [
+   {
+    "id": "heavy-cream->milk-skim",
+    "goal": "lighter",
+    "title": "Skim milk instead of heavy cream",
+    "changes": [
+     {
+      "lineIndex": 5,
+      "from": "1 c. heavy cream",
+      "to": {
+       "id": "milk-skim",
+       "name": "Skim milk",
+       "aisle": "Dairy & Eggs"
+      },
+      "toGrams": 245,
+      "toDisplay": "1 cup skim milk"
+     }
+    ],
+    "perServingDelta": {
+     "kcal": -122,
+     "protein": 0.2,
+     "carbs": 0.9,
+     "fat": -14.4,
+     "fiber": 0
+    },
+    "confidence": "medium",
+    "source": "standard"
+   }
   ]
  },
  {
@@ -2787,7 +3270,63 @@
    },
    "disagreesWithAi": false
   },
-  "equipment": []
+  "equipment": [],
+  "swaps": [
+   {
+    "id": "sugar->sweetener-zero",
+    "goal": "lighter",
+    "title": "Zero-calorie sweetener instead of sugar",
+    "changes": [
+     {
+      "lineIndex": 5,
+      "from": "1 1/4 c sugar",
+      "to": {
+       "id": "sweetener-zero",
+       "name": "Zero-calorie sweetener",
+       "aisle": "Baking"
+      },
+      "toGrams": 240,
+      "toDisplay": "1¼ cups zero-calorie sweetener"
+     }
+    ],
+    "perServingDelta": {
+     "kcal": -81,
+     "protein": 0,
+     "carbs": -21,
+     "fat": 0,
+     "fiber": 0
+    },
+    "confidence": "high",
+    "source": "standard"
+   },
+   {
+    "id": "less-vegetable-oil",
+    "goal": "lighter",
+    "title": "Less vegetable oil",
+    "changes": [
+     {
+      "lineIndex": 0,
+      "from": "1/2 c plus 2 Tbl oil",
+      "to": {
+       "id": "vegetable-oil",
+       "name": "Vegetable oil",
+       "aisle": "Oils, Vinegars & Condiments"
+      },
+      "toGrams": 54.4,
+      "toDisplay": "¼ cup vegetable oil"
+     }
+    ],
+    "perServingDelta": {
+     "kcal": -60,
+     "protein": 0,
+     "carbs": 0,
+     "fat": -6.8,
+     "fiber": 0
+    },
+    "confidence": "high",
+    "source": "standard"
+   }
+  ]
  },
  {
   "recipeId": "fc0d3800-252f-4ace-93dc-e7cae1928739",
@@ -3169,7 +3708,36 @@
    },
    "disagreesWithAi": false
   },
-  "equipment": []
+  "equipment": [],
+  "swaps": [
+   {
+    "id": "pasta->pasta-chickpea",
+    "goal": "protein",
+    "title": "Chickpea pasta instead of pasta",
+    "changes": [
+     {
+      "lineIndex": 0,
+      "from": "8 oz Bow Tie Pasta",
+      "to": {
+       "id": "pasta-chickpea",
+       "name": "Chickpea pasta",
+       "aisle": "Pasta, Rice & Grains"
+      },
+      "toGrams": 226.8,
+      "toDisplay": "8 oz (227 g) chickpea pasta"
+     }
+    ],
+    "perServingDelta": {
+     "kcal": -18,
+     "protein": 3.7,
+     "carbs": -6.9,
+     "fat": 2.2,
+     "fiber": 3.2
+    },
+    "confidence": "high",
+    "source": "recipe_suggestion"
+   }
+  ]
  },
  {
   "recipeId": "fb300602-483f-4d1e-92a9-ee5f0ea0a891",
@@ -3510,7 +4078,36 @@
    },
    "disagreesWithAi": false
   },
-  "equipment": []
+  "equipment": [],
+  "swaps": [
+   {
+    "id": "mayonnaise->greek-yogurt-nonfat",
+    "goal": "lighter",
+    "title": "Nonfat Greek yogurt instead of mayonnaise",
+    "changes": [
+     {
+      "lineIndex": 1,
+      "from": "1 c. mayo",
+      "to": {
+       "id": "greek-yogurt-nonfat",
+       "name": "Nonfat Greek yogurt",
+       "aisle": "Dairy & Eggs"
+      },
+      "toGrams": 245,
+      "toDisplay": "1 cup nonfat Greek yogurt"
+     }
+    ],
+    "perServingDelta": {
+     "kcal": -169,
+     "protein": 2.9,
+     "carbs": 1,
+     "fat": -20.5,
+     "fiber": 0
+    },
+    "confidence": "high",
+    "source": "standard"
+   }
+  ]
  },
  {
   "recipeId": "efd7ac2a-6b51-4f12-a113-16e67f7fd091",
@@ -3834,6 +4431,35 @@
   "equipment": [
    "stand mixer",
    "hand mixer"
+  ],
+  "swaps": [
+   {
+    "id": "less-butter-unsalted",
+    "goal": "lighter",
+    "title": "Less unsalted butter",
+    "changes": [
+     {
+      "lineIndex": 2,
+      "from": "3/4 cup (168 g) unsalted butter, softened",
+      "to": {
+       "id": "butter-unsalted",
+       "name": "Unsalted butter",
+       "aisle": "Dairy & Eggs"
+      },
+      "toGrams": 85.2,
+      "toDisplay": "½ cup unsalted butter"
+     }
+    ],
+    "perServingDelta": {
+     "kcal": -37,
+     "protein": 0,
+     "carbs": 0,
+     "fat": -4.2,
+     "fiber": 0
+    },
+    "confidence": "high",
+    "source": "standard"
+   }
   ]
  },
  {
@@ -3997,7 +4623,36 @@
    },
    "disagreesWithAi": false
   },
-  "equipment": []
+  "equipment": [],
+  "swaps": [
+   {
+    "id": "less-butter",
+    "goal": "lighter",
+    "title": "Less butter",
+    "changes": [
+     {
+      "lineIndex": 1,
+      "from": "1 stick butter",
+      "to": {
+       "id": "butter",
+       "name": "Butter",
+       "aisle": "Dairy & Eggs"
+      },
+      "toGrams": 56.5,
+      "toDisplay": "2 oz (57 g) butter"
+     }
+    ],
+    "perServingDelta": {
+     "kcal": -101,
+     "protein": -0.1,
+     "carbs": 0,
+     "fat": -11.5,
+     "fiber": 0
+    },
+    "confidence": "high",
+    "source": "standard"
+   }
+  ]
  },
  {
   "recipeId": "50177966-e3f2-4523-9281-a2e6f4e41976",
@@ -4160,7 +4815,36 @@
    },
    "disagreesWithAi": false
   },
-  "equipment": []
+  "equipment": [],
+  "swaps": [
+   {
+    "id": "sugar->sweetener-zero",
+    "goal": "lighter",
+    "title": "Zero-calorie sweetener instead of sugar",
+    "changes": [
+     {
+      "lineIndex": 2,
+      "from": "1/2 cup sugar",
+      "to": {
+       "id": "sweetener-zero",
+       "name": "Zero-calorie sweetener",
+       "aisle": "Baking"
+      },
+      "toGrams": 96,
+      "toDisplay": "½ cup zero-calorie sweetener"
+     }
+    ],
+    "perServingDelta": {
+     "kcal": -49,
+     "protein": 0,
+     "carbs": -12.6,
+     "fat": 0,
+     "fiber": 0
+    },
+    "confidence": "high",
+    "source": "standard"
+   }
+  ]
  },
  {
   "recipeId": "06dcc688-eb83-4d1f-89e5-9a92d6b0ec76",
@@ -4591,7 +5275,36 @@
    },
    "disagreesWithAi": true
   },
-  "equipment": []
+  "equipment": [],
+  "swaps": [
+   {
+    "id": "less-olive-oil",
+    "goal": "lighter",
+    "title": "Less olive oil",
+    "changes": [
+     {
+      "lineIndex": 2,
+      "from": "1/4 cup olive oil",
+      "to": {
+       "id": "olive-oil",
+       "name": "Olive oil",
+       "aisle": "Oils, Vinegars & Condiments"
+      },
+      "toGrams": 27,
+      "toDisplay": "2 tbsp olive oil"
+     }
+    ],
+    "perServingDelta": {
+     "kcal": -40,
+     "protein": 0,
+     "carbs": 0,
+     "fat": -4.5,
+     "fiber": 0
+    },
+    "confidence": "high",
+    "source": "standard"
+   }
+  ]
  },
  {
   "recipeId": "8555d2fe-bf82-4f63-a97a-02bc0634fa05",
@@ -4806,6 +5519,35 @@
    },
    "disagreesWithAi": false
   },
-  "equipment": []
+  "equipment": [],
+  "swaps": [
+   {
+    "id": "less-olive-oil",
+    "goal": "lighter",
+    "title": "Less olive oil",
+    "changes": [
+     {
+      "lineIndex": 0,
+      "from": "6 Tbs. olive oil",
+      "to": {
+       "id": "olive-oil",
+       "name": "Olive oil",
+       "aisle": "Oils, Vinegars & Condiments"
+      },
+      "toGrams": 40.5,
+      "toDisplay": "3 tbsp olive oil"
+     }
+    ],
+    "perServingDelta": {
+     "kcal": -90,
+     "protein": 0,
+     "carbs": 0,
+     "fat": -10.1,
+     "fiber": 0
+    },
+    "confidence": "high",
+    "source": "standard"
+   }
+  ]
  }
 ]

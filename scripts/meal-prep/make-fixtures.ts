@@ -3,16 +3,20 @@
 // adjusters.json, so the planner, session and screens can be built and
 // tested without the database.
 //   npx tsx scripts/meal-prep/make-fixtures.ts [snapshot.json]
+// Swaps come from the committed model proposals in data/fixture-swap-proposals.json
+// (made with: npx tsx scripts/meal-prep/swaps-readonly.ts --ids <fixture ids> --out
+// scripts/meal-prep/data/fixture-swap-proposals.json), worked out here in code.
 import fs from "fs";
 import path from "path";
 import type { RecipeFacts } from "../../shared/meal-prep/contract";
 import { seedCatalog } from "../../server/meal-prep/food/catalog";
 import { computeRecipeFacts } from "../../server/meal-prep/food/facts";
 import { buildAdjusters } from "../../server/meal-prep/food/adjusters";
+import { buildSwaps, type SwapProposal } from "../../server/meal-prep/food/swaps";
 import { recipeInputFromRow } from "../../server/meal-prep/food/index";
 import { loadRecipeRows } from "./load-recipes";
 
-const rows = await loadRecipeRows(process.argv[2]);
+const rows = await loadRecipeRows(process.argv[2]?.endsWith(".json") ? process.argv[2] : undefined);
 const catalog = seedCatalog();
 const all = rows.filter((r) => r.normalized_ingredients?.length).map((r) => computeRecipeFacts(recipeInputFromRow(r), catalog));
 
@@ -38,10 +42,16 @@ take((f) => f.confidence === "low", 1);
 take((f) => main(f) && f.confidence === "medium" && !!f.nutritionCheck?.disagreesWithAi, 1);
 take((f) => main(f) && f.storage.freezerDays == null, 1);
 
-const out = [...picked.values()];
+const proposalsFile = path.resolve(import.meta.dirname, "data/fixture-swap-proposals.json");
+const proposals: Record<string, SwapProposal[]> = fs.existsSync(proposalsFile) ? JSON.parse(fs.readFileSync(proposalsFile, "utf8")) : {};
+const out = [...picked.values()].map((f) => {
+  const swaps = proposals[f.recipeId] ? buildSwaps(f, proposals[f.recipeId], catalog).swaps : [];
+  return swaps.length ? { ...f, swaps } : f;
+});
 const dir = path.resolve(import.meta.dirname, "../../shared/meal-prep/fixtures");
 fs.mkdirSync(dir, { recursive: true });
 fs.writeFileSync(path.join(dir, "recipe-facts.json"), JSON.stringify(out, null, 1) + "\n");
 fs.writeFileSync(path.join(dir, "adjusters.json"), JSON.stringify(buildAdjusters(catalog), null, 1) + "\n");
 console.log(`${out.length} recipe facts, from ${all.length} recipes`);
-for (const f of out) console.log(`${f.confidence.padEnd(6)} ${f.nutritionSource.padEnd(11)} ${String(f.perServing.kcal).padStart(4)} kcal ${(f.mainProtein ?? "-").padEnd(9)} ${f.mealTypes.join(",").padEnd(20)} ${f.title}`);
+console.log(`ids: ${out.map((f) => f.recipeId).join(",")}`);
+for (const f of out) console.log(`${String(f.swaps?.length ?? 0)} swaps ${f.confidence.padEnd(6)} ${f.nutritionSource.padEnd(11)} ${String(f.perServing.kcal).padStart(4)} kcal ${(f.mainProtein ?? "-").padEnd(9)} ${f.mealTypes.join(",").padEnd(20)} ${f.title}`);
