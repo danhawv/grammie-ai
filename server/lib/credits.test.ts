@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
 import type Stripe from "stripe";
 import { CREDIT_COSTS, CREDIT_PACKS, MONTHLY_FREE_CREDITS, WELCOME_CREDITS } from "@shared/credits";
+import { GUEST_CREDITS } from "@shared/party";
 import { charge, createCredits, gate, jobRefs, refundJob, setCredits } from "./credits";
 import { MemoryCreditStore } from "./credits-memory";
 import { handleCreditStripeEvent } from "./credit-stripe";
@@ -295,5 +296,29 @@ describe("App Store", () => {
     expect(await iap.handleNotification(note)).toMatchObject({ handled: false });
     expect(store.entries).toHaveLength(0);
     log.mockRestore();
+  });
+});
+
+describe("guest users (anonymous party guests)", () => {
+  it("get GUEST_CREDITS once, no monthly credits, and are always held to their balance", async () => {
+    const { credits, store, setNow } = setup({ enforced: false, date: "2026-10-31T12:00:00Z" });
+    store.guests.add("g1");
+    expect(await credits.balance("g1")).toBe(GUEST_CREDITS);
+    setNow("2026-11-02T12:00:00Z");
+    expect(await credits.balance("g1")).toBe(GUEST_CREDITS);
+    expect(store.entries.filter((e) => e.userId === "g1").map((e) => e.kind)).toEqual(["welcome"]);
+
+    store.balances.get("g1")!.balance = 0;
+    const check = await credits.canAfford("g1", "recipe_import");
+    expect(check).toMatchObject({ ok: false, enforced: true, balance: 0 });
+    expect(await credits.spend("g1", "recipe_import", "job-g1")).toMatchObject({ ok: false, reason: "insufficient" });
+    // A real account is still waved through with the switch off
+    store.balances.set("u1", { balance: 0, monthlyFreeGrantedFor: "2026-11", appleAccountToken: null });
+    expect((await credits.canAfford("u1", "recipe_import")).ok).toBe(true);
+
+    setCredits(credits);
+    const { out, res } = fakeRes();
+    expect(await gate(res, "g1", "recipe_import")).toBe(false);
+    expect(out.status).toBe(402);
   });
 });
