@@ -22,6 +22,7 @@ describe("party rules", () => {
     expect(dishFitsDiet(r(["1 lb ground beef"]), "vegetarian")).toBe(false);
     expect(dishFitsDiet(r(["2 cups rice", "1 cup oat milk"]), "vegan")).toBe(true);
     expect(dishFitsDiet(r(["salmon"]), "pescatarian")).toBe(true);
+    expect(dishFitsDiet(r(["1 cup shredded cheddar"]), "vegan")).toBe(false);
     expect(dishFitsDiet(null, "vegan")).toBeNull();
   });
 

@@ -310,7 +310,7 @@ export function dishFitsDiet(recipe: Pick<DishRecipeFacts, "diets" | "allergens"
   switch (diet) {
     case "vegetarian": return !MEAT.test(text) && !SEAFOOD.test(text);
     case "pescatarian": return !MEAT.test(text);
-    case "vegan": return !MEAT.test(text) && !SEAFOOD.test(text) && !ANIMAL.test(text.replace(/\b(almond|oat|soy|coconut) (milk|butter|cream|yogurt)|peanut butter|vegan \w+/gi, " "));
+    case "vegan": return !MEAT.test(text) && !SEAFOOD.test(text) && !allergens.includes("Dairy") && !allergens.includes("Eggs") && !ANIMAL.test(text.replace(/\b(almond|oat|soy|coconut) (milk|butter|cream|yogurt)|peanut butter|vegan \w+/gi, " "));
     case "gluten-free": return !allergens.includes("Gluten");
     case "dairy-free": return !allergens.includes("Dairy");
   }
