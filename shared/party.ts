@@ -54,10 +54,10 @@ export const PARTY_DIETS = [
 export type PartyDiet = (typeof PARTY_DIETS)[number]["id"];
 
 /** Free credits a guest user starts with (a real account still gets WELCOME_CREDITS) */
-export const GUEST_CREDITS = 5;
+export const GUEST_CREDITS = 50;
 
 /** Most dishes one guest can bring to one party */
-export const MAX_DISHES_PER_GUEST = 4;
+export const MAX_DISHES_PER_GUEST = 50;
 
 export const MAX_SLOTS = 40;
 export const MAX_GUESTS = 150;
