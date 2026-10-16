@@ -21,7 +21,7 @@ const NAV = [
     href: "/kitchen",
     label: "Kitchen",
     icon: ChefHat,
-    match: (p: string) => /^\/(kitchen|grocery-list|pantry|meal-plans|meal-prep|what-can-i-make)/.test(p),
+    match: (p: string) => /^\/(kitchen|grocery-list|pantry|meal-plans|meal-prep|what-can-i-make|parties)/.test(p),
   },
   { href: "/cookbooks", label: "Cookbooks", icon: BookOpen, match: (p: string) => p.startsWith("/cookbook") },
 ] as const;
@@ -35,7 +35,9 @@ export function AppShell() {
   const [location, setLocation] = useLocation();
   const { user } = useAuth();
   const { openAddRecipe } = useAddRecipe();
-  const bare = BARE.some((r) => r.test(location));
+  // Party invite links (/p/…) open without the app chrome for people who
+  // aren't signed in: every tab there needs an account
+  const bare = BARE.some((r) => r.test(location)) || (!user && /^\/p\//.test(location));
 
   // Reserve space for the phone tab bar
   useEffect(() => {

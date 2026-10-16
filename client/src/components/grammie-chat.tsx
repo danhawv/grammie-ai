@@ -45,7 +45,7 @@ const SUGGESTED_QUERIES = [
 ];
 
 // Floating buttons never cover recipes, forms or editors (DESIGN_PRINCIPLES §3)
-const HIDE_ON = [/^\/recipe\//, /^\/recipe-creator/, /^\/cookbook\/\d+\/print/, /^\/login/, /^\/settings/, /^\/processing/, /^\/import/, /^\/kitchen/, /^\/meal-plans\//, /^\/meal-prep/, /^\/prep\//];
+const HIDE_ON = [/^\/recipe\//, /^\/recipe-creator/, /^\/cookbook\/\d+\/print/, /^\/login/, /^\/settings/, /^\/processing/, /^\/import/, /^\/kitchen/, /^\/meal-plans\//, /^\/meal-prep/, /^\/prep\//, /^\/p\//, /^\/parties/];
 
 export function GrammieChat() {
   const [location] = useLocation();
