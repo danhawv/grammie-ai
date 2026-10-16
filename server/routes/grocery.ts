@@ -89,7 +89,12 @@ router.post("/grocery-list/recipes/:recipeId", isAuthenticated, async (req: any,
       return res.status(404).json({ error: "Recipe not found or access denied" });
     }
 
-    await storage.addRecipeToGroceryList(userId, recipeId);
+    // Optional { scale }: e.g. 2.5 for a party dish made for the whole table
+    const scale = Number(req.body?.scale ?? 1);
+    if (!Number.isFinite(scale) || scale <= 0 || scale > 50) {
+      return res.status(400).json({ error: "Scale must be a number between 0 and 50" });
+    }
+    await storage.addRecipeToGroceryList(userId, recipeId, scale);
     res.status(201).json({ message: "Recipe added to grocery list" });
   } catch (error) {
     console.error("Error adding recipe to grocery list:", error);

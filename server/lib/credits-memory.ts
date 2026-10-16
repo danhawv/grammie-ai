@@ -8,6 +8,7 @@ export class MemoryCreditStore implements CreditStore {
   entries: LedgerEntry[] = [];
   balances = new Map<string, BalanceState>();
   admins = new Set<string>();
+  guests = new Set<string>();
   private queue: Promise<unknown> = Promise.resolve();
   private clock = 0;
 
@@ -49,6 +50,9 @@ export class MemoryCreditStore implements CreditStore {
 
   async isAdmin(userId: string) {
     return this.admins.has(userId);
+  }
+  async isGuest(userId: string) {
+    return this.guests.has(userId);
   }
   async jobOwner(jobRef: string) {
     const spends = this.entries.filter((e) => e.jobRef === jobRef && e.kind === "spend");

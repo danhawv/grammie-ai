@@ -7,6 +7,7 @@ import type { UserPreferences } from "./food-profile";
 import type { CreditKind, CreditSource } from "./credits";
 import type { IntakeStatus, PhotoCatalog } from "./bulk-intake";
 import type { PrepPlan, PrepSession, PrepSetup, ShoppingList, MealSlot } from "./meal-prep/contract";
+import type { PartyCourse, PartyStyle, RsvpStatus } from "./party";
 import type { CheckinOutcome, PrepBuildStatus, PrepPlanStatus, PrepProfileDefaults, PrepSubstitution, StoredPlanOptions, WishesResult } from "./meal-prep/api";
 
 // Constant maps for comprehensive recipe enrichment
@@ -236,6 +237,11 @@ export const users = pgTable("users", {
   username: varchar("username").unique(), // Optional unique handle like @chef123
   bio: text("bio"),
   
+  // users.is_guest (anonymous party guests, migrations/2026-10-parties.sql) is
+  // deliberately not declared here: it's read and written with plain SQL in
+  // server/parties/store.ts and server/lib/credits-pg.ts, so every other users
+  // query keeps working whether or not that migration has run.
+
   // Privacy settings
   defaultRecipeVisibility: text("default_recipe_visibility").$type<'public' | 'private'>().default('public'),
   defaultCookbookVisibility: text("default_cookbook_visibility").$type<'public' | 'private'>().default('public'),
@@ -2262,3 +2268,84 @@ export const prepCheckins = pgTable("prep_checkins", {
 }, (table) => ({
   plateIdx: uniqueIndex("prep_checkins_plate_idx").on(table.planId, table.personId, table.day, table.slot),
 }));
+
+// ============================================================================
+// DINNER PARTIES AND POTLUCKS (migrations/2026-10-parties.sql, shared/party.ts)
+// ============================================================================
+
+export const parties = pgTable("parties", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  ownerUserId: varchar("owner_user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  title: text("title").notNull(),
+  style: varchar("style", { length: 20 }).$type<PartyStyle>().notNull().default('dinner'),
+  startsAt: timestamp("starts_at", { withTimezone: true }),
+  location: text("location"),
+  theme: text("theme"),
+  hostNote: text("host_note"),
+  headcount: integer("headcount").notNull().default(8),
+  externalInviteUrl: text("external_invite_url"),
+  coverImage: text("cover_image"),
+  cookbookId: integer("cookbook_id").references(() => cookbooks.id, { onDelete: 'set null' }),
+  inviteToken: varchar("invite_token", { length: 64 }).notNull(),
+  status: varchar("status", { length: 20 }).$type<'active' | 'cancelled'>().notNull().default('active'),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  inviteTokenIdx: uniqueIndex("parties_invite_token_idx").on(table.inviteToken),
+  ownerIdx: index("parties_owner_idx").on(table.ownerUserId, table.createdAt.desc()),
+}));
+
+export type PartyRow = typeof parties.$inferSelect;
+
+export const partySlots = pgTable("party_slots", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  partyId: varchar("party_id").notNull().references(() => parties.id, { onDelete: 'cascade' }),
+  course: varchar("course", { length: 20 }).$type<PartyCourse>().notNull(),
+  label: text("label"),
+  position: integer("position").notNull().default(0),
+}, (table) => ({
+  partyIdx: index("party_slots_party_idx").on(table.partyId, table.position),
+}));
+
+export type PartySlotRow = typeof partySlots.$inferSelect;
+
+export const partyGuests = pgTable("party_guests", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  partyId: varchar("party_id").notNull().references(() => parties.id, { onDelete: 'cascade' }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  name: text("name").notNull(),
+  rsvp: varchar("rsvp", { length: 10 }).$type<RsvpStatus>().notNull().default('yes'),
+  partySize: integer("party_size").notNull().default(1),
+  allergies: jsonb("allergies").$type<string[]>().notNull().default([]),
+  diets: jsonb("diets").$type<string[]>().notNull().default([]),
+  dietNote: text("diet_note"),
+  isHost: boolean("is_host").notNull().default(false),
+  guestTokenHash: varchar("guest_token_hash", { length: 64 }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  partyUserIdx: uniqueIndex("party_guests_party_user_idx").on(table.partyId, table.userId),
+  tokenIdx: uniqueIndex("party_guests_token_idx").on(table.guestTokenHash),
+  userIdx: index("party_guests_user_idx").on(table.userId),
+}));
+
+export type PartyGuestRow = typeof partyGuests.$inferSelect;
+
+export const partyDishes = pgTable("party_dishes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  partyId: varchar("party_id").notNull().references(() => parties.id, { onDelete: 'cascade' }),
+  guestId: varchar("guest_id").notNull().references(() => partyGuests.id, { onDelete: 'cascade' }),
+  slotId: varchar("slot_id").references(() => partySlots.id, { onDelete: 'set null' }),
+  course: varchar("course", { length: 20 }).$type<PartyCourse>().notNull(),
+  recipeId: varchar("recipe_id").references(() => recipes.id, { onDelete: 'set null' }),
+  title: text("title").notNull(),
+  note: text("note"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  partyIdx: index("party_dishes_party_idx").on(table.partyId, table.createdAt),
+  guestIdx: index("party_dishes_guest_idx").on(table.guestId),
+  recipeIdx: index("party_dishes_recipe_idx").on(table.recipeId),
+}));
+
+export type PartyDishRow = typeof partyDishes.$inferSelect;
