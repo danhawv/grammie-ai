@@ -171,11 +171,19 @@ export function BringDishSheet({
             <>
               {free.length > 0 ? (
                 <ul className="space-y-2">
-                  {free.map((s) => (
-                    <li key={s.id}>
-                      <ChoiceButton title={slotName(s)} onClick={() => { setSlotId(s.id); setCourse(s.course); setScreen("how"); }} />
-                    </li>
-                  ))}
+                  {/* Two open "Main" places show as one choice */}
+                  {free.filter((s, i) => free.findIndex((o) => slotName(o) === slotName(s)) === i).map((s) => {
+                    const left = free.filter((o) => slotName(o) === slotName(s)).length;
+                    return (
+                      <li key={s.id}>
+                        <ChoiceButton
+                          title={slotName(s)}
+                          {...(left > 1 ? { hint: `${left} open` } : {})}
+                          onClick={() => { setSlotId(s.id); setCourse(s.course); setScreen("how"); }}
+                        />
+                      </li>
+                    );
+                  })}
                 </ul>
               ) : (
                 <p className="text-base text-muted-foreground">Every place on the menu is taken. You can still bring something extra.</p>

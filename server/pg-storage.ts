@@ -136,6 +136,8 @@ export interface IStorage {
   
   // Recipe operations
   getRecipe(id: string, userId?: string): Promise<Recipe | undefined>;
+  /** Any recipe, private or not: for background jobs working on a recipe someone already saved */
+  getRecipeForJob(id: string): Promise<Recipe | undefined>;
   getAllRecipes(userId?: string): Promise<RecipeListItem[]>;
   getMyRecipes(userId: string): Promise<RecipeListItem[]>;
   getPublicRecipes(): Promise<RecipeListItem[]>;
@@ -442,6 +444,11 @@ export class PostgresStorage implements IStorage {
 
   // ========== RECIPE OPERATIONS ==========
   
+  async getRecipeForJob(id: string): Promise<Recipe | undefined> {
+    const [recipe] = await db.select().from(recipes).where(eq(recipes.id, id));
+    return recipe;
+  }
+
   async getRecipe(id: string, userId?: string): Promise<Recipe | undefined> {
     const [recipe] = await db.select().from(recipes).where(eq(recipes.id, id));
     

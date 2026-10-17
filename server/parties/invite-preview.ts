@@ -81,7 +81,7 @@ export function readOgTags(html: string, pageUrl: string): { title: string | nul
     if (!prop || content === undefined) continue;
     if ((prop === "og:title" || prop === "og:image" || prop === "og:image:secure_url") && !(prop in found)) found[prop] = content;
   }
-  const title = found["og:title"] ? decodeEntities(found["og:title"]).replace(/\s+/g, " ").trim().slice(0, 200) || null : null;
+  const title = found["og:title"] ? decodeEntities(found["og:title"]).replace(/\s+/g, " ").replace(/\s*[|·–—-]\s*(Partiful|Evite|Luma|Paperless Post)\s*$/i, "").trim().slice(0, 200) || null : null;
   let image: string | null = null;
   const rawImage = found["og:image:secure_url"] ?? found["og:image"];
   if (rawImage) {

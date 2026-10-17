@@ -58,3 +58,9 @@ describe("invite previews", () => {
     expect(await fetchInvitePreview("https://good.example/x", { fetchImpl: notHtml, lookup })).toEqual(empty());
   });
 });
+
+describe("invite titles", () => {
+  it("drops the site name after the party name", () => {
+    expect(readOgTags('<meta property="og:title" content="Potluck Party | Partiful">', "https://partiful.com/e/x").title).toBe("Potluck Party");
+  });
+});
