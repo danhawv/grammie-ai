@@ -1,5 +1,6 @@
 import { Link } from "wouter";
 import {
+  Activity,
   BookPlus,
   Images,
   Loader2,
@@ -37,6 +38,7 @@ export function RecipeActionsMenu({
   deleting,
   onAddToCookbook,
   onShare,
+  onLogInTracker,
   onMakeYourOwn,
   onManageImages,
   onReEnrich,
@@ -53,6 +55,7 @@ export function RecipeActionsMenu({
   deleting: boolean;
   onAddToCookbook: () => void;
   onShare: () => void;
+  onLogInTracker: () => void;
   onMakeYourOwn: () => void;
   onManageImages: () => void;
   onReEnrich: () => void;
@@ -84,6 +87,10 @@ export function RecipeActionsMenu({
         <DropdownMenuItem onClick={onShare} className={ITEM} data-testid="menu-share-recipe">
           <Share2 aria-hidden />
           Share
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={onLogInTracker} className={ITEM} data-testid="menu-log-in-tracker">
+          <Activity aria-hidden />
+          Log in a tracker
         </DropdownMenuItem>
         <DropdownMenuItem onClick={() => void printPage()} className={ITEM} data-testid="menu-print-recipe">
           <Printer aria-hidden />

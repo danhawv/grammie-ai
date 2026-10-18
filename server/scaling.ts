@@ -109,39 +109,20 @@ export function scaleRecipe(
 }
 
 function scaleIngredientText(text: string, factor: number): string {
-  // Match mixed fractions like "1 1/2" or "2 3/4"
-  const mixedFractionPattern = /(\d+)\s+(\d+)\/(\d+)/g;
-  let scaled = text.replace(mixedFractionPattern, (match, whole, num, denom) => {
-    const quantity = parseInt(whole) + parseInt(num) / parseInt(denom);
-    const newQuantity = roundToNiceNumber(quantity * factor);
-    return formatQuantity(newQuantity);
+  // One pass, so each amount is scaled once: "1 1/2", "3/4" or "2.5", when it
+  // starts the line or comes before a unit ("2 cups", "12 oz")
+  const amount = /(\d+\s+\d+\/\d+|\d+\/\d+|\d+(?:\.\d+)?)(\s*)(cups?|tablespoons?|tbsp|teaspoons?|tsp|ounces?|oz|pounds?|lbs?|grams?|g|kg|ml|liters?)?\b/gi;
+  return text.replace(amount, (match, num: string, space: string, unit: string | undefined, offset: number) => {
+    const atStart = text.slice(0, offset).trim() === "";
+    if (!unit && !atStart) return match;
+    const mixed = num.match(/^(\d+)\s+(\d+)\/(\d+)$/);
+    const frac = num.match(/^(\d+)\/(\d+)$/);
+    const quantity = mixed
+      ? parseInt(mixed[1]) + parseInt(mixed[2]) / parseInt(mixed[3])
+      : frac ? parseInt(frac[1]) / parseInt(frac[2]) : parseFloat(num);
+    const scaled = formatQuantity(roundToNiceNumber(quantity * factor));
+    return unit ? `${scaled} ${unit}` : `${scaled}${space}`;
   });
-
-  // Match simple fractions like "1/2" or "3/4"
-  const fractionPattern = /(\d+)\/(\d+)/g;
-  scaled = scaled.replace(fractionPattern, (match, num, denom) => {
-    const quantity = parseInt(num) / parseInt(denom);
-    const newQuantity = roundToNiceNumber(quantity * factor);
-    return formatQuantity(newQuantity);
-  });
-
-  // Match decimal numbers with units
-  const decimalWithUnitPattern = /(\d+(?:\.\d+)?)\s*(cups?|tablespoons?|tbsp|teaspoons?|tsp|ounces?|oz|pounds?|lbs?|grams?|g|kg|ml|liters?)/gi;
-  scaled = scaled.replace(decimalWithUnitPattern, (match, num, unit) => {
-    const quantity = parseFloat(num);
-    const newQuantity = roundToNiceNumber(quantity * factor);
-    return `${formatQuantity(newQuantity)} ${unit}`;
-  });
-
-  // Match standalone numbers at the beginning
-  const standaloneNumberPattern = /^(\d+(?:\.\d+)?)\s+/;
-  scaled = scaled.replace(standaloneNumberPattern, (match, num) => {
-    const quantity = parseFloat(num);
-    const newQuantity = roundToNiceNumber(quantity * factor);
-    return `${formatQuantity(newQuantity)} `;
-  });
-
-  return scaled;
 }
 
 function formatQuantity(num: number): string {

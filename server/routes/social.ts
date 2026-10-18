@@ -2,8 +2,33 @@ import { Router } from "express";
 import { readFileSync, existsSync } from "fs";
 import { join } from "path";
 import { storage } from "../storage";
+import { getImport } from "../recipe-imports";
+import { buildRecipeJsonLd, escapeHtml, jsonLdScriptTag } from "@shared/recipe-jsonld";
+import { withPageMeta } from "../lib/page-meta";
 
 const router = Router();
+
+/** The built index.html (or the dev copy); null when it isn't there */
+function readIndexHtml(): string | null {
+  const isDev = process.env.NODE_ENV === 'development';
+  const indexPath = isDev
+    ? join(import.meta.dirname, '..', 'client', 'index.html')
+    : join(import.meta.dirname, 'public', 'index.html');
+  return existsSync(indexPath) ? readFileSync(indexPath, 'utf-8') : null;
+}
+
+/** "Jean Smith", else the username; null when the owner has neither */
+async function ownerName(userId: string | null | undefined): Promise<string | null> {
+  if (!userId) return null;
+  try {
+    const user = await storage.getUser(userId);
+    if (!user) return null;
+    const full = [user.firstName, user.lastName].filter(Boolean).join(' ').trim();
+    return full || user.username || null;
+  } catch {
+    return null;
+  }
+}
 
 // Serve OG image for cookbook (for social media previews)
 router.get("/og-image/cookbook/:id", async (req: any, res) => {
@@ -24,6 +49,12 @@ router.get("/og-image/cookbook/:id", async (req: any, res) => {
 
     if (!imageData) {
       return res.status(404).send("No cover image available");
+    }
+
+    // Covers kept outside the database (/media/... or a web address)
+    if (/^\/(?!\/)/.test(imageData) || /^https?:\/\//i.test(imageData)) {
+      res.set('Cache-Control', 'public, max-age=3600');
+      return res.redirect(302, imageData);
     }
 
     // Parse the data URL to extract mime type and base64 data
@@ -72,6 +103,13 @@ router.get("/og-image/recipe/:id", async (req: any, res) => {
       return res.status(404).send("No image available");
     }
 
+    // Photos kept outside the database (/media/... or a web address): send
+    // the crawler there
+    if (/^\/(?!\/)/.test(imageData) || /^https?:\/\//i.test(imageData)) {
+      res.set('Cache-Control', 'public, max-age=3600');
+      return res.redirect(302, imageData);
+    }
+
     // Parse the data URL to extract mime type and base64 data
     const match = imageData.match(/^data:image\/([a-z]+);base64,(.+)$/i);
     if (!match) {
@@ -112,20 +150,16 @@ router.get("/cookbook/:id", async (req: any, res, next) => {
     }
 
     const cookbook = await storage.getCookbook(cookbookId, undefined);
-    if (!cookbook) {
+    // Private cookbooks show nothing to link previews
+    if (!cookbook || !cookbook.isPublic) {
       return next();
     }
 
-    // Escape HTML to prevent XSS
-    const escapeHtml = (str: string) => str
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
-
+    const baseUrl = process.env.PUBLIC_URL || 'https://grammie.ai';
     const title = escapeHtml(cookbook.name || 'Recipe Collection');
     const description = escapeHtml(cookbook.description || 'A collection of delicious recipes');
-    const image = escapeHtml(cookbook.coverImage || '');
+    // The cover is stored as a data URL; crawlers need a real address
+    const image = escapeHtml(cookbook.coverImage ? `${baseUrl}/og-image/cookbook/${cookbookId}` : `${baseUrl}/og-image.png`);
 
     const html = `<!DOCTYPE html>
 <html>
@@ -171,38 +205,22 @@ router.get("/cookbook/:id", async (req, res, next) => {
 
     const baseUrl = process.env.PUBLIC_URL || 'https://grammie.ai';
 
-    const ogTitle = `${cookbook.name} | Grammie`;
-    const ogDescription = cookbook.description ||
-      `Explore the "${cookbook.name}" cookbook on Grammie. Discover delicious recipes and cooking inspiration.`;
-    const ogImage = cookbook.coverImage
-      ? `${baseUrl}/og-image/cookbook/${id}`
-      : `${baseUrl}/og-image.png`;
-    const ogUrl = `${baseUrl}/cookbook/${id}`;
-
-    const isDev = process.env.NODE_ENV === 'development';
-    const indexPath = isDev
-      ? join(import.meta.dirname, '..', 'client', 'index.html')
-      : join(import.meta.dirname, 'public', 'index.html');
-
-    if (!existsSync(indexPath)) {
+    const html = readIndexHtml();
+    if (!html) {
       return next();
     }
 
-    let html = readFileSync(indexPath, 'utf-8');
-
-    html = html.replace(/<title>.*?<\/title>/, `<title>${ogTitle}</title>`);
-    html = html.replace(/<meta property="og:title" content="[^"]*" \/>/, `<meta property="og:title" content="${ogTitle}" />`);
-    html = html.replace(/<meta property="og:description" content="[^"]*" \/>/, `<meta property="og:description" content="${ogDescription.substring(0, 200)}" />`);
-    html = html.replace(/<meta property="og:image" content="[^"]*" \/>/, `<meta property="og:image" content="${ogImage}" />`);
-    html = html.replace(/<meta property="og:type" content="[^"]*" \/>/, `<meta property="og:type" content="website" />`);
-    html = html.replace(/<meta property="og:site_name" content="[^"]*" \/>/, `<meta property="og:url" content="${ogUrl}" />\n    <meta property="og:site_name" content="Grammie" />`);
-    html = html.replace(/<meta name="twitter:title" content="[^"]*" \/>/, `<meta name="twitter:title" content="${ogTitle}" />`);
-    html = html.replace(/<meta name="twitter:description" content="[^"]*" \/>/, `<meta name="twitter:description" content="${ogDescription.substring(0, 200)}" />`);
-    html = html.replace(/<meta name="twitter:image" content="[^"]*" \/>/, `<meta name="twitter:image" content="${ogImage}" />`);
-    html = html.replace(/<meta name="description" content="[^"]*" \/>/, `<meta name="description" content="${ogDescription.substring(0, 160)}" />`);
+    const description = cookbook.description ||
+      `Explore the "${cookbook.name}" cookbook on Grammie. Discover delicious recipes and cooking inspiration.`;
 
     res.set('Content-Type', 'text/html');
-    res.send(html);
+    res.send(withPageMeta(html, {
+      title: `${cookbook.name} | Grammie`,
+      description,
+      image: cookbook.coverImage ? `${baseUrl}/og-image/cookbook/${id}` : `${baseUrl}/og-image.png`,
+      url: `${baseUrl}/cookbook/${id}`,
+      type: 'website',
+    }));
   } catch (error) {
     console.error("Error serving cookbook page with OG tags:", error);
     next();
@@ -226,36 +244,29 @@ router.get("/recipe/:id", async (req, res, next) => {
 
     const baseUrl = process.env.PUBLIC_URL || 'https://grammie.ai';
 
-    const ogTitle = `${recipe.title} | Grammie`;
-    const ogDescription = recipe.description ||
-      `Discover how to make ${recipe.title}. ${recipe.cuisine ? `A delicious ${recipe.cuisine} dish.` : ''} View the full recipe on Grammie.`;
-    const ogImage = `${baseUrl}/og-image/recipe/${id}`;
-    const ogUrl = `${baseUrl}/recipe/${id}`;
-
-    const isDev = process.env.NODE_ENV === 'development';
-    const indexPath = isDev
-      ? join(import.meta.dirname, '..', 'client', 'index.html')
-      : join(import.meta.dirname, 'public', 'index.html');
-
-    if (!existsSync(indexPath)) {
+    const html = readIndexHtml();
+    if (!html) {
       return next();
     }
 
-    let html = readFileSync(indexPath, 'utf-8');
+    const description = recipe.description ||
+      `Discover how to make ${recipe.title}. ${recipe.cuisine ? `A delicious ${recipe.cuisine} dish.` : ''} View the full recipe on Grammie.`;
 
-    html = html.replace(/<title>.*?<\/title>/, `<title>${ogTitle}</title>`);
-    html = html.replace(/<meta property="og:title" content="[^"]*" \/>/, `<meta property="og:title" content="${ogTitle}" />`);
-    html = html.replace(/<meta property="og:description" content="[^"]*" \/>/, `<meta property="og:description" content="${ogDescription.substring(0, 200)}" />`);
-    html = html.replace(/<meta property="og:image" content="[^"]*" \/>/, `<meta property="og:image" content="${ogImage}" />`);
-    html = html.replace(/<meta property="og:type" content="[^"]*" \/>/, `<meta property="og:type" content="article" />`);
-    html = html.replace(/<meta property="og:site_name" content="[^"]*" \/>/, `<meta property="og:url" content="${ogUrl}" />\n    <meta property="og:site_name" content="Grammie" />`);
-    html = html.replace(/<meta name="twitter:title" content="[^"]*" \/>/, `<meta name="twitter:title" content="${ogTitle}" />`);
-    html = html.replace(/<meta name="twitter:description" content="[^"]*" \/>/, `<meta name="twitter:description" content="${ogDescription.substring(0, 200)}" />`);
-    html = html.replace(/<meta name="twitter:image" content="[^"]*" \/>/, `<meta name="twitter:image" content="${ogImage}" />`);
-    html = html.replace(/<meta name="description" content="[^"]*" \/>/, `<meta name="description" content="${ogDescription.substring(0, 160)}" />`);
+    // schema.org Recipe for search engines and for importing into
+    // MyFitnessPal or Cronometer from this page's link
+    const [authorName, imported] = await Promise.all([ownerName(recipe.ownerUserId), getImport(recipe.id)]);
+    const sourceUrl = imported && (imported.sourceType === 'link' || imported.sourceType === 'social') ? imported.sourceUrl : null;
+    const jsonLd = buildRecipeJsonLd(recipe, { baseUrl, authorName, sourceUrl });
 
     res.set('Content-Type', 'text/html');
-    res.send(html);
+    res.send(withPageMeta(html, {
+      title: `${recipe.title} | Grammie`,
+      description,
+      image: `${baseUrl}/og-image/recipe/${id}`,
+      url: `${baseUrl}/recipe/${id}`,
+      type: 'article',
+      head: jsonLdScriptTag(jsonLd),
+    }));
   } catch (error) {
     console.error("Error serving recipe page with OG tags:", error);
     next();

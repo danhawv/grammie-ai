@@ -28,6 +28,7 @@ import { createFoodData } from "./meal-prep/food";
 import { createPlanner } from "./meal-prep/planner";
 import { createSessionBuilder } from "./meal-prep/session";
 import { partyRouter } from "./parties/wiring";
+import { mcpRouter } from "./mcp/wiring";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Setup authentication
@@ -59,6 +60,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use("/api/meal-prep", mealPrepRouter());
   // Dinner parties; the invite link (/api/party/:token) needs no account.
   app.use("/api", partyRouter());
+  // AI connector (MCP) at /mcp + OAuth metadata; 404 unless MCP_ENABLED=true
+  app.use("/", mcpRouter());
 
   // Mount print routes (has both /lulu/* and /api/print/* paths)
   // The /lulu/pdfs/:id route is public and not under /api

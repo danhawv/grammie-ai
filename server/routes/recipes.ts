@@ -27,7 +27,7 @@ import { convertToBaseUnit } from "../unit-conversion";
 import { recordImport } from "../recipe-imports";
 import { charge, gate, jobRefs, refundJob } from "../lib/credits";
 import { straightenNewCard, rotateOriginalCard } from "../lib/original-card";
-import { rankRecipesByPantry, recipeIngredients, normalizeIngredient, namesMatch } from "../../shared/pantry-match";
+import { whatCanIMake } from "../lib/what-can-i-make";
 
 const router = Router();
 
@@ -149,82 +149,8 @@ router.get("/recipes/what-can-i-make", isAuthenticated, async (req: any, res) =>
     const pantryItems = await storage.getPantryItems(userId);
     // Food profile: allergies and dislikes are both left out of suggestions
     const user = await storage.getUser(userId);
-    const foodProfile = getFoodProfile(user?.preferences);
-    const dietaryRestrictions: string[] = foodProfile.diets;
-    const dislikedIngredients: string[] = foodProfile.avoidAll;
-    const appliedFilters = { dietaryRestrictions, dislikedIngredients };
-
-    if (pantryItems.length === 0) {
-      return res.json({ pantryItemCount: 0, results: [], recipesChecked: 0, appliedFilters });
-    }
-
-    let recipesList = await storage.getRecipesForPantryMatching(userId);
-
-    if (dietaryRestrictions.length > 0) {
-      recipesList = recipesList.filter((recipe) => {
-        if (dietaryRestrictions.includes('vegetarian') && !recipe.isVegetarian) return false;
-        if (dietaryRestrictions.includes('vegan') && !recipe.isVegan) return false;
-        if (dietaryRestrictions.includes('gluten-free') && !recipe.isGlutenFree) return false;
-        if (dietaryRestrictions.includes('dairy-free') && !recipe.isDairyFree) return false;
-        return true;
-      });
-    }
-
-    if (dislikedIngredients.length > 0) {
-      const disliked = dislikedIngredients.map((d) => normalizeIngredient(d)).filter(Boolean);
-      recipesList = recipesList.filter((recipe) =>
-        !recipeIngredients(recipe).some((ing) => {
-          const n = normalizeIngredient(ing.name);
-          return disliked.some((d) => n === d || namesMatch(n, d) || n.split(" ").includes(d));
-        }),
-      );
-    }
-
-    // Own recipes first, so a public copy of the same dish doesn't push yours out
-    recipesList = [...recipesList].sort((a, b) => Number(b.ownerUserId === userId) - Number(a.ownerUserId === userId));
-    const seenTitles = new Set<string>();
-    const ranked = rankRecipesByPantry(recipesList, pantryItems)
-      .filter((r) => {
-        // Show each dish once (libraries often hold several copies)
-        const key = r.recipe.title.trim().toLowerCase();
-        if (seenTitles.has(key)) return false;
-        seenTitles.add(key);
-        return true;
-      })
-      .slice(0, 60);
-
-    const now = Date.now();
-    const expiryThreshold = now + 3 * 24 * 60 * 60 * 1000;
-    const isExpiringSoon = (p: { expiresAt: Date | null }) =>
-      !!p.expiresAt && new Date(p.expiresAt).getTime() <= expiryThreshold;
-
-    const results = ranked.map((r) => ({
-      recipe: {
-        id: r.recipe.id,
-        title: r.recipe.title,
-        image: r.recipe.dishImageThumbnail,
-        totalTimeMinutes:
-          r.recipe.totalTimeMinutes ??
-          ((r.recipe.prepTimeMinutes || r.recipe.cookTimeMinutes)
-            ? (r.recipe.prepTimeMinutes || 0) + (r.recipe.cookTimeMinutes || 0)
-            : null),
-        servings: r.recipe.servings,
-        cuisine: r.recipe.cuisines?.[0] ?? null,
-      },
-      haveCount: r.haveCount,
-      total: r.total,
-      have: r.have.map((h) => ({ ingredient: h.ingredient, pantryItem: h.pantryItem.name })),
-      missing: r.missing,
-      staples: r.staples,
-      expiringItemsUsed: r.have.filter((h) => isExpiringSoon(h.pantryItem)).length,
-    }));
-
-    res.json({
-      pantryItemCount: pantryItems.length,
-      recipesChecked: recipesList.length,
-      results,
-      appliedFilters,
-    });
+    const recipesList = pantryItems.length > 0 ? await storage.getRecipesForPantryMatching(userId) : [];
+    res.json(whatCanIMake({ userId, pantryItems, recipes: recipesList, preferences: user?.preferences }));
   } catch (error) {
     console.error("Error getting recipe suggestions:", error);
     res.status(500).json({ error: "Failed to get recipe suggestions" });

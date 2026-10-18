@@ -76,7 +76,7 @@ async function fetchClerkUserDetails(clerkUserId: string): Promise<{
  * 3. Look up by verified email (link existing account)
  * 4. Create new user record
  */
-async function upsertUserFromClerk(clerkUserId: string) {
+export async function upsertUserFromClerk(clerkUserId: string) {
   // Fast path: already linked
   const existingByClerkId = await storage.getUserByClerkId(clerkUserId);
   if (existingByClerkId) {

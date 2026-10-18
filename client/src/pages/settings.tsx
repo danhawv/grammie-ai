@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } fr
 import { Link } from "wouter";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useClerk, useUser } from "@clerk/react";
-import { AlertCircle, Check, ChevronDown, Loader2, LogOut, Minus, Plus, X } from "lucide-react";
+import { AlertCircle, Check, ChevronDown, Copy, Loader2, LogOut, Minus, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -39,7 +39,8 @@ import {
   type TextSize,
   type UserPreferences,
 } from "@shared/food-profile";
-import { apiFetch, mediaUrl } from "@/lib/platform";
+import { apiFetch, mediaUrl, publicUrl } from "@/lib/platform";
+import { useToast } from "@/hooks/use-toast";
 
 // The "Me" page: Account, Food profile, Display. One place for every
 // preference (docs/DESIGN_PRINCIPLES.md §4). Changes save automatically.
@@ -106,6 +107,8 @@ export default function Settings() {
               <ImportCheckSetting preferences={preferences} queue={queue} />
             </Section>
           )}
+
+          {isSignedIn && <ConnectAiSection />}
 
           {isSignedIn && <AdminSettings />}
         </div>
@@ -721,6 +724,73 @@ function ImportCheckSetting({ preferences, queue }: { preferences: UserPreferenc
         data-testid="switch-check-imports"
       />
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Connect your AI assistant (the Grammie connector, server/routes/mcp.ts).
+// Hidden until the server says the connector is switched on.
+
+const AI_ASSISTANT_STEPS: Array<{ name: string; steps: string }> = [
+  { name: "Claude", steps: "Settings → Connectors → Add custom connector. Name it Grammie, paste the address, then Connect and sign in." },
+  { name: "ChatGPT", steps: "Settings → Apps & Connectors → turn on Developer mode → Create. Paste the address, choose OAuth, then sign in." },
+  { name: "Grok", steps: "Where Grok lets you add a remote MCP server or connector, paste the address and sign in when asked." },
+  { name: "Gemini", steps: "In Gemini CLI or another Gemini tool that takes MCP servers, add the address as a remote (HTTP) server and sign in when asked." },
+];
+
+function ConnectAiSection() {
+  const { toast } = useToast();
+  const { data } = useQuery<{ enabled: boolean }>({
+    queryKey: ["/api/mcp/status"],
+    queryFn: async () => {
+      const response = await apiFetch("/api/mcp/status");
+      if (!response.ok) return { enabled: false };
+      return response.json();
+    },
+    staleTime: 5 * 60_000,
+    retry: false,
+  });
+  if (!data?.enabled) return null;
+
+  const address = publicUrl("/mcp");
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(address);
+      toast({ title: "Address copied" });
+    } catch {
+      toast({ title: "Couldn't copy. Select the address and copy it instead.", variant: "destructive" });
+    }
+  };
+
+  return (
+    <Section
+      id="connect-ai"
+      title="Connect your AI assistant"
+      description="Let your own Claude, ChatGPT, Grok or Gemini look up your recipes, pantry, grocery list and meal plan."
+    >
+      <div className="space-y-2">
+        <Label htmlFor="connector-address" className="text-base font-semibold">Connector address</Label>
+        <div className="flex flex-wrap gap-2">
+          <Input id="connector-address" readOnly value={address} onFocus={(e) => e.currentTarget.select()} className="h-11 min-w-0 flex-1 text-base" data-testid="input-connector-address" />
+          <Button type="button" variant="outline" className="h-11" onClick={() => void copy()} data-testid="button-copy-connector">
+            <Copy className="mr-2 h-4 w-4" aria-hidden="true" />
+            Copy
+          </Button>
+        </div>
+        <p className="text-base text-muted-foreground">
+          You'll sign in to Grammie and approve access. Your assistant can read your recipes and add to your grocery list, meal plan
+          and recipe box. It can't delete anything. To disconnect, remove Grammie from your assistant's connector settings.
+        </p>
+      </div>
+      <ul className="space-y-3">
+        {AI_ASSISTANT_STEPS.map((a) => (
+          <li key={a.name} className="text-base">
+            <span className="font-semibold">{a.name}: </span>
+            {a.steps}
+          </li>
+        ))}
+      </ul>
+    </Section>
   );
 }
 

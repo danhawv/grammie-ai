@@ -38,6 +38,7 @@ import { RecipeNotes } from "@/components/recipe/recipe-notes";
 import { RecipeExtras } from "@/components/recipe/recipe-extras";
 import { RecipeActionsMenu } from "@/components/recipe/recipe-actions";
 import { RecipePrintView } from "@/components/recipe/recipe-print-view";
+import { RecipeTrackerSheet } from "@/components/recipe/recipe-tracker-sheet";
 import { getDisplayIngredients, getDisplayInstructions } from "@/components/recipe/recipe-utils";
 import { apiFetch, mediaUrl, publicUrl } from "@/lib/platform";
 
@@ -94,6 +95,7 @@ export default function RecipeDetail() {
   const [imageManagerOpen, setImageManagerOpen] = useState(false);
   const [makeYourOwnOpen, setMakeYourOwnOpen] = useState(false);
   const [addToCookbookOpen, setAddToCookbookOpen] = useState(false);
+  const [trackerOpen, setTrackerOpen] = useState(false);
   const [selectedCookbookId, setSelectedCookbookId] = useState<string | undefined>();
   const [cookingModeOpen, setCookingModeOpen] = useState(false);
   const [cookingStartStep, setCookingStartStep] = useState<number | null>(null);
@@ -399,6 +401,7 @@ export default function RecipeDetail() {
             deleting={deleteMutation.isPending}
             onAddToCookbook={() => setAddToCookbookOpen(true)}
             onShare={shareRecipe}
+            onLogInTracker={() => setTrackerOpen(true)}
             onMakeYourOwn={() => setMakeYourOwnOpen(true)}
             onManageImages={() => setImageManagerOpen(true)}
             onReEnrich={() => forceEnrichMutation.mutate()}
@@ -583,6 +586,8 @@ export default function RecipeDetail() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <RecipeTrackerSheet recipe={recipe} open={trackerOpen} onOpenChange={setTrackerOpen} canMakePublic={isOwner} />
 
       {recipeId && (
         <MakeYourOwnModal open={makeYourOwnOpen} onOpenChange={setMakeYourOwnOpen} recipeId={recipeId} recipeTitle={recipe.title} />
