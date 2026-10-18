@@ -7,6 +7,7 @@ import { storage } from "./storage";
 import { groceryListWsManager, mealPlanWsManager } from "./websocket";
 import { runMigrations } from "./migrations";
 import { MEDIA_DIR } from "./lib/media-storage";
+import { mcpCorsMiddleware } from "./mcp/wiring";
 
 // ============================================================================
 // Environment validation
@@ -72,6 +73,10 @@ app.use('/media', express.static(MEDIA_DIR, { maxAge: '365d', immutable: true })
 // capacitor://localhost (https://localhost on Android) and calls this server
 // cross-site with a bearer token, so those origins are always allowed. In
 // production the public site and Railway preview hosts are allowed as before.
+// The AI connector (/mcp and its OAuth metadata) is called by AI assistants
+// from any origin with a bearer token; it answers its own preflights
+app.use(mcpCorsMiddleware());
+
 const APP_ORIGINS = ['capacitor://localhost', 'https://localhost'];
 const corsInProduction = process.env.NODE_ENV === 'production' && !!process.env.PUBLIC_URL;
 
