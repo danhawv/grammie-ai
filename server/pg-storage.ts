@@ -1,3 +1,4 @@
+import { groceryDisplay } from "./lib/grocery-display";
 import { db } from "./db";
 import { eq, and, or, asc, desc, inArray, notInArray, sql, getTableColumns, isNull, isNotNull } from "drizzle-orm";
 import { buildPrintImage } from "./lib/images";
@@ -2476,62 +2477,10 @@ export class PostgresStorage implements IStorage {
       .where(eq(groceryListItems.listId, list.id))
       .orderBy(groceryListItems.aisle, groceryListItems.item);
     
-    // Helper function to format quantity nicely (fractions, rounding)
-    const formatQty = (qty: number): string => {
-      if (qty === 0.25) return '1/4';
-      if (qty === 0.5) return '1/2';
-      if (qty === 0.75) return '3/4';
-      if (qty === 0.33 || qty === 0.333) return '1/3';
-      if (qty === 0.67 || qty === 0.666) return '2/3';
-      if (Number.isInteger(qty)) return qty.toString();
-      // Round to 1 decimal place
-      return qty.toFixed(1).replace(/\.0$/, '');
-    };
-    
-    // Process items - use original recipe units by default (US mode)
-    // Only convert to metric if user explicitly set metric preference
+    // Amounts in the user's chosen units (server/lib/grocery-display.ts)
     const itemsWithDisplay = items.map(item => {
-      const entries = item.originalEntries as { quantity: number; unit: string; raw: string; recipeId: string; recipeTitle: string }[] | null;
-      
-      // Default: use original recipe units if available and single entry
-      if (!preferMetric && entries && entries.length === 1) {
-        // Single recipe entry - show original recipe units
-        const entry = entries[0];
-        return {
-          ...item,
-          // Override with original recipe quantity/unit
-          quantity: entry.quantity,
-          unit: entry.unit,
-          displayQuantity: entry.quantity,
-          displayUnit: entry.unit,
-          displayText: `${formatQty(entry.quantity)} ${entry.unit}`.trim(),
-        };
-      } else if (!preferMetric && entries && entries.length > 1) {
-        // Multiple recipes aggregated - sum up original quantities if same unit
-        const firstUnit = entries[0].unit.toLowerCase();
-        const allSameUnit = entries.every(e => e.unit.toLowerCase() === firstUnit);
-        if (allSameUnit) {
-          const totalQty = entries.reduce((sum, e) => sum + e.quantity, 0);
-          return {
-            ...item,
-            quantity: totalQty,
-            unit: entries[0].unit,
-            displayQuantity: totalQty,
-            displayUnit: entries[0].unit,
-            displayText: `${formatQty(totalQty)} ${entries[0].unit}`.trim(),
-          };
-        }
-      }
-      
-      // Fallback: use normalized base units with conversion for metric
-      // Import unit conversion utilities dynamically
-      const baseUnit = item.unit as 'g' | 'ml' | 'count';
-      return {
-        ...item,
-        displayQuantity: item.quantity,
-        displayUnit: item.unit,
-        displayText: `${formatQty(item.quantity)} ${item.unit}`.trim(),
-      };
+      const entries = item.originalEntries as { quantity: number; unit: string }[] | null;
+      return { ...item, ...groceryDisplay(item, entries, preferMetric ? 'metric' : 'us') };
     });
     
     // Group by aisle
