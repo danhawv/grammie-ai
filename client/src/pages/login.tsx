@@ -1,9 +1,10 @@
 import { lazy, Suspense, useEffect } from "react";
 import { useAuth } from "@/hooks/useAuth";
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import logoUrl from "@assets/IMG_0339_1767940282618.jpeg";
-import { SignIn } from "@clerk/react";
+import { SignIn, SignUp } from "@clerk/react";
+import { safeNext } from "@/lib/party-format";
 
 import { isNativeApp } from "@/lib/platform";
 
@@ -11,15 +12,21 @@ const hasClerkKey = !!import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 // In the app, Google and Apple open the system browser (native/auth.tsx)
 const NativeSocialSignIn = __APP_BUILD__ ? lazy(() => import("@/native/sign-in-buttons")) : null;
 
+// ?next=/path comes back there after signing in (e.g. a party invite), and
+// ?mode=signup opens on "Create an account" instead of "Sign in".
 export default function Login() {
   const [, setLocation] = useLocation();
   const { isAuthenticated } = useAuth();
+  const params = new URLSearchParams(useSearch());
+  const next = safeNext(params.get("next")) ?? "/";
+  const signUp = params.get("mode") === "signup";
+  const withNext = (mode?: "signup") => `/login?${mode ? "mode=signup&" : ""}next=${encodeURIComponent(next)}`;
 
   useEffect(() => {
     if (isAuthenticated) {
-      setLocation("/");
+      setLocation(next);
     }
-  }, [isAuthenticated, setLocation]);
+  }, [isAuthenticated, setLocation, next]);
 
   if (hasClerkKey) {
     return (
@@ -34,7 +41,7 @@ export default function Login() {
             />
             <h1 className="text-2xl font-bold text-center">Welcome to Grammie</h1>
             <p className="text-sm text-muted-foreground text-center">
-              Sign in to save and manage your recipes
+              {signUp ? "It takes one minute and is free" : "Sign in to save and manage your recipes"}
             </p>
           </div>
           {NativeSocialSignIn && isNativeApp() && (
@@ -43,7 +50,16 @@ export default function Login() {
             </Suspense>
           )}
           <div className="flex justify-center">
-            <SignIn routing="hash" {...{ afterSignInUrl: "/", afterSignUpUrl: "/" } as any} />
+            {signUp ? (
+              <SignUp routing="hash" forceRedirectUrl={next} signInUrl={withNext()} signInForceRedirectUrl={next} />
+            ) : (
+              <SignIn
+                routing="hash"
+                {...(next === "/"
+                  ? ({ afterSignInUrl: "/", afterSignUpUrl: "/" } as any)
+                  : { forceRedirectUrl: next, signUpForceRedirectUrl: next, signUpUrl: withNext("signup") })}
+              />
+            )}
           </div>
         </div>
       </div>

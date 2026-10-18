@@ -4,7 +4,7 @@
 // complete plan. It only needs to be feasible, not good.
 
 import type { MealSlot } from "@shared/meal-prep/contract";
-import { SCALES, usualQuarters, personSlots, type Built, type PlateVar, type Prepared } from "./model";
+import { SCALES, usualFor, type Built, type PlateVar, type Prepared } from "./model";
 
 export function greedyStart(P: Prepared, B: Built): Array<[string, number]> {
   const { recipes: R, occasions } = P;
@@ -14,7 +14,8 @@ export function greedyStart(P: Prepared, B: Built): Array<[string, number]> {
     const lacking = B.equipment.some((e) => e.recipeIdx === i && !e.soft) ? 50 : 0;
     return (r.preference.rating ?? 3) + (r.preference.favorite ? 2 : 0) + (W.recipeBonus?.[r.recipeId] ?? 0) + (P.pinned.has(r.recipeId) ? 100 : 0) - lacking;
   };
-  const usual = P.people.map((p, pi) => (P.aims[pi] ? usualQuarters(P.aims[pi]!, personSlots(p).length, R) : 4));
+  const usualMeal = P.people.map((_, pi) => usualFor(P, pi));
+  const usualAt = (o: { personIdx: number; slot: MealSlot }) => (o.slot === "dessert" ? usualFor(P, o.personIdx, "dessert") : usualMeal[o.personIdx]);
   const chosen = new Set<number>();
   R.forEach((r, i) => P.pinned.has(r.recipeId) && chosen.add(i));
   const usedQuarters = new Map<number, number>();
@@ -28,7 +29,7 @@ export function greedyStart(P: Prepared, B: Built): Array<[string, number]> {
   // Fill the meals with the fewest options first, then by day.
   const order = occasions.slice().sort((a, b) => (byOcc.get(a.idx)?.length ?? 0) - (byOcc.get(b.idx)?.length ?? 0) || a.day - b.day);
   for (const o of order) {
-    const q = usual[o.personIdx];
+    const q = usualAt(o);
     const fits = (byOcc.get(o.idx) ?? []).filter((p) => (usedQuarters.get(p.recipeIdx) ?? 0) + q <= 4 * SCALES[SCALES.length - 1] * R[p.recipeIdx].servings);
     const rep = (p: PlateVar) => repeats.get(key(o.personIdx, o.slot, p.recipeIdx)) ?? 0;
     const underLimit = (p: PlateVar) => rep(p) < P.maxRepeats[o.slot];
@@ -64,8 +65,11 @@ export function greedyStart(P: Prepared, B: Built): Array<[string, number]> {
   for (const p of B.plates) {
     const on = pick.get(p.occ) === p;
     start.push([p.x, on ? 1 : 0]);
-    if (p.n) start.push([p.n, on ? usual[occasions[p.occ].personIdx] : 0]);
+    if (p.n) start.push([p.n, on ? usualAt(occasions[p.occ]) : 0]);
   }
+  // no recipe swaps and no shakes to start with (the solver adds them where they help)
+  B.swapVars.forEach((v) => start.push([v, 0]));
+  for (const d of B.days) for (const a of d.adj) if (a.int) start.push([a.v, 0]);
   return start;
 }
 

@@ -47,6 +47,10 @@ const MealPrepCook = lazy(() => import("@/pages/meal-prep-cook"));
 const MealPrepPacket = lazy(() => import("@/pages/meal-prep-packet"));
 const SsoCallback = lazy(() => import("@/pages/sso-callback"));
 const Credits = lazy(() => import("@/pages/credits"));
+const Party = lazy(() => import("@/pages/party"));
+const PartyPrint = lazy(() => import("@/pages/party-print"));
+const PartyGuest = lazy(() => import("@/pages/party-guest"));
+const PartyDish = lazy(() => import("@/pages/party-dish"));
 const NotFound = lazy(() => import("@/pages/not-found"));
 // The app's sign-in (bundled Clerk, token instead of cookies): native only
 const NativeClerkProvider = __APP_BUILD__ ? lazy(() => import("@/native/auth")) : null;
@@ -92,6 +96,10 @@ function Router() {
         <Route path="/meal-prep/:id" component={MealPrepPlan} />
         <Route path="/prep/cook/:token/packet" component={MealPrepPacket} />
         <Route path="/prep/cook/:token" component={MealPrepCook} />
+        <Route path="/parties/:id/print/:kind" component={PartyPrint} />
+        <Route path="/parties/:id" component={Party} />
+        <Route path="/p/:token/dish/:dishId" component={PartyDish} />
+        <Route path="/p/:token" component={PartyGuest} />
         <Route path="/processing" component={Processing} />
         <Route path="/import" component={BulkImport} />
         <Route path="/import/:id" component={BulkImport} />

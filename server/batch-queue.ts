@@ -119,7 +119,7 @@ export async function useBatchLane(recipeId: string, job: BatchJob): Promise<boo
  */
 export async function queueForBatch(recipeId: string, job: BatchJob): Promise<boolean> {
   try {
-    const recipe = await storage.getRecipe(recipeId);
+    const recipe = await storage.getRecipeForJob(recipeId);
     if (!recipe) return false;
     const choice = modelFor(batchModelJob(job));
     let prompt: string;
@@ -326,7 +326,7 @@ async function fallBack(row: Pick<Row, "id" | "recipe_id" | "job">, reason: stri
     `UPDATE ${TABLE} SET status = 'fallback', error = $2, finished_at = now(), updated_at = now() WHERE id = $1`,
     [row.id, reason.slice(0, 1000)],
   );
-  const recipe = await storage.getRecipe(row.recipe_id);
+  const recipe = await storage.getRecipeForJob(row.recipe_id);
   if (!recipe) return;
   const { jobQueue } = await import("./job-queue");
   if (row.job === "dishImage") {

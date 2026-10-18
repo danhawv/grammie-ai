@@ -78,7 +78,7 @@ type Job = ImageGenerationJob | EnrichmentJob | ExtractionJob | MultiImageExtrac
 // Helper: Update upload session progress after a recipe reaches terminal state
 async function updateSessionProgress(recipeId: string) {
   try {
-    const recipe = await storage.getRecipe(recipeId);
+    const recipe = await storage.getRecipeForJob(recipeId);
     if (!recipe || !recipe.uploadSessionId) return; // Not part of a session
     
     const sessionId = recipe.uploadSessionId;
@@ -125,7 +125,7 @@ async function updateSessionProgress(recipeId: string) {
 
 /** Saves a dish photo: thumbnail, primary image, status ready, session progress */
 export async function saveDishImage(recipeId: string, imageBuffer: Buffer, mimeType: string, imagePrompt: string) {
-  const recipe = await storage.getRecipe(recipeId);
+  const recipe = await storage.getRecipeForJob(recipeId);
   const isSvg = mimeType === "image/svg+xml";
   const dishImageDataUrl = `data:${mimeType};base64,${imageBuffer.toString("base64")}`;
 
@@ -210,7 +210,7 @@ export function contentEnrichmentInput(recipe: Recipe): ExtractedRecipeRaw {
 
 /** Saves Group 3 content (tips, pairings, history, reviews) and marks it ready */
 export async function saveContentEnrichment(recipeId: string, contentData: Partial<EnrichedRecipeData>) {
-  const recipe = await storage.getRecipe(recipeId);
+  const recipe = await storage.getRecipeForJob(recipeId);
   // Update ONLY the Group 3 fields in the database
   await storage.updateRecipe(recipeId, {
     tips: contentData.tips,
@@ -547,7 +547,7 @@ class JobQueue {
           // Bulk imports hold the photo until enrichment is done; if it
           // never is, make the photo now so the recipe isn't left without one
           if (job.type === 'enrichment') {
-            const recipe = await storage.getRecipe(job.recipeId);
+            const recipe = await storage.getRecipeForJob(job.recipeId);
             if (recipe && recipe.imageGenerationStatus === 'pending' && recipe.title && recipe.ingredients?.length) {
               this.addImageGenerationJob(job.recipeId, recipe.title, recipe.ingredients);
             }
@@ -651,7 +651,7 @@ class JobQueue {
       });
 
       // Fetch full recipe to get instructions and metadata for better image generation
-      const recipe = await storage.getRecipe(job.recipeId);
+      const recipe = await storage.getRecipeForJob(job.recipeId);
       
       // Build context for image generation
       const recipeContext = recipe ? {
@@ -929,7 +929,7 @@ class JobQueue {
 
     try {
       // Load the recipe
-      const recipe = await storage.getRecipe(job.recipeId);
+      const recipe = await storage.getRecipeForJob(job.recipeId);
       if (!recipe) {
         throw new Error(`Recipe ${job.recipeId} not found`);
       }
@@ -1175,7 +1175,7 @@ class JobQueue {
       await updateSessionProgress(job.recipeId);
 
       // Queue image generation IMMEDIATELY (don't wait for Group 3 content enrichment)
-      const updatedRecipe = await storage.getRecipe(job.recipeId);
+      const updatedRecipe = await storage.getRecipeForJob(job.recipeId);
       if (updatedRecipe && updatedRecipe.imageGenerationStatus === 'pending') {
         console.log(`Queuing image generation for recipe ${job.recipeId} (immediately after essential enrichment)...`);
         const ingredientNames = updatedRecipe.normalizedIngredients?.map(i => i.item) || updatedRecipe.ingredients;
@@ -1204,7 +1204,7 @@ class JobQueue {
     console.log(`Processing content-enrichment job for recipe ${job.recipeId}...`);
 
     try {
-      const recipe = await storage.getRecipe(job.recipeId);
+      const recipe = await storage.getRecipeForJob(job.recipeId);
       if (!recipe) {
         throw new Error(`Recipe ${job.recipeId} not found`);
       }
@@ -1369,7 +1369,7 @@ class JobQueue {
       console.log(`Successfully enriched variation "${recipe.title}" (${job.recipeId}) with lightweight enrichment`);
       
       // Queue image generation (variations need images too!)
-      const updatedRecipe = await storage.getRecipe(job.recipeId);
+      const updatedRecipe = await storage.getRecipeForJob(job.recipeId);
       if (updatedRecipe && updatedRecipe.imageGenerationStatus === 'pending') {
         console.log(`Queuing image generation for variation ${job.recipeId}...`);
         this.addImageGenerationJob(job.recipeId, updatedRecipe.title, updatedRecipe.ingredients);

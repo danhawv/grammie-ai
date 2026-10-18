@@ -5,6 +5,8 @@ import { buildGraph, type BatchInput } from "./merge";
 import { beforeSessionList, buildLabels, containerSizes, equipmentList, safetyNotes } from "./portions";
 import { schedule } from "./schedule";
 import { buildShoppingList } from "./shopping";
+import { factsAsCooked, swapUses } from "./swaps";
+import { swapIdsFor } from "@shared/meal-prep/callouts";
 import { dbStepStore, geminiStructurer, loadRecipeSources, stepsFor, type StepStore, type StepStructurer } from "./step-store";
 import type { RecipeSource, RecipeSteps } from "./types";
 
@@ -80,8 +82,10 @@ export function createSessionBuilder(deps: SessionBuilderDeps = {}): SessionBuil
           warnings.push(`One recipe in the plan couldn't be found, so it's left out of the timeline.`);
           continue;
         }
-        batches.push({ batch, facts: f, steps: s });
+        const swapIds = swapIdsFor(plan, batch.recipeId);
+        batches.push({ batch, facts: factsAsCooked(f, swapIds), steps: s, swapUses: swapUses(f, swapIds, batch.scale) });
       }
+      const cooked = facts.map((f) => factsAsCooked(f, swapIdsFor(plan, f.recipeId)));
 
       const graph = buildGraph(setup, plan, batches, adjusters);
       const result = schedule(graph.tasks, {
@@ -102,7 +106,7 @@ export function createSessionBuilder(deps: SessionBuilderDeps = {}): SessionBuil
         .slice()
         .sort((a, b) => (start.get(a.id) ?? 0) - (start.get(b.id) ?? 0))
         .map(({ text, recipeIds }) => ({ text, recipeIds }));
-      const labels = buildLabels(setup, plan, facts, adjusters);
+      const labels = buildLabels(setup, plan, cooked, adjusters);
       const bySize = containerSizes(graph.containerGrams);
       return {
         tasks: result.tasks,
@@ -110,10 +114,10 @@ export function createSessionBuilder(deps: SessionBuilderDeps = {}): SessionBuil
         handsOnMinutes: result.tasks.reduce((s, t) => s + t.activeMin, 0),
         misePlace,
         equipment: equipmentList(setup, graph, result.tasks, graph.containers),
-        beforeSession: beforeSessionList(setup, plan, facts, structured, graph, bySize),
+        beforeSession: beforeSessionList(setup, plan, cooked, structured, graph, bySize),
         labels,
         containers: { count: graph.containers, bySize },
-        safety: safetyNotes(setup, plan, facts, labels, graph),
+        safety: safetyNotes(setup, plan, cooked, labels, graph),
         warnings,
       };
     },

@@ -136,6 +136,8 @@ export interface IStorage {
   
   // Recipe operations
   getRecipe(id: string, userId?: string): Promise<Recipe | undefined>;
+  /** Any recipe, private or not: for background jobs working on a recipe someone already saved */
+  getRecipeForJob(id: string): Promise<Recipe | undefined>;
   getAllRecipes(userId?: string): Promise<RecipeListItem[]>;
   getMyRecipes(userId: string): Promise<RecipeListItem[]>;
   getPublicRecipes(): Promise<RecipeListItem[]>;
@@ -213,7 +215,8 @@ export interface IStorage {
   // Grocery list operations
   getActiveGroceryList(userId: string): Promise<GroceryListWithItems | undefined>;
   createGroceryList(list: InsertGroceryList): Promise<GroceryList>;
-  addRecipeToGroceryList(userId: string, recipeId: string): Promise<void>;
+  /** scale multiplies the amounts (party dishes made for the whole table); 1 = as written */
+  addRecipeToGroceryList(userId: string, recipeId: string, scale?: number): Promise<void>;
   addManualItemToGroceryList(userId: string, item: Partial<InsertGroceryListItem>): Promise<void>;
   toggleGroceryListItem(itemId: string, userId: string, checked: boolean): Promise<void>;
   removeItemFromGroceryList(itemId: string, userId: string): Promise<boolean>;
@@ -441,6 +444,11 @@ export class PostgresStorage implements IStorage {
 
   // ========== RECIPE OPERATIONS ==========
   
+  async getRecipeForJob(id: string): Promise<Recipe | undefined> {
+    const [recipe] = await db.select().from(recipes).where(eq(recipes.id, id));
+    return recipe;
+  }
+
   async getRecipe(id: string, userId?: string): Promise<Recipe | undefined> {
     const [recipe] = await db.select().from(recipes).where(eq(recipes.id, id));
     
@@ -2231,7 +2239,7 @@ export class PostgresStorage implements IStorage {
     return list;
   }
   
-  async addRecipeToGroceryList(userId: string, recipeId: string): Promise<void> {
+  async addRecipeToGroceryList(userId: string, recipeId: string, scale = 1): Promise<void> {
     // Import unit conversion utilities
     const { convertToBaseUnit, aggregateQuantities } = await import('./unit-conversion');
     
@@ -2262,6 +2270,13 @@ export class PostgresStorage implements IStorage {
     if (!recipe.normalizedIngredients || recipe.normalizedIngredients.length === 0) {
       throw new Error('Recipe has no ingredients to add');
     }
+
+    // Scaled amounts, worked out like the recipe page's serving changer
+    let ingredientsToAdd = recipe.normalizedIngredients;
+    if (scale !== 1 && Number.isFinite(scale) && scale > 0 && recipe.servings > 0) {
+      const { scaleRecipe } = await import('./scaling');
+      ingredientsToAdd = scaleRecipe(recipe, recipe.servings * scale).normalizedIngredients ?? ingredientsToAdd;
+    }
     
     // Get existing items in the list
     const existingItems = await db.select().from(groceryListItems)
@@ -2279,7 +2294,7 @@ export class PostgresStorage implements IStorage {
     }
     
     // Process each ingredient from the recipe
-    for (const ingredient of recipe.normalizedIngredients) {
+    for (const ingredient of ingredientsToAdd) {
       // Skip tools and consumables
       if (ingredient.isToolOrConsumable || ingredient.isOptional) {
         continue;

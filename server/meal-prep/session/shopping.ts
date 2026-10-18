@@ -3,6 +3,7 @@ import {
   type ShoppingItem, type ShoppingList,
 } from "@shared/meal-prep/contract";
 import { countedWeight, humanAmount } from "@shared/meal-prep/amounts";
+import { adjusterDisplay, bottles, productName, swapIdsFor } from "@shared/meal-prep/callouts";
 import { isStaple, namesMatch, normalizeIngredient } from "@shared/pantry-match";
 import { componentFor, isCookedLine, rawGrams } from "./components";
 
@@ -19,6 +20,8 @@ interface Need {
   /** the recipe lines without an amount, as written ("1 jar small white onions") */
   unknownLines: string[];
   forRecipes: Set<string>;
+  /** bottled shakes: bought by the bottle */
+  bottles?: { count: number; product: string; proteinEach: number | null };
 }
 
 /** "rice-cooked" / "Rice, cooked" -> the thing you buy */
@@ -54,7 +57,17 @@ export function gatherNeeds(plan: PrepPlan, facts: RecipeFacts[], adjusters: Adj
   for (const batch of plan.batches) {
     const f = factsById.get(batch.recipeId);
     if (!f) continue;
+    // Swapped lines: buy what's used instead ("nonfat Greek yogurt", not "sour cream")
+    const swapped = new Map<number, NonNullable<RecipeFacts["swaps"]>[number]["changes"][number]>();
+    for (const id of swapIdsFor(plan, batch.recipeId)) {
+      for (const c of f.swaps?.find((x) => x.id === id)?.changes ?? []) swapped.set(c.lineIndex, c);
+    }
     for (const line of f.lines) {
+      const change = swapped.get(line.index);
+      if (change) {
+        add(change.to, change.toGrams > 0 ? change.toGrams * batch.scale : null, f.title, change.toDisplay);
+        continue;
+      }
       if (!line.ingredient || line.optional) continue;
       let grams = line.grams == null ? null : line.grams * batch.scale;
       // "2 cups cooked rice": buy the dry rice it takes
@@ -75,6 +88,19 @@ export function gatherNeeds(plan: PrepPlan, facts: RecipeFacts[], adjusters: Adj
   for (const adj of adjusters) {
     const grams = adj.needsCooking ? cooked[adj.id] ?? plated.get(adj.id) ?? 0 : plated.get(adj.id) ?? 0;
     if (!(grams > 0)) continue;
+    if (adj.topUp === "shake") {
+      // Whole bottles, counted plate by plate
+      let count = 0;
+      for (const p of plan.plates) for (const i of p.items) if (i.kind === "adjuster" && i.refId === adj.id) count += bottles(i.grams ?? i.amount, adj.unitGrams);
+      const d = adjusterDisplay(adj);
+      const product = productName(d);
+      needs.set(`shake:${adj.id}`, {
+        ingredient: { ...adj.ingredient, id: adj.ingredient.id || adj.id, name: `${product} protein shake` },
+        grams: 0, someUnknown: false, unknownLines: [], forRecipes: new Set(["Plate add-ons"]),
+        bottles: { count, product, proteinEach: d.proteinPerUnit ?? null },
+      });
+      continue;
+    }
     const def = adj.needsCooking ? componentFor(`${adj.ingredient.name} ${adj.name}`) : null;
     // Shop for the raw thing: "Cooked chicken" on the plates is chicken breast at the store
     const ref = def?.buy ? { ...def.buy, aisle: adj.ingredient.aisle } : adj.ingredient;
@@ -191,6 +217,21 @@ export async function buildShoppingList(
   let unpriced = 0;
   for (const n of needs) {
     const ing = n.ingredient;
+    if (n.bottles) {
+      const { count, product, proteinEach } = n.bottles;
+      const word = count === 1 ? "bottle" : "bottles";
+      items.push({
+        ingredient: ing,
+        neededGrams: null,
+        display: `${count} ${word}`,
+        buy: `${count} ${word} ${product}${proteinEach != null ? ` (${proteinEach} g protein each)` : ""}`,
+        have: false,
+        forRecipes: Array.from(n.forRecipes),
+        substitutes: ["any ready-to-drink protein shake with about the same protein"],
+      });
+      unpriced++;
+      continue;
+    }
     let grams: number | null = n.grams > 0 ? n.grams : null;
     let have = false;
     let note = "";

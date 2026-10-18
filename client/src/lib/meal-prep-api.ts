@@ -6,12 +6,17 @@ import type {
   PrepPlanSummary,
   PrepPlanView,
   PrepProfile,
+  PrepCookbookChoice,
   PrepProfileDefaults,
+  PrepShakeChoice,
   PrepShareCreated,
+  PlanOptionView,
   PrepSubstitution,
   SwapOptionView,
   TaskProgress,
 } from "@shared/meal-prep/api";
+import { DEFAULT_SHAKE_ID, PROTEIN_SHAKES } from "@shared/meal-prep/shakes";
+import { productName } from "@shared/meal-prep/callouts";
 import { apiFetch } from "./platform";
 
 // Every call the meal-prep screens make to /api/meal-prep lives here, typed
@@ -21,7 +26,7 @@ import { apiFetch } from "./platform";
 // to "1" and every call is answered from client/src/lib/meal-prep-fixtures.ts
 // without touching the server. The fixtures load as a separate chunk.
 
-export type { CookView, PrepPlanSummary, PrepPlanView, PrepProfile, SwapOptionView };
+export type { CookView, PlanOptionView, PrepCookbookChoice, PrepPlanSummary, PrepPlanView, PrepProfile, PrepShakeChoice, SwapOptionView };
 
 const BASE = "/api/meal-prep";
 
@@ -104,6 +109,9 @@ export interface PlanPatch {
   setup?: Partial<PrepSetup>;
   wishes?: string;
   clearWishes?: boolean;
+  /** "Keep it as written": these swaps ("recipeId:swapId") stay off */
+  keepAsWritten?: string[];
+  allowSwapsAgain?: string[];
 }
 
 export interface ApproveOptions {
@@ -126,6 +134,8 @@ export const mealPrepKeys = {
   profile: ["meal-prep", "profile"] as const,
   plans: ["meal-prep", "plans"] as const,
   plan: (id: string) => ["meal-prep", "plan", id] as const,
+  cookbooks: ["meal-prep", "cookbooks"] as const,
+  shakes: ["meal-prep", "shakes"] as const,
   cook: (token: string) => ["meal-prep", "cook", token] as const,
 };
 
@@ -135,6 +145,12 @@ export const mealPrepApi = {
     get<PrepProfile>("PUT", "/profile", { defaults, walkthroughDone }),
 
   listPlans: () => get<PrepPlanSummary[]>("GET", "/plans"),
+  /** cookbooks to plan from, with recipe counts */
+  cookbooks: () => get<PrepCookbookChoice[]>("GET", "/cookbooks"),
+  /** bottled shake brands for top-ups (the same list is in SHAKE_CHOICES) */
+  shakes: () => get<PrepShakeChoice[]>("GET", "/shakes"),
+  /** switch to one of the offered plans (no charge) */
+  chooseOption: (id: string, key: PlanOptionView["key"]) => get<PrepPlanView>("POST", `/plans/${id}/options`, { key }),
   createPlan: async (setup: PrepSetup) => untilBuilt(await call<BuildReply>("POST", "/plans", setup)),
   getPlan: (id: string) => get<PrepPlanView>("GET", `/plans/${id}`),
   updatePlan: async (id: string, patch: PlanPatch) => untilBuilt(await call<BuildReply>("PATCH", `/plans/${id}`, patch)),
@@ -182,6 +198,11 @@ export function defaultsFromSetup(setup: PrepSetup): PrepProfileDefaults {
     maxDishes: setup.maxDishes,
     maxRepeats: setup.maxRepeats,
     budget: setup.budget,
+    recipeSource: setup.recipeSource,
+    allowSwaps: setup.allowSwaps,
+    topUps: setup.topUps,
+    dessertsPerWeek: setup.dessertsPerWeek,
+    shakeId: setup.shakeId,
   };
 }
 
@@ -198,12 +219,24 @@ export function setupFromDefaults(defaults: PrepProfileDefaults | undefined, bas
     maxDishes: defaults.maxDishes ?? base.maxDishes,
     maxRepeats: defaults.maxRepeats ?? base.maxRepeats,
     budget: defaults.budget ?? base.budget,
+    recipeSource: defaults.recipeSource ?? base.recipeSource,
+    allowSwaps: defaults.allowSwaps ?? base.allowSwaps,
+    topUps: defaults.topUps ?? base.topUps,
+    dessertsPerWeek: defaults.dessertsPerWeek ?? base.dessertsPerWeek,
+    shakeId: defaults.shakeId ?? base.shakeId,
   };
 }
+
+/** The shake brands to pick from (shared/meal-prep/shakes.ts), as GET /shakes sends them */
+export const SHAKE_CHOICES: PrepShakeChoice[] = PROTEIN_SHAKES.map((sh) => ({
+  id: sh.id, product: productName({ product: sh.product, name: sh.brand }), proteinPerBottle: sh.protein, kcalPerBottle: sh.kcal,
+  isDefault: sh.id === DEFAULT_SHAKE_ID,
+}));
 
 export const SLOT_LABELS: Record<MealSlot, string> = {
   breakfast: "Breakfast",
   lunch: "Lunch",
   dinner: "Dinner",
   snack: "Snack",
+  dessert: "Dessert",
 };

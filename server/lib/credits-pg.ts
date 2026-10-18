@@ -53,6 +53,17 @@ export function createPgCreditStore(database: Db = db): CreditStore {
       const [u] = await database.select({ isAdmin: users.isAdmin }).from(users).where(eq(users.id, userId));
       return !!u?.isAdmin;
     },
+    async isGuest(userId) {
+      // users.is_guest is read with plain SQL (it isn't in the Drizzle users
+      // table, so other queries work before migrations/2026-10-parties.sql runs)
+      try {
+        const result = await database.execute(sql`SELECT is_guest FROM users WHERE id = ${userId}`);
+        return !!(result.rows[0] as { is_guest?: boolean } | undefined)?.is_guest;
+      } catch (err) {
+        if ((err as { code?: string })?.code === "42703") return false;
+        throw err;
+      }
+    },
     async jobOwner(jobRef) {
       const [row] = await database.select({ userId: creditLedger.userId }).from(creditLedger)
         .where(and(eq(creditLedger.jobRef, jobRef), eq(creditLedger.kind, "spend")))

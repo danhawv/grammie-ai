@@ -140,7 +140,9 @@ describe("plan grid", () => {
   it("lays out each person's week in meal order", () => {
     const week = personWeek(FIXTURE_VIEW.plan!.plates, "p-dan", 5);
     expect(week).toHaveLength(5);
-    expect(week[0].plates.map((p) => p.slot)).toEqual(["breakfast", "lunch", "dinner"]);
+    expect(week[0].plates.map((p) => p.slot)).toEqual(["breakfast", "lunch", "dinner", "dessert"]);
+    // dessert 4 days a week
+    expect(week[4].plates.map((p) => p.slot)).toEqual(["breakfast", "lunch", "dinner"]);
   });
 
   it("flags plates whose labels say the numbers are rough", () => {
@@ -150,6 +152,18 @@ describe("plan grid", () => {
     expect(rough.has(plateKey(beefDay))).toBe(true);
     expect(rough.has(plateKey(chiliDay))).toBe(false);
     expect(roughPlates(undefined).size).toBe(0);
+  });
+
+  it("says shakes in bottles and marks swapped dishes", () => {
+    const shake = { id: "shake-x", name: "Protein shake", topUp: "shake" as const, product: "Fairlife Core Power 26g", unitGrams: 414, proteinPerUnit: 26 };
+    const text = describePlate(
+      { items: [
+        { kind: "recipe", refId: "r1", amount: 1.25, grams: 400, macros: { kcal: 0, protein: 0, carbs: 0, fat: 0 } },
+        { kind: "adjuster", refId: "shake-x", amount: 414, grams: 414, macros: { kcal: 0, protein: 0, carbs: 0, fat: 0 } },
+      ] },
+      { recipeTitle: () => "Chili", adjusters: { "shake-x": shake }, swapped: new Set(["r1"]) },
+    );
+    expect(text).toBe("1¼ servings Chili (with swap) + 1 bottle Fairlife Core Power (26 g protein)");
   });
 
   it("fixture plan is internally consistent", () => {
@@ -242,6 +256,12 @@ describe("prepped share of the day", () => {
   it("covers each slot's share of the day", () => {
     expect(prepShare(["lunch", "dinner"])).toBeCloseTo(0.65);
     expect(prepShare(["breakfast", "lunch", "dinner", "snack"])).toBe(1);
+    expect(prepShare(["lunch", "dinner", "dessert"])).toBeCloseTo(0.75);
+    expect(prepShare(["lunch", "dinner", "dessert"], 0 + 3.5)).toBeCloseTo(0.7);
+    expect(prepAimText({ name: "Dan", slots: ["lunch", "dinner", "dessert"], targets: { kcal: 2000, protein: 150 } }, { you: true, dessertsPerWeek: 7 }))
+      .toBe("Your prepped lunches, dinners and desserts will cover about 1,500 of your 2,000 calories a day.");
+    expect(prepAimText({ name: "Dan", slots: ["dinner", "dessert"], targets: { kcal: 2000, protein: 150 } }, { dessertsPerWeek: 4 }))
+      .toMatch(/on average \(dessert 4 days a week\)\.$/);
   });
 
   it("says it plainly", () => {

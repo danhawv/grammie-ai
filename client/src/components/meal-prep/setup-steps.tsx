@@ -1,5 +1,6 @@
 import { useState, type ReactElement } from "react";
-import { ChevronDown, Plus, Trash2 } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { BookOpen, Check, ChevronDown, Heart, Library, Plus, Trash2 } from "lucide-react";
 import type { MacroTargets, MealSlot, PrepPerson, PrepSetup } from "@shared/meal-prep/contract";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,7 +8,9 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { SLOT_LABELS } from "@/lib/meal-prep-api";
+import { errorText, mealPrepApi, mealPrepKeys, SHAKE_CHOICES, SLOT_LABELS, type PrepCookbookChoice } from "@/lib/meal-prep-api";
+import { queryClient } from "@/lib/queryClient";
+import { cn } from "@/lib/utils";
 import {
   estimateTargets,
   formatMinutes,
@@ -276,10 +279,21 @@ function MealsStep({ setup, onChange }: StepProps) {
           </Button>
         )}
         {setup.people.every((p) => p.slots.length === 0) && <p className="text-sm text-destructive" role="alert">Pick at least one meal.</p>}
+        {setup.people.some((p) => p.slots.includes("dessert")) && (
+          <NumberStepper
+            label="Dessert: how many days a week?"
+            hint="Desserts count toward the day's calories, so the other meals make room for them."
+            value={setup.dessertsPerWeek ?? 7}
+            min={1}
+            max={7}
+            onChange={(dessertsPerWeek) => onChange({ ...setup, dessertsPerWeek })}
+            format={(n) => (n === 7 ? "Every day" : `${n} ${n === 1 ? "day" : "days"}`)}
+          />
+        )}
         {/* Targets are whole-day; say what share the prep covers */}
         <div aria-live="polite" className="space-y-1">
           {setup.people.map((p, i) => {
-            const text = prepAimText(p, { you: i === 0 && setup.people.length === 1 });
+            const text = prepAimText(p, { you: i === 0 && setup.people.length === 1, dessertsPerWeek: setup.dessertsPerWeek });
             return text ? <p key={p.id} className="rounded-md bg-secondary p-3 text-base">{text}</p> : null;
           })}
         </div>
@@ -300,6 +314,155 @@ function MealsStep({ setup, onChange }: StepProps) {
         </span>
         <Switch checked={!!setup.startSameDay} onCheckedChange={(v) => onChange({ ...setup, startSameDay: v })} aria-label="Start eating on cooking day" />
       </label>
+    </div>
+  );
+}
+
+// ---------- Plan from ----------
+
+const ROLE_TEXT: Record<PrepCookbookChoice["role"], string> = { owner: "", editor: "Shared with you", viewer: "You follow it" };
+
+function SourceStep({ setup, onChange }: StepProps) {
+  const source = setup.recipeSource ?? { kind: "all" as const };
+  const chosen = new Set(source.cookbookIds ?? []);
+  const books = useQuery({ queryKey: mealPrepKeys.cookbooks, queryFn: mealPrepApi.cookbooks, enabled: source.kind === "cookbooks" });
+  const set = (next: NonNullable<PrepSetup["recipeSource"]>) => onChange({ ...setup, recipeSource: next });
+  const toggle = (id: number) => {
+    const ids = chosen.has(id) ? Array.from(chosen).filter((x) => x !== id) : [...Array.from(chosen), id];
+    set({ kind: "cookbooks", cookbookIds: ids });
+  };
+  const count = (books.data ?? []).filter((b) => chosen.has(b.id)).reduce((n, b) => n + b.recipeCount, 0);
+  return (
+    <div className="space-y-6">
+      <ChoiceGroup<"all" | "cookbooks" | "favorites">
+        legend="Pick dishes from"
+        value={source.kind}
+        onChange={(kind) => set(kind === "cookbooks" ? { kind, cookbookIds: source.cookbookIds ?? [] } : { kind })}
+        options={[
+          { value: "all", label: <span className="inline-flex items-center gap-2"><Library className="h-4 w-4" aria-hidden /> All my recipes</span>, hint: "Every recipe you've added." },
+          { value: "cookbooks", label: <span className="inline-flex items-center gap-2"><BookOpen className="h-4 w-4" aria-hidden /> Pick cookbooks</span>, hint: "Only recipes in the cookbooks you choose, including ones shared with you." },
+          { value: "favorites", label: <span className="inline-flex items-center gap-2"><Heart className="h-4 w-4" aria-hidden /> My favourites</span>, hint: "Recipes you've bookmarked." },
+        ]}
+      />
+      {source.kind === "cookbooks" && (
+        <fieldset className="space-y-2">
+          <legend className="text-base font-semibold">Which cookbooks?</legend>
+          {books.isLoading ? (
+            <p className="text-base text-muted-foreground" role="status">Loading your cookbooks…</p>
+          ) : books.isError ? (
+            <div className="space-y-2 rounded-md border border-destructive p-3" role="alert">
+              <p className="text-base">{errorText(books.error, "Couldn't load your cookbooks.")}</p>
+              <Button type="button" variant="outline" onClick={() => books.refetch()}>Try again</Button>
+            </div>
+          ) : (books.data ?? []).length === 0 ? (
+            <p className="rounded-md bg-secondary p-3 text-base">You don't have any cookbooks yet. Plan from all your recipes, or make a cookbook first.</p>
+          ) : (
+            <ul className="space-y-2">
+              {books.data!.map((b) => {
+                const on = chosen.has(b.id);
+                return (
+                  <li key={b.id}>
+                    <button
+                      type="button"
+                      role="checkbox"
+                      aria-checked={on}
+                      onClick={() => toggle(b.id)}
+                      data-testid={`cookbook-${b.id}`}
+                      className={cn(
+                        "flex min-h-14 w-full items-center gap-3 rounded-lg border p-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        on ? "border-primary bg-primary/5" : "hover:bg-accent/50",
+                      )}
+                    >
+                      <span aria-hidden className={cn("flex h-6 w-6 shrink-0 items-center justify-center rounded border-2", on ? "border-primary bg-primary text-primary-foreground" : "border-muted-foreground")}>
+                        {on && <Check className="h-4 w-4" />}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-base font-medium">{b.name}</span>
+                        <span className="block text-sm text-muted-foreground">
+                          {b.recipeCount} {b.recipeCount === 1 ? "recipe" : "recipes"}{ROLE_TEXT[b.role] ? ` · ${ROLE_TEXT[b.role]}` : ""}
+                        </span>
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+          <p aria-live="polite" className="text-sm text-muted-foreground">
+            {chosen.size === 0 ? "Pick at least one." : `${chosen.size} ${chosen.size === 1 ? "cookbook" : "cookbooks"} · about ${count} recipes to choose from`}
+          </p>
+        </fieldset>
+      )}
+    </div>
+  );
+}
+
+// ---------- How to hit your numbers ----------
+
+function NumbersStep({ setup, onChange }: StepProps) {
+  const topUps = setup.topUps ?? "both";
+  const shakeAllowed = topUps === "shake" || topUps === "both";
+  return (
+    <div className="space-y-6">
+      <label className="flex min-h-12 items-center justify-between gap-4 rounded-lg border p-3">
+        <span>
+          <span className="block text-base font-medium">Allow lighter and higher-protein swaps from your recipes</span>
+          <span className="block text-sm text-muted-foreground">
+            Like Greek yogurt instead of sour cream. We'll always tell you what we changed, on the plan, the labels and the cook's packet.
+          </span>
+        </span>
+        <Switch
+          checked={setup.allowSwaps !== false}
+          onCheckedChange={(allowSwaps) => onChange({ ...setup, allowSwaps })}
+          aria-label="Allow lighter and higher-protein swaps from your recipes"
+        />
+      </label>
+      <ChoiceGroup<NonNullable<PrepSetup["topUps"]>>
+        legend="If you still need protein, add"
+        hint="Only when portions and swaps aren't enough. It's added beside the meal, never into the recipe."
+        value={topUps}
+        onChange={(v) => onChange({ ...setup, topUps: v })}
+        columns={2}
+        options={[
+          { value: "chicken", label: "Chicken", hint: "Plain cooked chicken breast" },
+          { value: "shake", label: "A protein shake", hint: "A bottle from the store" },
+          { value: "both", label: "Either", hint: "Whichever fits the meal" },
+          { value: "none", label: "Nothing extra" },
+        ]}
+      />
+      {shakeAllowed && (
+        <fieldset className="space-y-2">
+          <legend className="text-base font-semibold">Which shake?</legend>
+          <p className="text-sm text-muted-foreground">Numbers are per bottle, from the label.</p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {SHAKE_CHOICES.map((sh) => {
+              const on = (setup.shakeId ?? SHAKE_CHOICES.find((x) => x.isDefault)?.id) === sh.id;
+              return (
+                <button
+                  key={sh.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={on}
+                  onClick={() => onChange({ ...setup, shakeId: sh.id })}
+                  data-testid={`shake-${sh.id}`}
+                  className={cn(
+                    "flex min-h-12 items-center gap-3 rounded-lg border p-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    on ? "border-primary bg-primary/5" : "hover:bg-accent/50",
+                  )}
+                >
+                  <span aria-hidden className={cn("flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2", on ? "border-primary bg-primary" : "border-muted-foreground")}>
+                    {on && <span className="h-2 w-2 rounded-full bg-primary-foreground" />}
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-base font-medium">{sh.product}{sh.isDefault ? " (Grammie's pick)" : ""}</span>
+                    <span className="block text-sm text-muted-foreground">{sh.proteinPerBottle} g protein · {sh.kcalPerBottle} cal a bottle</span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </fieldset>
+      )}
     </div>
   );
 }
@@ -479,14 +642,24 @@ export function setupSteps(setup: PrepSetup): SetupStep[] {
       why: "Each person gets their own plates, sized for them. Add everyone the food is for.",
       render: (p) => <PeopleStep {...p} />,
     },
+    {
+      id: "source", label: "Plan from", title: "Plan from which recipes?", skippable: true,
+      why: "Grammie only picks dishes from here. A cookbook like your high-protein one keeps the week on track.",
+      render: (p) => <SourceStep {...p} />,
+    },
     ...setup.people.map<SetupStep>((person, i) => ({
       id: `goals:${person.id}`,
       label: setup.people.length > 1 ? `${person.name || `Person ${i + 1}`}'s goals` : "Goals",
       title: setup.people.length > 1 ? `${person.name || `Person ${i + 1}`}'s goals` : "Your goals",
-      why: "Enter whole-day numbers; Grammie works out the part your prepped meals cover. It never changes your recipes — it adjusts how much goes on the plate, and may add a plain side like rice or Greek yogurt.",
+      why: "Enter whole-day numbers; Grammie works out the part your prepped meals cover. It adjusts how much goes on the plate, and may add a plain side like rice or Greek yogurt.",
       skippable: true,
       render: (p) => <GoalsStep {...p} personId={person.id} />,
     })),
+    {
+      id: "numbers", label: "Hitting your numbers", title: "How to hit your numbers", skippable: true,
+      why: "First Grammie sizes the portions. If that isn't enough, it can use a lighter or higher-protein swap from your recipe, and as a last resort add plain protein on the side.",
+      render: (p) => <NumbersStep {...p} />,
+    },
     {
       id: "meals", label: "Meals", title: "Which meals, for how many days?", skippable: true,
       why: "This sets how many containers you'll fill and how long the food needs to last.",
@@ -524,6 +697,7 @@ export function setupProblems(setup: PrepSetup): string[] {
   if (setup.people.some((p) => p.targets && (p.targets.kcal < 800 || p.targets.protein <= 0)))
     out.push("Check the calorie and protein numbers — they look too low.");
   if (!setup.session.date) out.push("Pick a cooking day.");
+  if (setup.recipeSource?.kind === "cookbooks" && !(setup.recipeSource.cookbookIds?.length)) out.push("Pick at least one cookbook to plan from.");
   return out;
 }
 
@@ -535,8 +709,25 @@ export function stepSummary(stepId: string, setup: PrepSetup): string {
     return p?.targets ? `${p.targets.kcal.toLocaleString()} cal · ${p.targets.protein} g protein` : "Normal portions";
   }
   if (stepId === "meals") {
-    const slots = Array.from(new Set(setup.people.flatMap((p) => p.slots)));
-    return `${slots.map((s) => SLOT_LABELS[s]).join(", ") || "No meals"} · ${setup.days} ${setup.days === 1 ? "day" : "days"}`;
+    const slots = SLOT_ORDER.filter((s) => setup.people.some((p) => p.slots.includes(s)));
+    const desserts = setup.dessertsPerWeek ?? 7;
+    const words = slots.map((s) => (s === "dessert" && desserts < 7 ? `Dessert (${desserts} days a week)` : SLOT_LABELS[s]));
+    return `${words.join(", ") || "No meals"} · ${setup.days} ${setup.days === 1 ? "day" : "days"}`;
+  }
+  if (stepId === "source") {
+    const src = setup.recipeSource;
+    if (src?.kind === "favorites") return "My favourites";
+    if (src?.kind === "cookbooks") {
+      const books = queryClient.getQueryData<PrepCookbookChoice[]>(mealPrepKeys.cookbooks) ?? [];
+      const names = (src.cookbookIds ?? []).map((id) => books.find((b) => b.id === id)?.name).filter(Boolean);
+      const n = src.cookbookIds?.length ?? 0;
+      return names.length === n && n > 0 ? names.join(", ") : `${n} ${n === 1 ? "cookbook" : "cookbooks"}`;
+    }
+    return "All my recipes";
+  }
+  if (stepId === "numbers") {
+    const top = { chicken: "add chicken if needed", shake: "add a protein shake if needed", both: "add chicken or a shake if needed", none: "nothing extra" }[setup.topUps ?? "both"];
+    return `${setup.allowSwaps === false ? "No swaps" : "Swaps allowed"} · ${top}`;
   }
   if (stepId === "avoid") {
     const all = Array.from(new Set(setup.people.flatMap((p) => [...p.allergies, ...p.dislikes])));

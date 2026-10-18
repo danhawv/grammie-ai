@@ -3,6 +3,7 @@ import {
   CREDIT_COSTS, MONTHLY_FREE_CREDITS, WELCOME_CREDITS, monthKey, needCreditsMessage,
   type CreditAction, type CreditKind, type CreditSource, type NeedCreditsError,
 } from "@shared/credits";
+import { GUEST_CREDITS } from "@shared/party";
 
 // Pay-as-you-go credits. Every change to a balance is a row in credit_ledger,
 // written in the same transaction as the running total in credit_balances,
@@ -22,6 +23,10 @@ import {
 // and shown, but nothing is ever refused, and a spend the balance can't cover
 // is recorded as waived (0) so balances never go below zero. Admin accounts
 // are never charged.
+//
+// Guest users (anonymous party guests, users.is_guest) get GUEST_CREDITS as
+// their welcome gift and no monthly credits, and their balance is always
+// enforced, switch or no switch: nobody can run up AI costs without an account.
 //
 // Credits must never break an AI action because of a credits problem: until
 // migrations/2026-10-credits.sql is applied, or if the database has a hiccup,
@@ -65,6 +70,8 @@ export interface CreditTx {
 export interface CreditStore {
   transaction<T>(fn: (tx: CreditTx) => Promise<T>): Promise<T>;
   isAdmin(userId: string): Promise<boolean>;
+  /** Anonymous party guest (users.is_guest); omitted = nobody is */
+  isGuest?(userId: string): Promise<boolean>;
   /** Who was charged for a job (the most recent spend) */
   jobOwner(jobRef: string): Promise<string | null>;
   findExternal(source: CreditSource, externalId: string): Promise<LedgerEntry | null>;
@@ -121,16 +128,20 @@ export function createCredits(store: CreditStore, options: CreditsOptions = {}) 
     }
   }
 
+  const isGuest = (userId: string) => store.isGuest ? store.isGuest(userId) : Promise.resolve(false);
+
   /** The welcome gift (once ever) and this month's free credits (once a month), inside a locked transaction */
   async function grantAllowance(tx: CreditTx, userId: string, state: BalanceState): Promise<BalanceState> {
     const month = monthKey(now());
     if (state.monthlyFreeGrantedFor === month) return state;
     let balance = state.balance;
+    const guest = await isGuest(userId);
+    const welcome = guest ? GUEST_CREDITS : WELCOME_CREDITS;
     // Unique on (source, external_id), so this adds the gift exactly once per account
-    if (await tx.insert({ userId, delta: WELCOME_CREDITS, kind: "welcome", source: "system", externalId: `welcome:${userId}`, jobRef: null, meta: null })) {
-      balance += WELCOME_CREDITS;
+    if (await tx.insert({ userId, delta: welcome, kind: "welcome", source: "system", externalId: `welcome:${userId}`, jobRef: null, meta: guest ? { guest: true } : null })) {
+      balance += welcome;
     }
-    if (MONTHLY_FREE_CREDITS > 0 && await tx.insert({ userId, delta: MONTHLY_FREE_CREDITS, kind: "monthly_free", source: "system", externalId: `monthly:${userId}:${month}`, jobRef: null, meta: { month } })) {
+    if (!guest && MONTHLY_FREE_CREDITS > 0 && await tx.insert({ userId, delta: MONTHLY_FREE_CREDITS, kind: "monthly_free", source: "system", externalId: `monthly:${userId}:${month}`, jobRef: null, meta: { month } })) {
       balance += MONTHLY_FREE_CREDITS;
     }
     const next = { ...state, balance, monthlyFreeGrantedFor: month };
@@ -157,7 +168,7 @@ export function createCredits(store: CreditStore, options: CreditsOptions = {}) 
   async function spendNow(userId: string, action: CreditAction, jobRef: string, allowOverdraw: boolean): Promise<SpendResult> {
     if (await store.isAdmin(userId)) return { ok: true, charged: 0, balance: null, unlimited: true };
     const cost = CREDIT_COSTS[action];
-    const isEnforced = enforced();
+    const isEnforced = enforced() || await isGuest(userId);
     return store.transaction(async (tx) => {
       const state = await lockWithAllowance(tx, userId);
       if (activeSpend(await tx.jobEntries(userId, jobRef))) {
@@ -197,10 +208,10 @@ export function createCredits(store: CreditStore, options: CreditsOptions = {}) 
     /** Whether an action may start. Always ok when not enforced, for admins, or if credits are unavailable. */
     async canAfford(userId: string, action: CreditAction): Promise<AffordResult> {
       const cost = CREDIT_COSTS[action];
-      const isEnforced = enforced();
-      const open: AffordResult = { ok: true, enforced: isEnforced, balance: null, cost, unlimited: false };
+      const open: AffordResult = { ok: true, enforced: enforced(), balance: null, cost, unlimited: false };
       return failOpen("canAfford", open, async () => {
         if (await store.isAdmin(userId)) return { ...open, unlimited: true };
+        const isEnforced = open.enforced || await isGuest(userId);
         const balance = await ensureFreeAllowance(userId);
         return { ok: !isEnforced || balance >= cost, enforced: isEnforced, balance, cost, unlimited: false };
       });

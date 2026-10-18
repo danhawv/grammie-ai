@@ -2,14 +2,14 @@
 // routes use these interfaces so tests can run on in-memory fakes; the
 // Postgres versions are at the bottom.
 
-import { and, desc, eq, inArray, or } from "drizzle-orm";
+import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
 import {
   prepCheckins, prepPlanShares, prepPlans, prepProfiles, prepTaskProgress,
-  pantryItems, recipeShares, recipes,
+  pantryItems, recipeShares, recipes, bookmarks, cookbooks, cookbookRecipes, cookbookCollaborators, cookbookFollows,
   type PrepPlanRow, type PrepPlanShareRow,
 } from "@shared/schema";
 import type { PrepSetup, MealSlot } from "@shared/meal-prep/contract";
-import type { CheckinOutcome, PrepProfileDefaults } from "@shared/meal-prep/api";
+import type { CheckinOutcome, PrepCookbookChoice, PrepProfileDefaults } from "@shared/meal-prep/api";
 
 export type { PrepPlanRow, PrepPlanShareRow };
 
@@ -68,6 +68,12 @@ export interface PrepRecipes {
   forCook(ids: string[]): Promise<Array<{ id: string; title: string; servings: number; ingredients: string[]; instructions: string[] }>>;
   /** pantry item names, for the shopping list's "already have" */
   pantryNames(ownerId: string): Promise<string[]>;
+  /** cookbooks the owner can plan from: their own, ones they help edit, ones they follow (public) */
+  cookbooksFor(ownerId: string): Promise<PrepCookbookChoice[]>;
+  /** recipe ids in these cookbooks, only from cookbooks the owner can open (see cookbooksFor) */
+  recipeIdsInCookbooks(ownerId: string, cookbookIds: number[]): Promise<string[]>;
+  /** the owner's bookmarked (favourite) recipes */
+  favoriteRecipeIds(ownerId: string): Promise<string[]>;
 }
 
 // ---------------------------------------------------------------------------
@@ -199,9 +205,11 @@ export function createPgPrepRecipes(db: Db): PrepRecipes {
     async usableRecipeIds(ownerId, ids) {
       if (ids.length === 0) return [];
       const shared = db.select({ id: recipeShares.recipeId }).from(recipeShares).where(eq(recipeShares.userId, ownerId));
+      // Recipes in a cookbook they own or help edit are theirs to cook from too
+      const inTheirBooks = db.select({ id: cookbookRecipes.recipeId }).from(cookbookRecipes).where(inArray(cookbookRecipes.cookbookId, openableCookbookIds(ownerId)));
       const rows = await db.select({ id: recipes.id }).from(recipes).where(and(
         inArray(recipes.id, ids),
-        or(eq(recipes.ownerUserId, ownerId), eq(recipes.isPublic, true), inArray(recipes.id, shared)),
+        or(eq(recipes.ownerUserId, ownerId), eq(recipes.isPublic, true), inArray(recipes.id, shared), inArray(recipes.id, inTheirBooks)),
       ));
       return rows.map(r => r.id);
     },
@@ -223,5 +231,78 @@ export function createPgPrepRecipes(db: Db): PrepRecipes {
         .limit(1000);
       return rows.map(r => r.name);
     },
+
+    async cookbooksFor(ownerId) {
+      const count = sql<number>`CAST(COUNT(DISTINCT ${recipes.id}) AS INTEGER)`;
+      const columns = { id: cookbooks.id, name: cookbooks.name, coverImage: cookbooks.coverImage, recipeCount: count };
+      const [own, editing, following] = await Promise.all([
+        db.select(columns).from(cookbooks)
+          .leftJoin(cookbookRecipes, eq(cookbooks.id, cookbookRecipes.cookbookId))
+          .leftJoin(recipes, eq(cookbookRecipes.recipeId, recipes.id))
+          .where(eq(cookbooks.ownerUserId, ownerId))
+          .groupBy(cookbooks.id)
+          .orderBy(cookbooks.sortOrder),
+        db.select(columns).from(cookbookCollaborators)
+          .innerJoin(cookbooks, eq(cookbookCollaborators.cookbookId, cookbooks.id))
+          .leftJoin(cookbookRecipes, eq(cookbooks.id, cookbookRecipes.cookbookId))
+          .leftJoin(recipes, eq(cookbookRecipes.recipeId, recipes.id))
+          .where(eq(cookbookCollaborators.userId, ownerId))
+          .groupBy(cookbooks.id),
+        db.select(columns).from(cookbookFollows)
+          .innerJoin(cookbooks, eq(cookbookFollows.cookbookId, cookbooks.id))
+          .leftJoin(cookbookRecipes, eq(cookbooks.id, cookbookRecipes.cookbookId))
+          .leftJoin(recipes, and(eq(cookbookRecipes.recipeId, recipes.id), eq(recipes.isPublic, true)))
+          .where(and(eq(cookbookFollows.userId, ownerId), eq(cookbooks.isPublic, true)))
+          .groupBy(cookbooks.id),
+      ]);
+      const out: PrepCookbookChoice[] = [];
+      const seen = new Set<number>();
+      const add = (rows: typeof own, role: PrepCookbookChoice["role"]) => {
+        for (const r of rows) {
+          if (seen.has(r.id)) continue;
+          seen.add(r.id);
+          out.push({ id: r.id, name: r.name, coverImage: r.coverImage ?? null, recipeCount: Number(r.recipeCount) || 0, role });
+        }
+      };
+      add(own, "owner");
+      add(editing, "editor");
+      add(following, "viewer");
+      return out;
+    },
+
+    async recipeIdsInCookbooks(ownerId, cookbookIds) {
+      if (cookbookIds.length === 0) return [];
+      const rows = await db.selectDistinct({ id: cookbookRecipes.recipeId }).from(cookbookRecipes)
+        .innerJoin(recipes, eq(cookbookRecipes.recipeId, recipes.id))
+        .where(and(
+          inArray(cookbookRecipes.cookbookId, cookbookIds),
+          or(
+            inArray(cookbookRecipes.cookbookId, openableCookbookIds(ownerId)),
+            // followed cookbooks: only their public recipes
+            and(inArray(cookbookRecipes.cookbookId, followedPublicCookbookIds(ownerId)), eq(recipes.isPublic, true)),
+          ),
+        ));
+      return rows.map(r => r.id);
+    },
+
+    async favoriteRecipeIds(ownerId) {
+      const rows = await db.select({ id: bookmarks.recipeId }).from(bookmarks)
+        .where(eq(bookmarks.userId, ownerId))
+        .orderBy(desc(bookmarks.createdAt))
+        .limit(2000);
+      return rows.map(r => r.id);
+    },
   };
+
+  /** Cookbooks the owner owns or helps edit (subquery) */
+  function openableCookbookIds(ownerId: string) {
+    const editing = db.select({ id: cookbookCollaborators.cookbookId }).from(cookbookCollaborators).where(eq(cookbookCollaborators.userId, ownerId));
+    return db.select({ id: cookbooks.id }).from(cookbooks).where(or(eq(cookbooks.ownerUserId, ownerId), inArray(cookbooks.id, editing)));
+  }
+
+  function followedPublicCookbookIds(ownerId: string) {
+    return db.select({ id: cookbookFollows.cookbookId }).from(cookbookFollows)
+      .innerJoin(cookbooks, eq(cookbookFollows.cookbookId, cookbooks.id))
+      .where(and(eq(cookbookFollows.userId, ownerId), eq(cookbooks.isPublic, true)));
+  }
 }

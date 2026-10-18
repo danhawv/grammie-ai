@@ -16,6 +16,7 @@ import { describePlate, eatingDate, formatDay, formatMinutes, formatServings, pl
 import { cn } from "@/lib/utils";
 import { photoOf, titleFor, useOwnerRecipes } from "./cook-data";
 import { DishPhoto, PersonWeek, usePlanNames } from "./plan-bits";
+import { ChangesSection, SwapChip } from "./plan-changes";
 import { publicUrl, isNativeApp, openExternal } from "@/lib/platform";
 
 // After approval: what to buy (by aisle, with Instacart when it's set up),
@@ -249,7 +250,7 @@ function BeforeTab({ record }: { record: PrepPlanView }) {
 }
 
 function PlanTab({ record }: { record: PrepPlanView }) {
-  const names = usePlanNames(record.recipeTitles);
+  const names = usePlanNames(record.recipeTitles, { adjusters: record.adjusters, plan: record.plan });
   const { setup } = record;
   const plan = record.plan!;
   const photos = useOwnerRecipes(plan.batches.map((b) => b.recipeId));
@@ -264,10 +265,12 @@ function PlanTab({ record }: { record: PrepPlanView }) {
             <span>
               <Link href={`/recipe/${b.recipeId}`} className="text-base font-semibold underline-offset-4 hover:underline">{titleFor(record.recipeTitles, b.recipeId)}</Link>
               <span className="block text-sm text-muted-foreground">Making {formatServings(b.servingsMade)}</span>
+              {(plan.swapsApplied ?? []).filter((s) => s.recipeId === b.recipeId).map((s) => <SwapChip key={s.swapId} goal={s.goal} className="mt-1" />)}
             </span>
           </li>
         ))}
       </ul>
+      <ChangesSection changes={record.changes ?? { swaps: [], topUps: [] }} />
       {setup.people.length > 1 && (
         <div className="flex flex-wrap gap-2" role="group" aria-label="Whose week to show">
           {setup.people.map((p) => (
@@ -368,7 +371,7 @@ const OUTCOMES: Array<[CheckinOutcome, string]> = [
  * uses it to size portions and pick dishes next time.
  */
 function CheckInCard({ record }: { record: PrepPlanView }) {
-  const names = usePlanNames(record.recipeTitles);
+  const names = usePlanNames(record.recipeTitles, { adjusters: record.adjusters, plan: record.plan });
   const { setup } = record;
   const today = todayIso();
   const lastDay = useMemo(() => {

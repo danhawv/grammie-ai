@@ -19,6 +19,8 @@ export interface CookDish {
   servings?: number;
   ingredients?: string[];
   instructions?: string[];
+  /** recipe swaps for this batch: what to use instead */
+  swaps?: CookView["recipes"][number]["swaps"];
 }
 
 export interface CookData {
@@ -53,7 +55,10 @@ export function fromPlanView(v: PrepPlanView): CookData | null {
     session: v.session,
     shopping: v.shopping,
     titles: v.recipeTitles,
-    dishes: (v.plan?.batches ?? []).map((b) => ({ id: b.recipeId, title: v.recipeTitles[b.recipeId] ?? "A dish", scale: b.scale, servingsMade: b.servingsMade })),
+    dishes: (v.plan?.batches ?? []).map((b) => ({
+      id: b.recipeId, title: v.recipeTitles[b.recipeId] ?? "A dish", scale: b.scale, servingsMade: b.servingsMade,
+      swaps: (v.plan?.swapsApplied ?? []).filter((s) => s.recipeId === b.recipeId).map(({ swapId, title, goal, note, changes }) => ({ swapId, title, goal, note, changes })),
+    })),
     householdAllergies: Array.from(allergies).sort(),
     progress: v.progress,
     substitutions: v.substitutions.map(({ id, ingredient, replacement, note }) => ({ id, ingredient, replacement, note })),

@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { AlertTriangle, Check, Refrigerator, Snowflake, Utensils, X } from "lucide-react";
-import type { DayFit, Plate, PrepSetup } from "@shared/meal-prep/contract";
+import type { DayFit, Plate, PrepPlan, PrepSetup } from "@shared/meal-prep/contract";
 import { SLOT_LABELS } from "@/lib/meal-prep-api";
 import {
   dayBars,
@@ -20,9 +20,19 @@ import { mediaUrl } from "@/lib/platform";
 
 // Display pieces shared by the plan review, cook mode and the packet.
 
-/** Plate wording from the plan's recipe titles, with friendly fallbacks */
-export function usePlanNames(titles: Record<string, string> | undefined): PlateNames {
-  return useMemo(() => ({ recipeTitle: (id: string) => titleFor(titles ?? {}, id) }), [titles]);
+/** Plate wording from the plan's recipe titles, with friendly fallbacks, shake bottles and "(with swap)" */
+export function usePlanNames(
+  titles: Record<string, string> | undefined,
+  extra: { adjusters?: PlateNames["adjusters"]; plan?: Pick<PrepPlan, "batches" | "swapsApplied"> | null } = {},
+): PlateNames {
+  const { adjusters, plan } = extra;
+  return useMemo(() => {
+    const swapped = new Set<string>([
+      ...(plan?.batches ?? []).filter((b) => (b.swapIds ?? []).length > 0).map((b) => b.recipeId),
+      ...(plan?.swapsApplied ?? []).map((s) => s.recipeId),
+    ]);
+    return { recipeTitle: (id: string) => titleFor(titles ?? {}, id), adjusters, swapped };
+  }, [titles, adjusters, plan]);
 }
 
 const TONE: Record<FitTone, { bar: string; text: string; icon: typeof Check }> = {

@@ -14,6 +14,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { ErrorState, LoadingState } from "@/components/page-states";
 import { TimerChips } from "@/components/cooking-mode";
 import { StorageBadge } from "@/components/meal-prep/plan-bits";
+import { CookSwapBox, IngredientsWithSwaps } from "@/components/meal-prep/plan-changes";
 import { useLocalChecks } from "@/components/meal-prep/approved-view";
 import { fromCookView, fromPlanView, knownTitles, type CookData, type CookSource } from "@/components/meal-prep/cook-data";
 import { useCookingTimers, useKeepAwakePreference, useWakeLock } from "@/hooks/use-cooking-session";
@@ -226,6 +227,18 @@ function ReadyPart({ data, storageKey, onStart }: { data: CookData; storageKey: 
           <li>{session.containers.count} containers</li>
         </ul>
       </section>
+      {data.dishes.some((d) => d.swaps?.length) && (
+        <section aria-labelledby="cook-swaps-heading" className="space-y-2">
+          <h2 id="cook-swaps-heading" className="text-2xl font-semibold">Recipe swaps today</h2>
+          <p className="text-base text-muted-foreground">The family chose these on purpose. The shopping list already has what you need.</p>
+          {data.dishes.filter((d) => d.swaps?.length).map((d) => (
+            <div key={d.id} className="space-y-1">
+              <h3 className="text-lg font-semibold">{d.title}</h3>
+              <CookSwapBox swaps={d.swaps} scale={d.scale} />
+            </div>
+          ))}
+        </section>
+      )}
       {data.dishes.some((d) => d.ingredients?.length) && (
         <section aria-labelledby="recipes-heading" className="space-y-2">
           <h2 id="recipes-heading" className="text-2xl font-semibold">The recipes</h2>
@@ -233,13 +246,14 @@ function ReadyPart({ data, storageKey, onStart }: { data: CookData; storageKey: 
             <Collapsible key={d.id} className="rounded-lg border">
               <CollapsibleTrigger asChild>
                 <button type="button" className="flex min-h-14 w-full items-center justify-between gap-2 px-4 text-left text-lg font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                  <span>{d.title}{d.scale !== 1 && <span className="block text-base font-normal text-muted-foreground">Make {quarterFraction(d.scale)}× the recipe</span>}</span>
+                  <span>{d.title}{d.swaps?.length ? <span className="block text-base font-normal text-emerald-800 dark:text-emerald-300">With {d.swaps.length === 1 ? "a swap" : `${d.swaps.length} swaps`}</span> : null}{d.scale !== 1 && <span className="block text-base font-normal text-muted-foreground">Make {quarterFraction(d.scale)}× the recipe</span>}</span>
                   <ChevronDown className="h-5 w-5 shrink-0" aria-hidden />
                 </button>
               </CollapsibleTrigger>
               <CollapsibleContent className="space-y-4 border-t p-4 text-lg">
                 {d.scale !== 1 && <p className="font-medium">These are the amounts for one batch. Multiply each by {quarterFraction(d.scale)}.</p>}
-                <ul className="list-disc space-y-1 pl-6">{d.ingredients?.map((x, i) => <li key={i}>{x}</li>)}</ul>
+                <CookSwapBox swaps={d.swaps} scale={d.scale} />
+                <IngredientsWithSwaps ingredients={d.ingredients ?? []} swaps={d.swaps} scale={d.scale} />
                 <ol className="list-decimal space-y-2 pl-6">{d.instructions?.map((x, i) => <li key={i}>{x}</li>)}</ol>
               </CollapsibleContent>
             </Collapsible>
@@ -493,6 +507,7 @@ function PackPart({ data, storageKey, packetHref }: { data: CookData; storageKey
                   <span className="min-w-0 space-y-1">
                     <span className="block text-base text-muted-foreground">{labelSlotText(l, data.setup ?? undefined)}</span>
                     <span className="block text-xl font-semibold">{l.portion}</span>
+                    {l.swapNotes?.map((n) => <span key={n} className="block text-base text-emerald-800 dark:text-emerald-300">{n}</span>)}
                     <span className="flex flex-wrap items-center gap-2 text-base">
                       <StorageBadge storage={l.storage} />
                       {eatByText(l.eatBy, l.madeOn)}

@@ -2,9 +2,12 @@
 // meal-prep.ts), shared with the screens. Built on the types in contract.ts.
 
 import type {
-  KitchenSetup, MealSlot, PrepPerson, PrepPlan, PrepSession, PrepSetup,
+  AppliedSwap, KitchenSetup, MealSlot, PlanOption, PrepPerson, PrepPlan, PrepSession, PrepSetup,
   SessionSetup, ShoppingList,
 } from "./contract";
+import type { AdjusterDisplay } from "./callouts";
+
+export type { AdjusterDisplay };
 
 export type PrepPlanStatus = "draft" | "approved" | "done" | "cancelled";
 /** building = the solver is still working; poll GET /plans/:id */
@@ -23,6 +26,64 @@ export interface PrepProfileDefaults {
   maxDishes?: number;
   maxRepeats?: Partial<Record<MealSlot, number>>;
   budget?: number;
+  recipeSource?: PrepSetup["recipeSource"];
+  allowSwaps?: boolean;
+  topUps?: PrepSetup["topUps"];
+  dessertsPerWeek?: number;
+  shakeId?: string;
+}
+
+/** GET /cookbooks: cookbooks the owner can plan from, for the "Plan from" picker */
+export interface PrepCookbookChoice {
+  id: number;
+  name: string;
+  /** recipes in it (that still exist) */
+  recipeCount: number;
+  /** owner = theirs; editor = they were added as a collaborator; viewer = they follow it */
+  role: "owner" | "editor" | "viewer";
+  coverImage: string | null;
+}
+
+/** GET /shakes: the bottled protein shakes top-ups can use */
+export interface PrepShakeChoice {
+  /** PROTEIN_SHAKES id (PrepSetup.shakeId) */
+  id: string;
+  /** used when nothing is picked (DEFAULT_SHAKE_ID) */
+  isDefault?: boolean;
+  /** "Fairlife Core Power" */
+  product: string;
+  proteinPerBottle: number | null;
+  kcalPerBottle: number | null;
+}
+
+/** One of the plans offered side by side, as the review's cards show it */
+export interface PlanOptionView {
+  key: PlanOption["key"];
+  label: string;
+  summary: string;
+  dishes: Array<{ recipeId: string; title: string }>;
+  /** rough hands-on minutes from the recipes' own times (the real timeline is built for the chosen plan only) */
+  handsOnMinutes: number;
+  /** average across person-days with targets, as % of the prepped share of the target; null without targets */
+  proteinPct: number | null;
+  kcalPct: number | null;
+  fitScore: number;
+  swapCount: number;
+  topUpCount: number;
+  chosen: boolean;
+}
+
+/** What's kept on the plan row (prep_plans.options) */
+export interface StoredPlanOptions {
+  /** the option the plan currently is; null after a dish swap made it something else */
+  chosenKey: PlanOption["key"] | null;
+  items: Array<{
+    option: PlanOption;
+    handsOnMinutes: number;
+    titles: Record<string, string>;
+    /** built lazily the first time the option is picked, then reused */
+    finished?: { shopping: ShoppingList; session: PrepSession; explanation: string; explanationAi: boolean } | null;
+  }>;
 }
 
 export interface PrepProfile {
@@ -87,6 +148,12 @@ export interface PrepPlanView {
   explanation: string | null;
   /** true = written by the model (label it "Suggested by Grammie"); false = plain text from the plan's notes */
   explanationByAI: boolean;
+  /** up to 3 plans to choose between (empty for older plans) */
+  options: PlanOptionView[];
+  /** every recipe swap and protein top-up the plan uses, in plain words */
+  changes: PlanChanges;
+  /** names of the plate add-ons used, with bottle details for shakes */
+  adjusters: Record<string, AdjusterDisplay>;
   wishes: WishesResult | null;
   /** recipe id -> title for every recipe in the plan */
   recipeTitles: Record<string, string>;
@@ -101,6 +168,13 @@ export interface PrepPlanView {
   createdAt: string;
   updatedAt: string;
   approvedAt: string | null;
+}
+
+/** The "Changes we made" section */
+export interface PlanChanges {
+  swaps: Array<AppliedSwap & { dish: string }>;
+  /** "Mom: 3 bottles Fairlife Core Power (26 g protein each) across the week" */
+  topUps: Array<{ personId: string; adjusterId: string; kind: "chicken" | "shake"; text: string; count: number; grams: number }>;
 }
 
 export interface PrepPlanSummary {
@@ -150,6 +224,8 @@ export interface CookRecipe {
   scale: number;
   ingredients: string[];
   instructions: string[];
+  /** swaps the plan uses for this recipe: what to use instead, at this batch's scale */
+  swaps: Array<Pick<AppliedSwap, "swapId" | "title" | "goal" | "note" | "changes">>;
 }
 
 /** What a hired cook sees: the session, labels and the plan's recipes, nothing else */
@@ -164,6 +240,8 @@ export interface CookView {
   householdAllergies: string[];
   progress: Record<string, TaskProgress>;
   substitutions: Array<Pick<PrepSubstitution, "id" | "ingredient" | "replacement" | "at" | "note">>;
+  /** plate add-on names, with bottle details for shakes */
+  adjusters: Record<string, AdjusterDisplay>;
   expiresAt: string;
 }
 

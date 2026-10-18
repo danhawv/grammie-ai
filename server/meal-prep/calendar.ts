@@ -14,9 +14,12 @@ export function eatingDate(setup: PrepSetup, day: number): string {
   return new Date(start + day * DAY_MS).toISOString().slice(0, 10);
 }
 
+/** The calendar's meal slots (meal_plan_entries.meal_slot); it has no dessert */
+export type CalendarSlot = Exclude<MealSlot, "dessert">;
+
 export interface CalendarEntry {
   date: string;
-  mealSlot: MealSlot;
+  mealSlot: CalendarSlot;
   recipeId: string;
   /** whole servings across everyone eating it at that meal */
   scaledServings: number;
@@ -26,7 +29,8 @@ export interface CalendarEntry {
 /**
  * One calendar entry per dish per meal. Plates for several people at the
  * same meal share an entry; adjusters (plain rice, yogurt) stay off the
- * calendar since they aren't recipes.
+ * calendar since they aren't recipes. The calendar has no dessert slot, so
+ * desserts go in as snacks with a "Dessert" note.
  */
 export function calendarEntries(setup: PrepSetup, plan: PrepPlan): CalendarEntry[] {
   const names = new Map(setup.people.map(p => [p.id, p.name]));
@@ -38,7 +42,13 @@ export function calendarEntries(setup: PrepSetup, plan: PrepPlan): CalendarEntry
       let agg = byKey.get(key);
       if (!agg) {
         agg = {
-          entry: { date: eatingDate(setup, plate.day), mealSlot: plate.slot, recipeId: item.refId, scaledServings: 1, notes: "" },
+          entry: {
+            date: eatingDate(setup, plate.day),
+            mealSlot: plate.slot === "dessert" ? "snack" : plate.slot,
+            recipeId: item.refId,
+            scaledServings: 1,
+            notes: plate.slot === "dessert" ? "Dessert" : "",
+          },
           servings: 0,
           people: new Set(),
         };
@@ -52,7 +62,7 @@ export function calendarEntries(setup: PrepSetup, plan: PrepPlan): CalendarEntry
     .map(({ entry, servings, people }) => ({
       ...entry,
       scaledServings: Math.max(1, Math.round(servings)),
-      notes: `From meal prep · for ${Array.from(people).join(", ")}`,
+      notes: `${entry.notes ? `${entry.notes} · ` : ""}From meal prep · for ${Array.from(people).join(", ")}`,
     }))
     .sort((a, b) => a.date.localeCompare(b.date) || a.mealSlot.localeCompare(b.mealSlot));
 }
@@ -79,13 +89,17 @@ export function groceryLines(shopping: ShoppingList, titles: Record<string, stri
       const name = item.ingredient.name;
       const extra = grams == null ? item.display : item.buy;
       const recipeTitle = item.forRecipes.map(id => titles[id] ?? "").filter(Boolean).join(", ") || "Meal prep";
+      // Bottled shakes are bought by the bottle, not the gram
+      const counted = grams == null ? item.display.match(/^(\d+)\s+(bottles?)\b/) : null;
+      const quantity = counted ? Number(counted[1]) : grams ?? 1;
+      const unit = counted ? counted[2] : grams == null ? "" : "g";
       lines.push({
         item: name,
         displayName: extra ? `${name} (${extra})` : name,
-        quantity: grams ?? 1,
-        unit: grams == null ? "" : "g",
+        quantity,
+        unit,
         aisle: group.aisle,
-        originalEntries: [{ recipeId: item.forRecipes[0] ?? "", recipeTitle, quantity: grams ?? 1, unit: grams == null ? "" : "g", raw: item.display }],
+        originalEntries: [{ recipeId: item.forRecipes[0] ?? "", recipeTitle, quantity, unit, raw: item.display }],
       });
     }
   }

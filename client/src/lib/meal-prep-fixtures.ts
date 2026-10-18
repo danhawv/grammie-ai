@@ -1,4 +1,5 @@
 import type {
+  AppliedSwap,
   CookBatch,
   ContainerLabel,
   DayFit,
@@ -13,8 +14,11 @@ import type {
   ShoppingList,
 } from "@shared/meal-prep/contract";
 import type { Confidence, StorageInfo } from "@shared/meal-prep/contract";
-import type { CookView, PrepPlanSummary, PrepPlanView, PrepProfile, SwapOptionView, TaskProgress } from "@shared/meal-prep/api";
-import { MealPrepApiError } from "./meal-prep-api";
+import type {
+  CookView, PlanChanges, PlanOptionView, PrepCookbookChoice, PrepPlanSummary, PrepPlanView, PrepProfile, PrepShakeChoice, SwapOptionView, TaskProgress,
+} from "@shared/meal-prep/api";
+import { shakeText, swapKey, swapLabelNote, type AdjusterDisplay } from "@shared/meal-prep/callouts";
+import { MealPrepApiError, SHAKE_CHOICES } from "./meal-prep-api";
 import { addDays, describePlate, eatingDate, macroBar, MACRO_ORDER, prepShare } from "./meal-prep-format";
 
 interface FixtureRecipe {
@@ -68,6 +72,14 @@ export const FIXTURE_RECIPES: FixtureRecipe[] = [
   },
 ];
 
+const DESSERT: FixtureRecipe = {
+  id: "r-brownies", title: "Black Bean Brownies", imageUrl: null,
+  why: "Dessert four nights a week, made in the same oven as the chicken.",
+  perServing: { kcal: 190, protein: 6, carbs: 26, fat: 8 }, confidence: "medium",
+  allergens: ["eggs"], activeMinutes: 10,
+  storage: { fridgeDays: 5, freezerDays: 90, reheat: "Eat cold or warm 15 sec", notes: [], reheatsWell: true },
+};
+
 const SWAP_RECIPES: FixtureRecipe[] = [
   {
     id: "r-tacos", title: "Pork Carnitas Bowls", imageUrl: null, why: "Similar protein, a Mexican twist.",
@@ -84,14 +96,38 @@ const SWAP_RECIPES: FixtureRecipe[] = [
 const ADJ: Record<string, { name: string; perGram: Macros }> = {
   "rice-cooked": { name: "rice", perGram: { kcal: 1.3, protein: 0.027, carbs: 0.28, fat: 0.003 } },
   "greek-yogurt": { name: "Greek yogurt", perGram: { kcal: 0.59, protein: 0.1, carbs: 0.036, fat: 0.004 } },
+  "shake-fairlife-core-power-26g": { name: "Protein shake", perGram: { kcal: 0.41, protein: 0.0628, carbs: 0.02, fat: 0.011 } },
 };
 
-const SERVINGS: Record<string, number> = { "r-chili": 8, "r-chicken": 6, "r-oats": 8, "r-beef": 4, "r-tacos": 6, "r-lentil": 8 };
-const ALL_RECIPES = [...FIXTURE_RECIPES, ...SWAP_RECIPES];
+/** What the API sends as PrepPlanView.adjusters */
+const ADJUSTER_DISPLAY: Record<string, AdjusterDisplay> = {
+  "rice-cooked": { id: "rice-cooked", name: "Rice (cooked)" },
+  "greek-yogurt": { id: "greek-yogurt", name: "Greek yogurt" },
+  "shake-fairlife-core-power-26g": { id: "shake-fairlife-core-power-26g", name: "Protein shake", topUp: "shake", product: "Fairlife Core Power 26g", unitGrams: 414, proteinPerUnit: 26, kcalPerUnit: 170 },
+};
+
+/** The recipe swaps the planner used (the owner can turn each off: "Keep it as written") */
+const FIXTURE_SWAPS: AppliedSwap[] = [
+  {
+    recipeId: "r-chili", swapId: "sour-cream->greek-yogurt-nonfat", title: "Greek yogurt instead of sour cream", goal: "both",
+    perServingDelta: { kcal: -95, protein: 14, carbs: 1, fat: -11 },
+    note: "Greek yogurt instead of sour cream: +14 g protein, 95 fewer calories per serving",
+    changes: [{ lineIndex: 6, from: "1 cup sour cream", toDisplay: "1 cup nonfat Greek yogurt", use: "Use nonfat Greek yogurt instead of sour cream (1½ cups, 370 g)" }],
+  },
+  {
+    recipeId: "r-beef", swapId: "oil-3tbsp->oil-1tbsp", title: "1 tbsp oil instead of 3 for the stir-fry", goal: "lighter",
+    perServingDelta: { kcal: -60, protein: 0, carbs: 0, fat: -7 },
+    note: "1 tbsp oil instead of 3 for the stir-fry: 60 fewer calories per serving",
+    changes: [{ lineIndex: 4, from: "3 tbsp vegetable oil", toDisplay: "1 tbsp vegetable oil", use: "Use 1 tbsp vegetable oil instead of 3 tbsp" }],
+  },
+];
+
+const SERVINGS: Record<string, number> = { "r-chili": 8, "r-chicken": 6, "r-oats": 8, "r-beef": 4, "r-tacos": 6, "r-lentil": 8, "r-brownies": 12 };
+const ALL_RECIPES = [...FIXTURE_RECIPES, DESSERT, ...SWAP_RECIPES];
 
 export const FIXTURE_SETUP: PrepSetup = {
   people: [
-    { id: "p-dan", name: "Dan", targets: { kcal: 2450, protein: 180, tolerance: { kcal: 0.05 } }, slots: ["breakfast", "lunch", "dinner"], allergies: [], dislikes: ["mushrooms"] },
+    { id: "p-dan", name: "Dan", targets: { kcal: 2450, protein: 180, tolerance: { kcal: 0.05 } }, slots: ["breakfast", "lunch", "dinner", "dessert"], allergies: [], dislikes: ["mushrooms"] },
     { id: "p-jean", name: "Jean", targets: null, slots: ["lunch", "dinner"], allergies: ["peanuts"], dislikes: [] },
   ],
   days: 5,
@@ -99,6 +135,11 @@ export const FIXTURE_SETUP: PrepSetup = {
   session: { date: SESSION_DATE, maxMinutes: 240, cooks: 1, helper: true, skill: "home" },
   maxDishes: 4,
   wishes: "Easy breakfasts, nothing too spicy",
+  recipeSource: { kind: "cookbooks", cookbookIds: [1] },
+  allowSwaps: true,
+  topUps: "both",
+  shakeId: "fairlife-core-power-26g",
+  dessertsPerWeek: 4,
 };
 
 function scaleMacros(m: Macros, k: number): Macros {
@@ -120,8 +161,9 @@ function adjusterItem(id: string, grams: number): PlateItem {
 const MENU: Record<string, Partial<Record<MealSlot, (day: number) => PlateItem[]>>> = {
   "p-dan": {
     breakfast: () => [recipeItem("r-oats", 1.25), adjusterItem("greek-yogurt", 200)],
-    lunch: (d) => (d % 2 === 0 ? [recipeItem("r-chili", 1.5), adjusterItem("rice-cooked", 150)] : [recipeItem("r-beef", 1.5), adjusterItem("rice-cooked", 150)]),
+    lunch: (d) => (d % 2 === 0 ? [recipeItem("r-chili", 1.5), adjusterItem("rice-cooked", 150)] : [recipeItem("r-beef", 1.5), adjusterItem("rice-cooked", 150), adjusterItem("shake-fairlife-core-power-26g", 414)]),
     dinner: (d) => (d === 4 ? [recipeItem("r-chili", 1.25), adjusterItem("rice-cooked", 100)] : [recipeItem("r-chicken", 1.75), adjusterItem("rice-cooked", 200)]),
+    dessert: (d) => (d < 4 ? [recipeItem("r-brownies", 1)] : []),
   },
   "p-jean": {
     lunch: (d) => (d % 2 === 0 ? [recipeItem("r-chicken", 1)] : [recipeItem("r-chili", 1)]),
@@ -131,12 +173,23 @@ const MENU: Record<string, Partial<Record<MealSlot, (day: number) => PlateItem[]
 
 function buildPlan(setup: PrepSetup, replace: Record<string, string> = {}): PrepPlan {
   const plates: Plate[] = [];
+  const swaps = setup.allowSwaps === false ? [] : FIXTURE_SWAPS.filter((sw) => !(setup.excludedSwaps ?? []).includes(swapKey(sw.recipeId, sw.swapId)) && !replace[sw.recipeId]);
+  const shakesOk = setup.topUps !== "none" && setup.topUps !== "chicken";
   for (const person of setup.people) {
     const menu = MENU[person.id] ?? MENU["p-jean"];
     for (let day = 0; day < setup.days; day++) {
       for (const slot of person.slots) {
+        if (slot === "dessert" && day >= (setup.dessertsPerWeek ?? 7)) continue;
         const make = menu[slot] ?? menu.lunch!;
-        const items = make(day).map((i) => (i.kind === "recipe" && replace[i.refId] ? recipeItem(replace[i.refId], i.amount) : i));
+        const items = make(day)
+          .filter((i) => shakesOk || i.refId !== "shake-fairlife-core-power-26g")
+          .map((i) => (i.kind === "recipe" && replace[i.refId] ? recipeItem(replace[i.refId], i.amount) : i))
+          .map((i) => {
+            // Plate numbers already include the swaps (contract: PrepPlan.swapsApplied)
+            const sw = swaps.find((x) => x.recipeId === i.refId);
+            return sw ? { ...i, macros: { ...i.macros, kcal: i.macros.kcal + sw.perServingDelta.kcal * i.amount, protein: i.macros.protein + sw.perServingDelta.protein * i.amount, fat: i.macros.fat + sw.perServingDelta.fat * i.amount } } : i;
+          });
+        if (!items.length) continue;
         const eat = eatingDate(setup, day);
         const recipe = ALL_RECIPES.find((r) => items.some((i) => i.refId === r.id));
         // Fridge for the first three days, then the freezer if the dish freezes
@@ -154,7 +207,7 @@ function buildPlan(setup: PrepSetup, replace: Record<string, string> = {}): Prep
     for (let day = 0; day < setup.days; day++) {
       const macros = sumMacros(plates.filter((p) => p.personId === person.id && p.day === day).map((p) => p.macros));
       // Targets are whole-day; the fit compares against the prepped meals' share
-      const share = prepShare(person.slots);
+      const share = prepShare(person.slots, setup.dessertsPerWeek);
       const t = person.targets;
       const target = t ? { ...t, kcal: t.kcal * share, protein: t.protein * share, carbs: t.carbs && t.carbs * share, fat: t.fat && t.fat * share } : null;
       const status = Object.fromEntries(
@@ -174,7 +227,8 @@ function buildPlan(setup: PrepSetup, replace: Record<string, string> = {}): Prep
   }
   const batches: CookBatch[] = Object.entries(servingsBy).map(([recipeId, need]) => {
     const scale = Math.ceil((need / (SERVINGS[recipeId] ?? 4)) * 2) / 2;
-    return { recipeId, scale, servingsMade: scale * (SERVINGS[recipeId] ?? 4) };
+    const swapIds = swaps.filter((x) => x.recipeId === recipeId).map((x) => x.swapId);
+    return { recipeId, scale, servingsMade: scale * (SERVINGS[recipeId] ?? 4), ...(swapIds.length ? { swapIds } : {}) };
   });
   const scored = fit.filter((f) => f.target);
   const ok = scored.filter((f) => Object.values(f.status).every((s) => s === "ok" || s === "n/a")).length;
@@ -184,6 +238,7 @@ function buildPlan(setup: PrepSetup, replace: Record<string, string> = {}): Prep
     notes: ["Chili covers 9 meals and freezes well", "Rice tops up Dan's calories without changing any recipe"],
     relaxed: [],
     solverMs: 84,
+    swapsApplied: swaps.filter((sw) => batches.some((b) => b.recipeId === sw.recipeId)),
   };
 }
 
@@ -213,11 +268,16 @@ const TASKS: ScheduledTask[] = [
 function buildSession(setup: PrepSetup, plan: PrepPlan): PrepSession {
   const names = { recipeTitle: (id: string) => ALL_RECIPES.find((r) => r.id === id)?.title ?? "A dish", adjusterNames: { "rice-cooked": "rice", "greek-yogurt": "Greek yogurt" } };
   const person = (id: string) => setup.people.find((p) => p.id === id)?.name ?? "";
+  const swaps = plan.swapsApplied ?? [];
   const labels: ContainerLabel[] = plan.plates.filter((p) => p.storage !== "fresh").map((p) => {
     const dishes = p.items.filter((i) => i.kind === "recipe").map((i) => ALL_RECIPES.find((r) => r.id === i.refId)!);
+    const packed = p.items.filter((i) => i.refId !== "shake-fairlife-core-power-26g");
+    const shakes = p.items.filter((i) => i.refId === "shake-fairlife-core-power-26g").map((i) => `have with ${shakeText(ADJUSTER_DISPLAY[i.refId], i.grams ?? i.amount)} from the fridge`);
+    const swapNotes = swaps.filter((sw) => dishes.some((d) => d.id === sw.recipeId)).map(swapLabelNote);
     return {
+      ...(swapNotes.length ? { swapNotes } : {}),
       plateKey: `${p.personId}:${p.day}:${p.slot}`,
-      title: describePlate({ items: p.items }, names).replace(/^[\d¼½¾]+ servings? /, ""),
+      title: describePlate({ items: packed }, names).replace(/^[\d¼½¾]+ servings? /, ""),
       person: person(p.personId),
       madeOn: setup.session.date,
       eatBy: p.eatBy,
@@ -226,11 +286,19 @@ function buildSession(setup: PrepSetup, plan: PrepPlan): PrepSession {
       confidence: dishes.some((d) => d.confidence === "low") ? "low" : "high",
       reheat: dishes[0]?.storage?.reheat ?? "Microwave 2 min",
       allergens: Array.from(new Set(dishes.flatMap((d) => d.allergens ?? []))),
-      portion: p.items.map((i) => `${i.grams ?? Math.round(i.amount)} g ${i.kind === "recipe" ? names.recipeTitle(i.refId).replace(/^.*'s /, "") : names.adjusterNames[i.refId as "rice-cooked"] ?? i.refId}`).join(" + "),
+      portion: [packed.map((i) => `${i.grams ?? Math.round(i.amount)} g ${i.kind === "recipe" ? names.recipeTitle(i.refId).replace(/^.*'s /, "") : names.adjusterNames[i.refId as "rice-cooked"] ?? i.refId}`).join(" + "), ...shakes].join("; "),
     };
   });
+  // Every step that uses a swapped ingredient says so
+  const tasks = TASKS.map((t) => {
+    const uses = swaps.filter((sw) => (t.id === "t7" && sw.recipeId === "r-chili") || (t.id === "t12" && sw.recipeId === "r-beef")).flatMap((sw) => sw.changes?.map((c) => c.use) ?? []);
+    return uses.length ? { ...t, text: `${t.text}. ${uses.join(". ")}` } : t;
+  });
+  const dessertTask = plan.batches.some((b) => b.recipeId === "r-brownies")
+    ? [T({ id: "t17", recipeIds: ["r-brownies"], text: "Black Bean Brownies: blend, pour into an 8×8 pan and bake on the top rack", kind: "bake", activeMin: 10, passiveMin: 25, lane: "oven", start: 88, end: 123, cook: 1, dependsOn: ["t10"], resources: [{ kind: "oven", qty: 1, tempF: 400 }], doneCue: "A toothpick comes out with moist crumbs" })]
+    : [];
   return {
-    tasks: TASKS,
+    tasks: [...tasks, ...dessertTask],
     totalMinutes: 160,
     handsOnMinutes: 111,
     misePlace: [
@@ -243,6 +311,7 @@ function buildSession(setup: PrepSetup, plan: PrepPlan): PrepSession {
     ],
     equipment: ["Large pot (8 qt)", "2 sheet pans", "9×13 baking dish", "Large skillet or wok", "Rice cooker", "Instant-read thermometer"],
     beforeSession: [
+      ...swaps.map((sw) => `${ALL_RECIPES.find((r) => r.id === sw.recipeId)?.title ?? "A dish"} uses a swap: ${sw.title}. The shopping list already has the swapped ingredient.`),
       "Move the ground turkey and chicken from the freezer to the fridge on Friday night",
       "Run the dishwasher so the pots and pans are free",
       "Count your containers: you'll need 25 (5 go in the freezer)",
@@ -274,6 +343,7 @@ const SHOPPING: ShoppingList = {
     ] },
     { aisle: "Dairy & Eggs", items: [
       { ingredient: { id: "greek-yogurt", name: "Plain Greek yogurt", aisle: "Dairy & Eggs" }, neededGrams: 1000, display: "4 cups", buy: "1 tub (32 oz)", have: false, forRecipes: ["Breakfast top-up"], substitutes: [] },
+      { ingredient: { id: "greek-yogurt-nonfat", name: "Nonfat Greek yogurt", aisle: "Dairy & Eggs" }, neededGrams: 370, display: "1½ cups", buy: "1 tub (16 oz)", have: false, forRecipes: ["Mom's Turkey Chili"], substitutes: ["plain Greek yogurt"] },
       { ingredient: { id: "milk", name: "Milk", aisle: "Dairy & Eggs" }, neededGrams: 480, display: "2 cups", buy: null, have: true, forRecipes: ["Grammie's Baked Oatmeal"], substitutes: ["oat milk"] },
       { ingredient: { id: "egg", name: "Eggs", aisle: "Dairy & Eggs" }, neededGrams: 100, display: "2", buy: null, have: true, forRecipes: ["Grammie's Baked Oatmeal"], substitutes: [] },
     ] },
@@ -285,6 +355,9 @@ const SHOPPING: ShoppingList = {
       { ingredient: { id: "rice-white", name: "Long-grain white rice", aisle: "Pasta, Rice & Grains" }, neededGrams: 800, display: "4 cups dry", buy: "1 bag (2 lb)", have: false, forRecipes: ["Rice for plates"], substitutes: ["brown rice (cooks 20 min longer)"] },
       { ingredient: { id: "oats-rolled", name: "Rolled oats", aisle: "Pasta, Rice & Grains" }, neededGrams: 320, display: "4 cups", buy: null, have: false, forRecipes: ["Grammie's Baked Oatmeal"], substitutes: [] },
     ] },
+    { aisle: "Beverages", items: [
+      { ingredient: { id: "protein-shake", name: "Fairlife Core Power protein shake", aisle: "Beverages" }, neededGrams: null, display: "2 bottles", buy: "2 bottles Fairlife Core Power (26 g protein each)", have: false, forRecipes: ["Plate add-ons"], substitutes: ["any ready-to-drink protein shake with about the same protein"] },
+    ] },
     { aisle: "Oils, Vinegars & Condiments", items: [
       { ingredient: { id: "soy-sauce", name: "Soy sauce", aisle: "Oils, Vinegars & Condiments" }, neededGrams: 60, display: "¼ cup", buy: null, have: true, forRecipes: ["Beef & Broccoli"], substitutes: ["tamari (gluten-free)"] },
     ] },
@@ -294,10 +367,47 @@ const SHOPPING: ShoppingList = {
 };
 
 const EXPLANATION =
-  "Grammie picked four of your recipes that share onions and garlic, so there's less chopping. Dan's plates get a little extra rice and Greek yogurt to reach his goals — the recipes stay exactly as written. Everything after Wednesday goes in the freezer so it stays fresh.";
+  "Grammie picked four of your recipes that share onions and garlic, so there's less chopping. The chili uses Greek yogurt instead of sour cream for more protein, and the beef stir-fry uses less oil. Dan's plates get a little extra rice and Greek yogurt, plus a protein shake on 2 days, to reach his goals. Everything after Wednesday goes in the freezer so it stays fresh.";
 
-function buildView(setup: PrepSetup, replace: Record<string, string> = {}, status: PrepPlanView["status"] = "draft"): PrepPlanView {
-  const plan = buildPlan(setup, replace);
+/** The plans offered side by side: each is the fixture menu with some dishes changed */
+const OPTIONS: Array<{ key: PlanOptionView["key"]; label: string; summary: string; replace: Record<string, string>; handsOn: number }> = [
+  { key: "balanced", label: "Best fit", summary: "Closest to Dan's goals, with dishes you rate highly.", replace: {}, handsOn: 110 },
+  { key: "variety", label: "Most variety", summary: "Carnitas bowls instead of beef, so no dish shows up more than twice a week.", replace: { "r-beef": "r-tacos" }, handsOn: 120 },
+  { key: "quick", label: "Least cooking", summary: "Lentil soup in place of the stir-fry: one pot, mostly hands-off.", replace: { "r-beef": "r-lentil" }, handsOn: 85 },
+];
+
+function pct(plan: PrepPlan, key: "protein" | "kcal"): number | null {
+  const r = plan.fit.filter((f) => f.target).map((f) => f.macros[key] / (key === "kcal" ? f.target!.kcal : f.target!.protein));
+  return r.length ? Math.round((r.reduce((a, b) => a + b, 0) / r.length) * 100) : null;
+}
+
+function optionViews(setup: PrepSetup, chosen: PlanOptionView["key"] | null): PlanOptionView[] {
+  return OPTIONS.map((o) => {
+    const plan = buildPlan(setup, o.replace);
+    return {
+      key: o.key, label: o.label, summary: o.summary,
+      dishes: plan.batches.map((b) => ({ recipeId: b.recipeId, title: ALL_RECIPES.find((r) => r.id === b.recipeId)?.title ?? "A dish" })),
+      handsOnMinutes: o.handsOn,
+      proteinPct: pct(plan, "protein"), kcalPct: pct(plan, "kcal"), fitScore: plan.fitScore,
+      swapCount: plan.swapsApplied?.length ?? 0,
+      topUpCount: plan.plates.reduce((n, p) => n + p.items.filter((i) => i.refId === "shake-fairlife-core-power-26g").length, 0),
+      chosen: chosen === o.key,
+    };
+  });
+}
+
+function changesFor(setup: PrepSetup, plan: PrepPlan): PlanChanges {
+  const title = (id: string) => ALL_RECIPES.find((r) => r.id === id)?.title ?? "A dish";
+  const shakes = plan.plates.filter((p) => p.personId === "p-dan" && p.items.some((i) => i.refId === "shake-fairlife-core-power-26g")).length;
+  return {
+    swaps: (plan.swapsApplied ?? []).map((sw) => ({ ...sw, dish: title(sw.recipeId) })),
+    topUps: shakes ? [{ personId: "p-dan", adjusterId: "shake-fairlife-core-power-26g", kind: "shake", count: shakes, grams: shakes * 414, text: `Dan: ${shakeText(ADJUSTER_DISPLAY["shake-fairlife-core-power-26g"], shakes * 414)} over the week` }] : [],
+  };
+}
+
+function buildView(setup: PrepSetup, replace: Record<string, string> = {}, status: PrepPlanView["status"] = "draft", option: PlanOptionView["key"] | null = "balanced"): PrepPlanView {
+  const base = OPTIONS.find((o) => o.key === option)?.replace ?? {};
+  const plan = buildPlan(setup, { ...base, ...replace });
   return {
     id: "fixture-plan",
     status,
@@ -309,6 +419,9 @@ function buildView(setup: PrepSetup, replace: Record<string, string> = {}, statu
     session: buildSession(setup, plan),
     explanation: EXPLANATION,
     explanationByAI: true,
+    options: optionViews(setup, Object.keys(replace).length ? null : option),
+    changes: changesFor(setup, plan),
+    adjusters: ADJUSTER_DISPLAY,
     wishes: setup.wishes
       ? { wishes: setup.wishes, recipeBonus: { "r-oats": 0.3 }, excludedRecipeIds: [], more: ["r-oats"], less: [], source: "ai" }
       : null,
@@ -339,6 +452,7 @@ interface FixtureState {
   setup: PrepSetup;
   progress: Record<string, TaskProgress>;
   subs: PrepPlanView["substitutions"];
+  option?: PlanOptionView["key"];
 }
 
 const STATE_KEY = "grammie-meal-prep-fixture-state";
@@ -361,21 +475,32 @@ function mergeSetup(sent: Partial<PrepSetup>, current: PrepSetup): PrepSetup {
   return { ...current, ...sent, people: FIXTURE_SETUP.people, days: Math.min(sent.days ?? current.days, 7) };
 }
 
+export const FIXTURE_COOKBOOKS: PrepCookbookChoice[] = [
+  { id: 1, name: "High Protein Low Cal", recipeCount: 200, role: "owner", coverImage: null },
+  { id: 2, name: "Family Favorites", recipeCount: 64, role: "owner", coverImage: null },
+  { id: 3, name: "Aunt Rose's Kitchen", recipeCount: 31, role: "editor", coverImage: null },
+  { id: 4, name: "Sunday Suppers", recipeCount: 18, role: "viewer", coverImage: null },
+];
+
+export const FIXTURE_SHAKES: PrepShakeChoice[] = SHAKE_CHOICES;
+
 const COOK_RECIPES = (view: PrepPlanView): CookView["recipes"] =>
   view.plan!.batches.map((b) => ({
     id: b.recipeId,
     title: view.recipeTitles[b.recipeId],
     servings: SERVINGS[b.recipeId] ?? 4,
     scale: b.scale,
-    ingredients: ["2 lb main protein", "1 onion, diced", "2 cloves garlic, minced", "1 tsp salt"],
+    ingredients: ["2 lb main protein", "1 onion, diced", "2 cloves garlic, minced", "1 tsp salt", "3 tbsp vegetable oil", "1 can beans", "1 cup sour cream"],
     instructions: ["Prepare the ingredients.", "Cook as the family recipe says.", "Cool before packing."],
+    swaps: (view.plan!.swapsApplied ?? []).filter((sw) => sw.recipeId === b.recipeId).map(({ swapId, title, goal, note, changes }) => ({ swapId, title, goal, note, changes })),
   }));
 
 export async function fixtureCall<T>(method: string, path: string, body?: unknown): Promise<{ status: number; data: T }> {
   const s = load();
   await wait(300);
   const view = (): PrepPlanView => {
-    const v = buildView(s.setup, s.replace, s.status ?? "draft");
+    const { __for: _for, ...replaced } = s.replace;
+    const v = buildView(s.setup, replaced, s.status ?? "draft", s.option ?? "balanced");
     const building = Date.now() < s.readyAt;
     return {
       ...v,
@@ -393,6 +518,8 @@ export async function fixtureCall<T>(method: string, path: string, body?: unknow
   };
 
   if (method === "GET" && path === "/profile") return ok(s.profile);
+  if (method === "GET" && path === "/cookbooks") return ok(FIXTURE_COOKBOOKS);
+  if (method === "GET" && path === "/shakes") return ok(FIXTURE_SHAKES);
   if (method === "PUT" && path === "/profile") {
     const b = body as { defaults: PrepProfile["defaults"]; walkthroughDone: boolean };
     s.profile = { defaults: b.defaults, walkthroughDone: b.walkthroughDone, updatedAt: new Date().toISOString() };
@@ -407,7 +534,7 @@ export async function fixtureCall<T>(method: string, path: string, body?: unknow
   }
   if (method === "POST" && path === "/plans") {
     s.setup = mergeSetup(body as PrepSetup, FIXTURE_SETUP);
-    s.status = "draft"; s.replace = {}; s.progress = {}; s.subs = [];
+    s.status = "draft"; s.replace = {}; s.progress = {}; s.subs = []; s.option = "balanced";
     return startBuild(201);
   }
   const m = path.match(/^\/plans\/[^/]+(\/[a-z-]+(?:\/seen)?)?$/);
@@ -416,12 +543,15 @@ export async function fixtureCall<T>(method: string, path: string, body?: unknow
     if (!s.status) throw new MealPrepApiError(404, "We couldn't find that plan.");
     if (method === "GET" && !action) return ok(view());
     if (method === "PATCH") {
-      const b = body as { status?: PrepPlanView["status"]; setup?: Partial<PrepSetup>; pin?: string[]; unpin?: string[]; exclude?: string[]; unexclude?: string[]; clearWishes?: boolean };
+      const b = body as { status?: PrepPlanView["status"]; setup?: Partial<PrepSetup>; pin?: string[]; unpin?: string[]; exclude?: string[]; unexclude?: string[]; clearWishes?: boolean; keepAsWritten?: string[]; allowSwapsAgain?: string[] };
       if (b.status) { s.status = b.status; return ok(view()); }
       const next = mergeSetup(b.setup ?? {}, s.setup);
       next.pinnedRecipeIds = Array.from(new Set([...(next.pinnedRecipeIds ?? []), ...(b.pin ?? [])])).filter((x) => !(b.unpin ?? []).includes(x));
       next.excludedRecipeIds = Array.from(new Set([...(next.excludedRecipeIds ?? []), ...(b.exclude ?? [])])).filter((x) => !(b.unexclude ?? []).includes(x));
       if (b.clearWishes) next.wishes = "";
+      const kept = new Set([...(next.excludedSwaps ?? []), ...(b.keepAsWritten ?? [])]);
+      for (const k of b.allowSwapsAgain ?? []) kept.delete(k);
+      next.excludedSwaps = kept.size ? Array.from(kept) : undefined;
       s.setup = next;
       return startBuild(200);
     }
@@ -440,6 +570,12 @@ export async function fixtureCall<T>(method: string, path: string, body?: unknow
       const out = s.replace.__for;
       const { __for, ...rest } = s.replace;
       s.replace = { ...rest, [out]: recipeId };
+      return ok(view());
+    }
+    if (action === "/options") {
+      const { key } = body as { key: PlanOptionView["key"] };
+      if (!OPTIONS.some((o) => o.key === key)) throw new MealPrepApiError(409, "That choice isn't available any more. Build the plan again to see fresh choices.");
+      s.option = key; s.replace = {};
       return ok(view());
     }
     if (action === "/approve") { s.status = "approved"; return ok(view()); }
@@ -464,6 +600,7 @@ export async function fixtureCall<T>(method: string, path: string, body?: unknow
       planId: v.id, sessionDate: v.sessionDate, days: s.setup.days, session: v.session, shopping: v.shopping,
       recipes: COOK_RECIPES(v), householdAllergies: ["peanuts"], progress: s.progress,
       substitutions: s.subs.map(({ id, ingredient, replacement, at, note }) => ({ id, ingredient, replacement, at, note })),
+      adjusters: v.adjusters,
       expiresAt: "2026-10-21T00:00:00Z",
     });
     if (c[2] === "/progress") {

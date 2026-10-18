@@ -21,6 +21,7 @@ import {
   type LabelLayout,
 } from "@/lib/meal-prep-format";
 import { cn } from "@/lib/utils";
+import { CookSwapBox, IngredientsWithSwaps } from "@/components/meal-prep/plan-changes";
 import { useCookData, useCookSource } from "./meal-prep-cook";
 import { printPage } from "@/lib/platform";
 
@@ -95,7 +96,7 @@ function Packet({ data, layout, owner }: { data: CookData; layout: LabelLayout; 
         </p>
         <h2 className="text-xl font-semibold">Dishes</h2>
         <ul className="list-disc pl-6">
-          {dishes.map((d) => <li key={d.id}>{d.title}{d.servingsMade ? ` — make ${formatServings(d.servingsMade)}` : ""}</li>)}
+          {dishes.map((d) => <li key={d.id}>{d.title}{d.servingsMade ? ` — make ${formatServings(d.servingsMade)}` : ""}{d.swaps?.length ? ` — with a swap: ${d.swaps.map((s) => s.changes?.map((c) => c.use).join("; ") || s.title).join("; ")}` : ""}</li>)}
         </ul>
         {data.householdAllergies.length > 0 && <p className="font-semibold">Allergies in this house: {data.householdAllergies.join(", ")}.</p>}
         <h2 className="text-xl font-semibold">Before the cooking day</h2>
@@ -174,9 +175,10 @@ function Packet({ data, layout, owner }: { data: CookData; layout: LabelLayout; 
               {d.servingsMade ? `Make ${formatServings(d.servingsMade)}` : "Make one batch"}
               {d.scale !== 1 ? ` — ${quarterFraction(d.scale)}× the recipe, so multiply every amount below by ${quarterFraction(d.scale)}` : ""}.
             </p>
+            <CookSwapBox swaps={d.swaps} scale={d.scale} className="mt-2" />
             {d.ingredients?.length ? (
               <div className="mt-2 grid gap-4 sm:grid-cols-[2fr_3fr] print:grid-cols-[2fr_3fr]">
-                <ul className="list-disc pl-5">{d.ingredients.map((x, i) => <li key={i}>{x}</li>)}</ul>
+                <IngredientsWithSwaps ingredients={d.ingredients} swaps={d.swaps} scale={d.scale} className="pl-5" />
                 <ol className="list-decimal pl-5">{d.instructions?.map((x, i) => <li key={i}>{x}</li>)}</ol>
               </div>
             ) : (
@@ -196,7 +198,7 @@ function Packet({ data, layout, owner }: { data: CookData; layout: LabelLayout; 
                 {session.labels.filter((l) => l.person === person).map((l) => (
                   <tr key={l.plateKey} className="border-b align-top">
                     <td className="py-1 pr-3">{labelSlotText(l, setup ?? undefined).replace(`${person} · `, "")}</td>
-                    <td className="py-1 pr-3">{l.portion}</td>
+                    <td className="py-1 pr-3">{l.portion}{l.swapNotes?.length ? <span className="block text-sm">{l.swapNotes.join("; ")}</span> : null}</td>
                     <td className="w-20 py-1">{l.storage === "freezer" ? "Freezer" : "Fridge"}</td>
                   </tr>
                 ))}
@@ -235,6 +237,7 @@ function LabelBody({ label, setup, compact }: { label: ContainerLabel; setup: Pr
       <div className="label-compact">
         <p className="font-semibold">{labelSlotText(label, setup ?? undefined)}</p>
         <p className="truncate">{label.title}</p>
+        {label.swapNotes?.length ? <p className="truncate">{label.swapNotes.join("; ")}</p> : null}
         <p>{label.storage === "freezer" ? "FREEZER · " : ""}{dates}</p>
         <p>{formatMacro("kcal", label.macros.kcal, approx)} · {formatMacro("protein", label.macros.protein, approx)}</p>
       </div>
@@ -248,6 +251,7 @@ function LabelBody({ label, setup, compact }: { label: ContainerLabel; setup: Pr
       </p>
       <p className="text-base font-semibold">{label.title}</p>
       <p>{label.portion}</p>
+      {label.swapNotes?.map((n) => <p key={n} className="font-semibold">{n}</p>)}
       <p>{dates}</p>
       <p>{formatMacro("kcal", label.macros.kcal, approx)} · {formatMacro("protein", label.macros.protein, approx)} · {formatMacro("carbs", label.macros.carbs, approx)} · {formatMacro("fat", label.macros.fat, approx)}</p>
       <p>Reheat: {label.reheat}</p>

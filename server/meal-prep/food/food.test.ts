@@ -112,7 +112,7 @@ describe("catalog seed", () => {
   });
 
   it("package sizes all point at catalog ingredients", () => {
-    for (const id of allPackageIds()) expect(catalog.byId.has(id), id).toBe(true);
+    for (const id of allPackageIds()) expect(catalog.byId.has(id) || id.startsWith("shake-"), id).toBe(true);
     expect(allPackageIds().length).toBeGreaterThanOrEqual(150);
     const eggs = packagesFor(["egg", "nothing"]);
     expect(eggs.egg[0]).toEqual({ label: "6 eggs", grams: 300 });
@@ -233,7 +233,7 @@ describe("storage", () => {
 describe("adjusters", () => {
   it("has ~15 clean add-ons with USDA macros per gram", () => {
     const a = buildAdjusters(catalog);
-    expect(a.length).toBe(15);
+    expect(a.filter((x) => !x.topUp || x.topUp === "chicken").length).toBe(15);
     const rice = a.find((x) => x.id === "rice-cooked")!;
     expect(rice.perGram.kcal).toBeCloseTo(1.3, 2);
     expect(rice.needsCooking).toBe(true);
@@ -252,7 +252,7 @@ describe("createFoodData", () => {
     const ids = (fixtureFacts as RecipeFacts[]).slice(0, 2).map((f) => f.recipeId);
     const got = await food.factsFor([...ids, "missing"]);
     expect(got.map((f) => f.recipeId)).toEqual(ids);
-    expect((await food.adjusters()).length).toBe(15);
+    expect((await food.adjusters()).length).toBe(22);
     expect((await food.packagesFor(["rice-white"]))["rice-white"].length).toBeGreaterThan(0);
     const n = await food.ingredientNutrition!(["almond milk", "chicken-thigh", "qqqq"]);
     expect(n["almond milk"]?.ingredient.id).toBe("almond-milk");

@@ -452,3 +452,186 @@ describe("credits", () => {
     expect(charged).toEqual([]);
   });
 });
+
+describe("plan from: cookbooks and favourites", () => {
+  it("lists the owner's cookbooks with recipe counts", async () => {
+    const recipes = ctx.deps.recipes as FakeRecipes;
+    recipes.cookbooks = [
+      { id: 7, name: "High Protein Low Cal", recipeCount: 2, role: "owner", coverImage: null, ownerId: "alice", recipeIds: ["r3", "r4"] },
+      { id: 9, name: "Bob's book", recipeCount: 1, role: "owner", coverImage: null, ownerId: "bob", recipeIds: ["b1"] },
+    ];
+    const res = await call("GET", "/cookbooks");
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([{ id: 7, name: "High Protein Low Cal", recipeCount: 2, role: "owner", coverImage: null }]);
+  });
+
+  it("plans only from the chosen cookbooks", async () => {
+    (ctx.deps.recipes as FakeRecipes).cookbooks = [
+      { id: 7, name: "High Protein Low Cal", recipeCount: 2, role: "owner", coverImage: null, ownerId: "alice", recipeIds: ["r3", "r4"] },
+    ];
+    const plan = await makePlan(sampleSetup({ recipeSource: { kind: "cookbooks", cookbookIds: [7] } }));
+    expect(plan.plan.batches.map((b: any) => b.recipeId).sort()).toEqual(["r3", "r4"]);
+    // someone else's cookbook gives nothing to plan from
+    const other = await call("POST", "/plans", sampleSetup({ recipeSource: { kind: "cookbooks", cookbookIds: [9] } }));
+    expect(other.body.buildStatus).toBe("failed");
+    expect(other.body.buildError).toMatch(/cookbooks don't have any recipes/);
+    expect((await call("POST", "/plans", sampleSetup({ recipeSource: { kind: "cookbooks", cookbookIds: [] } }))).status).toBe(400);
+  });
+
+  it("plans from favourites, and says so plainly when there are none", async () => {
+    (ctx.deps.recipes as FakeRecipes).favorites = { alice: ["r4", "r2"] };
+    const plan = await makePlan(sampleSetup({ recipeSource: { kind: "favorites" } }));
+    expect(plan.plan.batches.map((b: any) => b.recipeId).sort()).toEqual(["r2", "r4"]);
+    (ctx.deps.recipes as FakeRecipes).favorites = {};
+    const none = await call("POST", "/plans", sampleSetup({ recipeSource: { kind: "favorites" } }));
+    expect(none.body.buildError).toMatch(/haven't saved any favourites/);
+  });
+
+  it("keeps the new choices in the saved defaults", async () => {
+    const defaults = { recipeSource: { kind: "cookbooks", cookbookIds: [7] }, allowSwaps: false, topUps: "shake", dessertsPerWeek: 3, shakeId: "shake-core-power" };
+    const res = await call("PUT", "/profile", { defaults });
+    expect(res.status).toBe(200);
+    expect(res.body.defaults).toEqual(defaults);
+  });
+});
+
+describe("plan options", () => {
+  it("offers the planner's options and builds the timeline for the first only", async () => {
+    let sessions = 0;
+    const original = ctx.engines.session.session.bind(ctx.engines.session);
+    ctx.engines.session.session = async (...args) => { sessions++; return original(...args); };
+    const plan = await makePlan();
+    expect(sessions).toBe(1);
+    expect(plan.options.map((o: any) => [o.key, o.label, o.chosen])).toEqual([["balanced", "Best fit", true], ["variety", "Most variety", false]]);
+    expect(plan.options[1].dishes).toEqual([{ recipeId: "r3", title: "Fish Tacos" }, { recipeId: "r4", title: "Beef Stew" }]);
+    expect(plan.options[0]).toMatchObject({ handsOnMinutes: 40, proteinPct: 50, fitScore: 80, swapCount: 0, topUpCount: 0 });
+
+    // Picking another option builds its list and timeline once, and switching back costs nothing
+    const picked = await call("POST", `/plans/${plan.id}/options`, { key: "variety" });
+    expect(picked.status).toBe(200);
+    expect(picked.body.plan.batches.map((b: any) => b.recipeId)).toEqual(["r3", "r4"]);
+    expect(picked.body.options.find((o: any) => o.chosen).key).toBe("variety");
+    expect(sessions).toBe(2);
+    const back = await call("POST", `/plans/${plan.id}/options`, { key: "balanced" });
+    expect(back.body.plan.batches.map((b: any) => b.recipeId)).toEqual(["r1", "r2"]);
+    expect(back.body.session.tasks.map((t: any) => t.id)).toEqual(["t-r1", "t-r2"]);
+    expect(sessions).toBe(2);
+    expect((await call("POST", `/plans/${plan.id}/options`, { key: "quick" })).status).toBe(409);
+  });
+
+  it("charges once for a plan with options, not for picking one", async () => {
+    await new Promise(r => ctx.server.close(r));
+    const charged: string[] = [];
+    ctx = await setup({ credits: { canStart: async () => true, charge: async (o, id) => { charged.push(`${o}:${id}`); } } });
+    const plan = await makePlan();
+    await call("POST", `/plans/${plan.id}/options`, { key: "variety" });
+    expect(charged).toEqual([`alice:${plan.id}`]);
+  });
+
+  it("still plans when the planner can't offer options yet", async () => {
+    ctx.engines.planner.offersOptions = false;
+    const plan = await makePlan();
+    expect(plan.buildStatus).toBe("ready");
+    expect(plan.options.map((o: any) => o.key)).toEqual(["balanced"]);
+  });
+});
+
+describe("recipe swaps and top-ups", () => {
+  const swap = {
+    id: "sour-cream->greek-yogurt-nonfat", goal: "both" as const, title: "Greek yogurt instead of sour cream",
+    changes: [{ lineIndex: 0, from: "1 cup sour cream", to: { id: "greek-yogurt-nonfat", name: "Nonfat Greek yogurt", aisle: "Dairy & Eggs" as const }, toGrams: 245, toDisplay: "1 cup nonfat Greek yogurt" }],
+    perServingDelta: { kcal: -95, protein: 14, carbs: 1, fat: -11 }, confidence: "high" as const, source: "standard" as const,
+  };
+  const shake = {
+    id: "shake-core-power", name: "Protein shake", ingredient: { id: "protein-shake", name: "Protein shake", aisle: "Beverages" as const },
+    perGram: { kcal: 0.41, protein: 0.0628, carbs: 0.02, fat: 0.011 }, stepGrams: 414, maxGrams: 414, slots: ["lunch" as const],
+    needsCooking: false, storage: { fridgeDays: 30, freezerDays: null, reheat: "", notes: [], reheatsWell: false },
+    topUp: "shake" as const, product: "Fairlife Core Power 26g", unitGrams: 414,
+  };
+  const chicken = { ...shake, id: "chicken-breast-cooked", name: "Chicken breast (cooked)", topUp: "chicken" as const, product: undefined, unitGrams: undefined };
+
+  beforeEach(() => {
+    ctx.engines.food.facts = ctx.engines.food.facts.map(f => (f.recipeId === "r1" ? { ...f, swaps: [swap] } : f));
+    ctx.engines.food.adjusterList = [shake, chicken, { ...shake, id: "shake-premier", product: "Premier Protein 30g" }];
+    ctx.engines.planner.useSwaps = { r1: [swap.id] };
+  });
+
+  it("calls out every swap: on the plan, in the changes and in the plain explanation", async () => {
+    ctx.ai.explain = "This plan covers 3 days with 2 dishes.";
+    const plan = await makePlan();
+    expect(plan.plan.batches[0].swapIds).toEqual([swap.id]);
+    const applied = plan.plan.swapsApplied[0];
+    expect(applied.changes).toEqual([{ lineIndex: 0, from: "1 cup sour cream", toDisplay: "1 cup nonfat Greek yogurt", use: "Use nonfat Greek yogurt instead of sour cream (1 cup)" }]);
+    expect(plan.changes.swaps).toEqual([expect.objectContaining({ dish: "Mom's Chili", title: "Greek yogurt instead of sour cream", note: "Greek yogurt instead of sour cream: +14 g protein, 95 fewer calories per serving" })]);
+    expect(plan.options[0].swapCount).toBe(1);
+    // The model's text didn't mention the swap, so the plain words are used
+    expect(plan.explanationByAI).toBe(false);
+    expect(plan.explanation).toMatch(/We made one swap: in Mom's Chili, Greek yogurt instead of sour cream: \+14 g protein, 95 fewer calories per serving\./);
+  });
+
+  it("uses the model's words when they name the swap", async () => {
+    ctx.ai.explain = "This plan covers 3 days with 2 dishes, and the Chili uses Greek yogurt instead of sour cream.";
+    const plan = await makePlan();
+    expect(plan.explanationByAI).toBe(true);
+  });
+
+  it("'Keep it as written' re-plans without that swap, and it can be allowed again", async () => {
+    const plan = await makePlan();
+    const key = `r1:${swap.id}`;
+    const kept = await call("PATCH", `/plans/${plan.id}`, { keepAsWritten: [key] });
+    expect(kept.status).toBe(200);
+    expect(kept.body.setup.excludedSwaps).toEqual([key]);
+    expect(kept.body.plan.batches[0].swapIds).toBeUndefined();
+    expect(kept.body.changes.swaps).toEqual([]);
+    // The planner never saw the swap
+    const lastFacts = ctx.engines.planner.calls[ctx.engines.planner.calls.length - 1].facts!;
+    expect(lastFacts.find(f => f.recipeId === "r1")!.swaps).toEqual([]);
+    const again = await call("PATCH", `/plans/${plan.id}`, { allowSwapsAgain: [key] });
+    expect(again.body.setup.excludedSwaps).toBeUndefined();
+    expect(again.body.changes.swaps).toHaveLength(1);
+  });
+
+  it("uses one shake brand: the chosen one by its brand id", async () => {
+    ctx.engines.food.adjusterList = [{ ...shake, id: "shake-premier-protein-30g" }, { ...shake, id: "shake-fairlife-core-power-26g" }, chicken];
+    await makePlan(sampleSetup({ topUps: "both", shakeId: "fairlife-core-power-26g" }));
+    expect(ctx.engines.planner.calls[0].adjusters!.map(a => a.id)).toEqual(["shake-fairlife-core-power-26g", "chicken-breast-cooked"]);
+    await makePlan(sampleSetup({ topUps: "shake" }));
+    expect(ctx.engines.planner.calls[1].adjusters!.map(a => a.id)).toEqual(["shake-premier-protein-30g"]);
+  });
+
+  it("turns swaps off entirely, and limits top-ups to what the owner allows", async () => {
+    const plan = await makePlan(sampleSetup({ allowSwaps: false, topUps: "shake", shakeId: "shake-core-power" }));
+    expect(plan.changes.swaps).toEqual([]);
+    const call0 = ctx.engines.planner.calls[0];
+    expect(call0.facts!.every(f => !f.swaps?.length)).toBe(true);
+    expect(call0.adjusters!.map(a => a.id)).toEqual(["shake-core-power"]);
+    await makePlan(sampleSetup({ topUps: "none" }));
+    expect(ctx.engines.planner.calls[ctx.engines.planner.calls.length - 1].adjusters).toEqual([]);
+  });
+
+  it("lists the shakes to choose from, and names shake top-ups in bottles", async () => {
+    const shakes = await call("GET", "/shakes");
+    expect(shakes.body).toContainEqual({ id: "premier-protein-30g", product: "Premier Protein", proteinPerBottle: 30, kcalPerBottle: 160, isDefault: true });
+    expect(shakes.body).toContainEqual({ id: "fairlife-core-power-26g", product: "Fairlife Core Power", proteinPerBottle: 26, kcalPerBottle: 170, isDefault: false });
+    const original = ctx.engines.planner.plan.bind(ctx.engines.planner);
+    ctx.engines.planner.plan = async (...args) => {
+      const p = await original(...args);
+      for (const plate of p.plates.filter(x => x.personId === "p1" && x.slot === "lunch")) {
+        plate.items.push({ kind: "adjuster", refId: "shake-core-power", amount: 414, grams: 414, macros: { kcal: 170, protein: 26, carbs: 8, fat: 4.5 } });
+      }
+      return p;
+    };
+    const plan = await makePlan();
+    expect(plan.adjusters["shake-core-power"]).toMatchObject({ product: "Fairlife Core Power 26g", unitGrams: 414, proteinPerUnit: 26 });
+    expect(plan.changes.topUps).toEqual([expect.objectContaining({ personId: "p1", kind: "shake", count: 3, text: "Mom: 3 bottles Fairlife Core Power (26 g protein each) over the week" })]);
+    expect(plan.options[0].topUpCount).toBe(3);
+  });
+
+  it("shows the cook what to use instead", async () => {
+    const plan = await makePlan();
+    const share = await call("POST", `/plans/${plan.id}/share`, {});
+    const cook = await call("GET", `/cook/${share.body.token}`, undefined, null);
+    expect(cook.body.recipes[0].swaps).toEqual([expect.objectContaining({ title: "Greek yogurt instead of sour cream", changes: [expect.objectContaining({ use: expect.stringMatching(/^Use nonfat Greek yogurt instead of sour cream/) })] })]);
+    expect(cook.body.recipes[1].swaps).toEqual([]);
+  });
+});

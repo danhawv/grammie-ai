@@ -5,6 +5,7 @@ import { humanAmount, countedWeight, niceNumber } from "@shared/meal-prep/amount
 import { componentFor, isCookedLine, rawGrams, type ComponentDef } from "./components";
 import { normalizePrepForm, scaleTask, verbFor } from "./structure";
 import type { RecipeSteps, RecipeTask } from "./types";
+import { packedPart, shakeIds } from "./swaps";
 
 // Builds the session's task graph from each batch's structured steps:
 //  - scales and pads task times (batch size, cook's skill)
@@ -29,8 +30,11 @@ export interface GraphTask extends PrepTask {
 
 export interface BatchInput {
   batch: CookBatch;
+  /** the recipe as cooked in this plan (swapped lines already replaced) */
   facts: RecipeFacts;
   steps: RecipeSteps;
+  /** swapped lines: line index -> "Use nonfat Greek yogurt instead of sour cream (1 cup)" */
+  swapUses?: Map<number, string>;
 }
 
 export interface SessionGraph {
@@ -103,12 +107,13 @@ function lineUse(facts: RecipeFacts, index: number, fraction: number, scale: num
   return { lineIndex: index, line, grams: line?.grams != null ? line.grams * fraction * scale : null };
 }
 
-/** Plates that need a container: everything kept in the fridge or freezer */
-function storedPlates(plan: PrepPlan): Plate[] {
-  return plan.plates.filter((p) => p.storage !== "fresh");
+/** Plates that need a container: everything kept in the fridge or freezer, without bottled shakes */
+function storedPlates(plan: PrepPlan, adjusters: Adjuster[]): Plate[] {
+  const shakes = shakeIds(adjusters);
+  return plan.plates.filter((p) => p.storage !== "fresh").map((p) => packedPart(p, shakes)).filter((p): p is Plate => !!p);
 }
 
-const SLOT_ORDER: MealSlot[] = ["breakfast", "lunch", "dinner", "snack"];
+const SLOT_ORDER: MealSlot[] = ["breakfast", "lunch", "dinner", "snack", "dessert"];
 
 export function buildGraph(setup: PrepSetup, plan: PrepPlan, batches: BatchInput[], adjusters: Adjuster[]): SessionGraph {
   const pad = 1 + (SKILL_PAD[setup.session.skill] ?? 0.1);
@@ -124,6 +129,8 @@ export function buildGraph(setup: PrepSetup, plan: PrepPlan, batches: BatchInput
   const cutCandidates: Array<{ task: GraphTask; recipeId: string; use: LineUse; form: string; canonical: string }> = [];
   const componentCuts: Array<{ taskId: string; def: ComponentDef; note: string }> = [];
   const componentAtPortion: Array<{ recipeId: string; def: ComponentDef }> = [];
+  /** swaps no step names its line for: said up front in the mise en place list instead */
+  const swapReminders: Array<{ id: string; text: string; recipeIds: string[] }> = [];
 
   batches.forEach((b, bi) => {
     const { facts, steps, batch } = b;
@@ -144,6 +151,7 @@ export function buildGraph(setup: PrepSetup, plan: PrepPlan, batches: BatchInput
       if (def) componentLines.set(line.index, def);
     }
     const componentDependents = new Map<ComponentDef, string[]>();
+    const swapCovered = new Set<number>();
 
     for (const t of steps.tasks) {
       const scaled = scaleTask(t, batch.scale);
@@ -167,6 +175,10 @@ export function buildGraph(setup: PrepSetup, plan: PrepPlan, batches: BatchInput
         vessel: t.vessel ? { key: `${prefix}:${t.vessel}`, kind: t.vessel } : null,
         ...(t.heat === "oven" ? { ovenMode: isRoast(t) ? "roast" as const : "bake" as const } : {}),
       };
+      // Swapped ingredients are called out on every step that uses them
+      const uses = Array.from(new Set(t.ingredients.map((g) => b.swapUses?.get(g.index)).filter((u): u is string => !!u)));
+      if (uses.length) gt.text = `${gt.text.replace(/[.\s]+$/, "")}. ${uses.join(". ")}`;
+      for (const g of t.ingredients) if (b.swapUses?.has(g.index)) swapCovered.add(g.index);
       // Cutting an already-cooked component ("dice the cooked chicken") is
       // folded into the component's last step instead
       if (t.kind === "prep" && t.ingredients.length === 1 && componentLines.has(t.ingredients[0].index)) {
@@ -206,10 +218,13 @@ export function buildGraph(setup: PrepSetup, plan: PrepPlan, batches: BatchInput
     sinksByRecipe.set(facts.recipeId, steps.tasks.filter((t) => !dependedOn.has(t.id) && t.kind !== "prep").map((t) => id(t.id)));
     if (!sinksByRecipe.get(facts.recipeId)!.length) sinksByRecipe.set(facts.recipeId, steps.tasks.slice(-1).map((t) => id(t.id)));
     for (const s of steps.atServing) notes.push(`${name}, at mealtime: ${s}`);
+    for (const [index, use] of Array.from(b.swapUses ?? [])) {
+      if (!swapCovered.has(index)) swapReminders.push({ id: id(`swap${index}`), text: `${name}: ${use}`, recipeIds: [facts.recipeId] });
+    }
   });
 
   // ---- 2. Merge the same cut of the same ingredient ----
-  const mise: SessionGraph["mise"] = [];
+  const mise: SessionGraph["mise"] = [...swapReminders];
   const replaced = new Map<string, string>();
   const groups = new Map<string, typeof cutCandidates>();
   for (const c of cutCandidates) {
@@ -383,7 +398,7 @@ function addPortioning(
 ): { containers: number; containerGrams: number[]; fridgeCount: number; freezerCount: number } {
   const adjusterById = new Map(adjusters.map((a) => [a.id, a]));
   const people = new Map(setup.people.map((p) => [p.id, p.name]));
-  const plates = storedPlates(plan).sort((a, b) => a.day - b.day || SLOT_ORDER.indexOf(a.slot) - SLOT_ORDER.indexOf(b.slot));
+  const plates = storedPlates(plan, adjusters).sort((a, b) => a.day - b.day || SLOT_ORDER.indexOf(a.slot) - SLOT_ORDER.indexOf(b.slot));
   const groups = new Map<string, Plate[]>();
   for (const p of plates) {
     const main = p.items.find((i) => i.kind === "recipe") ?? p.items[0];
