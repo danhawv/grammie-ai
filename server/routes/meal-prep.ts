@@ -8,7 +8,7 @@ import crypto from "node:crypto";
 import { Router, type RequestHandler, type Response } from "express";
 import { z } from "zod";
 import type { Adjuster, PrepSetup } from "@shared/meal-prep/contract";
-import type { PrepShakeChoice, PrepSubstitution, StoredPlanOptions, SwapOptionView } from "@shared/meal-prep/api";
+import type { PrepShakeChoice, PrepSubstitution, StoredPlanOptions, SwapOptionView, ThisWeekAddResult } from "@shared/meal-prep/api";
 import { productName } from "@shared/meal-prep/callouts";
 import { DEFAULT_SHAKE_ID, PROTEIN_SHAKES } from "@shared/meal-prep/shakes";
 import type { PrepPlanRow, PrepPlanShareRow, PrepRecipes, PrepStore } from "../meal-prep/store";
@@ -21,7 +21,7 @@ import { instacartLineItems } from "../meal-prep/instacart";
 import { limit, mealPrepLimiters } from "../meal-prep/limits";
 import {
   approveSchema, checkinSchema, chooseOptionSchema, chooseSwapSchema, firstIssue, patchPlanSchema, prepSetupSchema,
-  progressSchema, putProfileSchema, shareSchema, substitutionSchema, swapSchema,
+  progressSchema, putProfileSchema, shareSchema, substitutionSchema, swapSchema, thisWeekRecipeSchema, type PatchPlanInput,
 } from "../meal-prep/validation";
 import {
   buildPlan, effectiveSetup, factsForPlan, finishPlan, PrepProblem, requireEngines, withSwapDetails, type MealPrepDeps,
@@ -30,6 +30,7 @@ import { emptyWishes, withoutWishFor } from "../meal-prep/wishes";
 import { hashShareToken, looksLikeShareToken, newShareToken, shareExpiry, shareState } from "../meal-prep/share";
 import { applySubstitution } from "../meal-prep/substitution";
 import { toCookView, toPlanSummary, toPlanView, toShareView } from "../meal-prep/views";
+import { currentPlan, nextEatingDay, nextSessionDate, setupFromProfile } from "../meal-prep/this-week";
 
 export interface MealPrepRouterDeps {
   store: PrepStore;
@@ -138,8 +139,8 @@ export function createMealPrepRouter(deps: MealPrepRouterDeps): Router {
     return res.status(status).json(toPlanView(row, progress, adjusters));
   }
 
-  /** Starts a build and waits a moment: 201/200 with the plan if it finished, else 202 to poll */
-  async function startBuild(res: Response, row: PrepPlanRow, reuse: PrepPlanRow["wishesResult"], doneStatus: number) {
+  /** Starts solving a plan in the background (charging credits when it's a new plan that built) */
+  function launchBuild(row: PrepPlanRow, reuse: PrepPlanRow["wishesResult"]): Promise<PrepPlanRow | null> {
     const job = buildPlan(service, row, reuse)
       .then(async built => {
         if (built?.buildStatus === "ready" && deps.credits) {
@@ -149,6 +150,12 @@ export function createMealPrepRouter(deps: MealPrepRouterDeps): Router {
       })
       .finally(() => building.delete(row.id));
     building.set(row.id, job);
+    return job;
+  }
+
+  /** Starts a build and waits a moment: 201/200 with the plan if it finished, else 202 to poll */
+  async function startBuild(res: Response, row: PrepPlanRow, reuse: PrepPlanRow["wishesResult"], doneStatus: number) {
+    const job = launchBuild(row, reuse);
     let timer: NodeJS.Timeout | undefined;
     const finished = await Promise.race([
       job.then(r => r),
@@ -268,39 +275,121 @@ export function createMealPrepRouter(deps: MealPrepRouterDeps): Router {
       requireEngines(service);
       if (overPlanLimit(req, res)) return;
 
-      const merged: PrepSetup = { ...row.setup, ...(changes.setup ?? {}) } as PrepSetup;
-      const pinned = new Set(merged.pinnedRecipeIds ?? []);
-      const excluded = new Set(merged.excludedRecipeIds ?? []);
-      for (const id of changes.pin ?? []) { pinned.add(id); excluded.delete(id); }
-      for (const id of changes.unpin ?? []) pinned.delete(id);
-      for (const id of changes.exclude ?? []) { excluded.add(id); pinned.delete(id); }
-      for (const id of changes.unexclude ?? []) excluded.delete(id);
-      merged.pinnedRecipeIds = Array.from(pinned);
-      merged.excludedRecipeIds = Array.from(excluded);
-      // "Keep it as written": the swap stays off for this plan's re-plans
-      const keep = new Set(merged.excludedSwaps ?? []);
-      for (const key of changes.keepAsWritten ?? []) keep.add(key);
-      for (const key of changes.allowSwapsAgain ?? []) keep.delete(key);
-      merged.excludedSwaps = keep.size > 0 ? Array.from(keep) : undefined;
-      if (changes.wishes !== undefined) merged.wishes = changes.wishes || undefined;
-
-      const setup = await checkRecipes(row.ownerUserId, prepSetupSchema.parse(merged) as PrepSetup);
-
-      // Reuse what the wishes became unless the text changed; the owner's
-      // pins and put-backs override the wishes for those dishes
-      let reuse = row.wishesResult;
-      if (changes.clearWishes) reuse = emptyWishes((setup.wishes ?? "").trim());
-      if (reuse) reuse = withoutWishFor(reuse, [...(changes.pin ?? []), ...(changes.unexclude ?? [])]);
-
-      const updated = await deps.store.updatePlan(row.id, {
-        setup,
-        sessionDate: setup.session.date,
-        buildStatus: "building",
-        buildError: null,
-        wishesResult: reuse,
-      });
-      await startBuild(res, updated ?? row, reuse, 200);
+      const { row: updated, reuse } = await applyChanges(row, changes);
+      await startBuild(res, updated, reuse, 200);
     } catch (err) { fail(res, err, "changing the plan"); }
+  });
+
+  /**
+   * A draft plan's setup with the owner's changes (pins, exclusions, setup
+   * fields, wishes, swaps kept as written) folded in and saved, marked
+   * building. Shared by PATCH and "Add to this week's meal prep". The caller
+   * starts the build.
+   */
+  async function applyChanges(row: PrepPlanRow, changes: Omit<PatchPlanInput, "status">): Promise<{ row: PrepPlanRow; reuse: PrepPlanRow["wishesResult"] }> {
+    const merged: PrepSetup = { ...row.setup, ...(changes.setup ?? {}) } as PrepSetup;
+    const pinned = new Set(merged.pinnedRecipeIds ?? []);
+    const excluded = new Set(merged.excludedRecipeIds ?? []);
+    for (const id of changes.pin ?? []) { pinned.add(id); excluded.delete(id); }
+    for (const id of changes.unpin ?? []) pinned.delete(id);
+    for (const id of changes.exclude ?? []) { excluded.add(id); pinned.delete(id); }
+    for (const id of changes.unexclude ?? []) excluded.delete(id);
+    merged.pinnedRecipeIds = Array.from(pinned);
+    merged.excludedRecipeIds = Array.from(excluded);
+    // "Keep it as written": the swap stays off for this plan's re-plans
+    const keep = new Set(merged.excludedSwaps ?? []);
+    for (const key of changes.keepAsWritten ?? []) keep.add(key);
+    for (const key of changes.allowSwapsAgain ?? []) keep.delete(key);
+    merged.excludedSwaps = keep.size > 0 ? Array.from(keep) : undefined;
+    if (changes.wishes !== undefined) merged.wishes = changes.wishes || undefined;
+
+    const setup = await checkRecipes(row.ownerUserId, prepSetupSchema.parse(merged) as PrepSetup);
+
+    // Reuse what the wishes became unless the text changed; the owner's
+    // pins and put-backs override the wishes for those dishes
+    let reuse = row.wishesResult;
+    if (changes.clearWishes) reuse = emptyWishes((setup.wishes ?? "").trim());
+    if (reuse) reuse = withoutWishFor(reuse, [...(changes.pin ?? []), ...(changes.unexclude ?? [])]);
+
+    const updated = await deps.store.updatePlan(row.id, {
+      setup,
+      sessionDate: setup.session.date,
+      buildStatus: "building",
+      buildError: null,
+      wishesResult: reuse,
+    });
+    return { row: updated ?? row, reuse };
+  }
+
+  // ---------------------------------------------------------------- "Add to this week's meal prep"
+
+  /**
+   * One recipe from its "…" menu joins this week's plan. A draft gets the
+   * dish pinned and is planned again; an approved week is locked, so the
+   * ingredients go straight onto the grocery list (and the dish onto the
+   * calendar); no plan yet means a new draft from the saved defaults, or the
+   * walkthrough when there are none. Answers are in ThisWeekAddResult.
+   */
+  router.post("/this-week/recipes", ...signedIn, async (req, res) => {
+    try {
+      const { recipeId } = thisWeekRecipeSchema.parse(req.body ?? {});
+      const ownerId = owner(req)!;
+      const usable = await deps.recipes.usableRecipeIds(ownerId, [recipeId]);
+      if (usable.length === 0) return res.status(404).json({ error: "We couldn't find that recipe." });
+
+      const today = now().toISOString().slice(0, 10);
+      const plans = await deps.store.listPlans(ownerId, 30);
+      const current = currentPlan(plans, today);
+      const answer = (status: number, body: ThisWeekAddResult) => {
+        res.setHeader("Cache-Control", "no-store");
+        return res.status(status).json(body);
+      };
+
+      if (current) {
+        const planId = current.id;
+        const planName = prepPlanName(current.setup);
+        if (current.status === "draft") {
+          if ((current.setup.pinnedRecipeIds ?? []).includes(recipeId)) return answer(200, { outcome: "already", planId, planName });
+          if (building.has(planId)) return res.status(409).json({ error: "Still working on the last change. Try again in a moment." });
+          requireEngines(service);
+          if (overPlanLimit(req, res)) return;
+          const { row, reuse } = await applyChanges(current, { pin: [recipeId] });
+          launchBuild(row, reuse).catch(err => console.error("[MealPrep] Re-planning after a pin failed:", err));
+          return answer(200, { outcome: "pinned", planId, planName });
+        }
+        // Approved: the week is set, so the dish joins the shopping (and the calendar) as is
+        if ((current.plan?.batches ?? []).some(b => b.recipeId === recipeId)) return answer(200, { outcome: "already", planId, planName });
+        await deps.integrations.addRecipeToGroceryList(ownerId, recipeId, 1);
+        let calendarAdded = false;
+        const day = current.calendarMealPlanId ? nextEatingDay(current.setup, today) : null;
+        if (current.calendarMealPlanId && day !== null) {
+          try {
+            calendarAdded = await deps.integrations.addCalendarEntry(ownerId, current.calendarMealPlanId, {
+              date: eatingDate(current.setup, day),
+              mealSlot: "dinner",
+              recipeId,
+              scaledServings: Math.max(1, current.setup.people.length),
+              notes: "Added from your recipes",
+            });
+          } catch (err) {
+            console.warn("[MealPrep] Couldn't add the dish to the calendar:", (err as Error).message);
+          }
+        }
+        return answer(200, { outcome: "grocery", planId, planName, calendarAdded });
+      }
+
+      // No plan this week: start one from the saved answers, or ask for them
+      const profile = await deps.store.getProfile(ownerId);
+      const setup = profile?.walkthroughDone ? setupFromProfile(profile.defaults, nextSessionDate(plans, today), [recipeId]) : null;
+      if (!setup) return answer(200, { outcome: "needsSetup" });
+      requireEngines(service);
+      if (overPlanLimit(req, res)) return;
+      const checked = await checkRecipes(ownerId, prepSetupSchema.parse(setup) as PrepSetup);
+      if (deps.credits && !(await deps.credits.canStart(res, ownerId))) return;
+      const row = await deps.store.createPlan(ownerId, checked);
+      launchBuild(row, null).catch(err => console.error("[MealPrep] Planning a new week failed:", err));
+      return answer(201, { outcome: "created", planId: row.id, planName: prepPlanName(checked) });
+    } catch (err) { fail(res, err, "adding the recipe to this week's meal prep"); }
   });
 
   // ---------------------------------------------------------------- swaps

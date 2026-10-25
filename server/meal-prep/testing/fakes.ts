@@ -272,6 +272,18 @@ export class FakeRecipes implements PrepRecipes {
 export class FakeIntegrations implements PrepIntegrations {
   calendar: Array<{ ownerId: string; name: string; startDate: string; endDate: string; entries: CalendarEntry[] }> = [];
   grocery: Array<{ ownerId: string; lines: GroceryLine[]; mode: string; mealPlanId: string | null }> = [];
+  /** single recipes added straight to the grocery list */
+  groceryRecipes: Array<{ ownerId: string; recipeId: string; scale: number }> = [];
+  /** single dishes added to an existing calendar plan */
+  calendarEntries: Array<{ ownerId: string; mealPlanId: string; entry: CalendarEntry }> = [];
+  async addRecipeToGroceryList(ownerId: string, recipeId: string, scale: number) {
+    this.groceryRecipes.push({ ownerId, recipeId, scale });
+  }
+  async addCalendarEntry(ownerId: string, mealPlanId: string, entry: CalendarEntry) {
+    if (!this.calendar.some((_c, i) => `cal-${i + 1}` === mealPlanId && this.calendar[i].ownerId === ownerId)) return false;
+    this.calendarEntries.push({ ownerId, mealPlanId, entry });
+    return true;
+  }
   async pushToCalendar(ownerId: string, plan: { name: string; startDate: string; endDate: string; entries: CalendarEntry[] }) {
     this.calendar.push({ ownerId, ...plan });
     return `cal-${this.calendar.length}`;

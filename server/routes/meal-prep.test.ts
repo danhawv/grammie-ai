@@ -635,3 +635,97 @@ describe("recipe swaps and top-ups", () => {
     expect(cook.body.recipes[1].swaps).toEqual([]);
   });
 });
+
+describe("add to this week's meal prep", () => {
+  // The sample plan cooks Sat Oct 18 and is eaten Oct 19-21; "today" is the Saturday before
+  beforeEach(async () => {
+    await new Promise(r => ctx.server.close(r));
+    ctx = await setup({ now: () => new Date("2026-10-17T15:00:00Z") });
+  });
+
+  const add = (recipeId: string, user = "alice") => call("POST", "/this-week/recipes", { recipeId }, user);
+  const settle = () => new Promise(r => setTimeout(r, 250));
+
+  it("pins the dish on a draft plan and plans again, once", async () => {
+    const plan = await makePlan();
+    const res = await add("r3");
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ outcome: "pinned", planId: plan.id, planName: "Meal prep · Oct 18" });
+    await settle();
+    const after = (await call("GET", `/plans/${plan.id}`)).body;
+    expect(after.buildStatus).toBe("ready");
+    expect(after.setup.pinnedRecipeIds).toEqual(["r3"]);
+    expect(after.plan.batches.map((b: any) => b.recipeId)).toContain("r3");
+    const solved = ctx.engines.planner.calls.length;
+
+    const again = await add("r3");
+    expect(again.body).toEqual({ outcome: "already", planId: plan.id, planName: "Meal prep · Oct 18" });
+    expect(ctx.engines.planner.calls).toHaveLength(solved);
+    expect(ctx.integrations.groceryRecipes).toEqual([]);
+  });
+
+  it("puts the ingredients on the grocery list and the dish on the calendar when the week is approved", async () => {
+    const plan = await makePlan();
+    await call("POST", `/plans/${plan.id}/approve`, {});
+    const res = await add("r3");
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ outcome: "grocery", planId: plan.id, planName: "Meal prep · Oct 18", calendarAdded: true });
+    expect(ctx.integrations.groceryRecipes).toEqual([{ ownerId: "alice", recipeId: "r3", scale: 1 }]);
+    expect(ctx.integrations.calendarEntries).toHaveLength(1);
+    expect(ctx.integrations.calendarEntries[0]).toMatchObject({
+      mealPlanId: "cal-1",
+      entry: { date: "2026-10-19", mealSlot: "dinner", recipeId: "r3", scaledServings: 2 },
+    });
+    // nothing was re-planned
+    expect(ctx.engines.planner.calls).toHaveLength(1);
+    // a dish already in the approved plan isn't bought twice
+    expect((await add("r1")).body.outcome).toBe("already");
+    expect(ctx.integrations.groceryRecipes).toHaveLength(1);
+  });
+
+  it("says so when the calendar can't take the dish, but still adds the groceries", async () => {
+    const plan = await makePlan();
+    await call("POST", `/plans/${plan.id}/approve`, { addToCalendar: false });
+    const res = await add("r3");
+    expect(res.body).toMatchObject({ outcome: "grocery", calendarAdded: false });
+    expect(ctx.integrations.groceryRecipes).toHaveLength(1);
+  });
+
+  it("starts a new plan from the saved answers when there is none this week", async () => {
+    const { people, kitchen } = sampleSetup();
+    await call("PUT", "/profile", { defaults: { people, kitchen, days: 4 }, walkthroughDone: true });
+    const res = await add("r3");
+    expect(res.status).toBe(201);
+    expect(res.body).toMatchObject({ outcome: "created", planName: "Meal prep · Oct 18" });
+    await settle();
+    const plan = (await call("GET", `/plans/${res.body.planId}`)).body;
+    expect(plan.status).toBe("draft");
+    expect(plan.buildStatus).toBe("ready");
+    expect(plan.sessionDate).toBe("2026-10-18");
+    expect(plan.setup.days).toBe(4);
+    expect(plan.setup.pinnedRecipeIds).toEqual(["r3"]);
+    expect(plan.plan.batches.map((b: any) => b.recipeId)).toContain("r3");
+    // now it's this week's plan, so the next dish is pinned onto it
+    expect((await add("r4")).body).toMatchObject({ outcome: "pinned", planId: res.body.planId });
+  });
+
+  it("asks for the walkthrough when there are no saved answers, and after plans are finished", async () => {
+    expect((await add("r3")).body).toEqual({ outcome: "needsSetup" });
+    expect((await call("GET", "/plans")).body).toEqual([]);
+    // answers without people don't count either
+    await call("PUT", "/profile", { defaults: { days: 4 }, walkthroughDone: true });
+    expect((await add("r3")).body).toEqual({ outcome: "needsSetup" });
+    // a finished plan isn't this week's any more
+    const plan = await makePlan();
+    await call("PATCH", `/plans/${plan.id}`, { status: "done" });
+    expect((await add("r3")).body).toEqual({ outcome: "needsSetup" });
+  });
+
+  it("refuses recipes the owner can't open", async () => {
+    await makePlan();
+    expect((await add("b1")).status).toBe(404);
+    expect((await add("nope")).status).toBe(404);
+    expect((await add("r3", "bob")).status).toBe(404);
+    expect((await call("POST", "/this-week/recipes", {})).status).toBe(400);
+  });
+});

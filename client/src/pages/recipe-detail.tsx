@@ -37,6 +37,7 @@ import { RecipeSteps } from "@/components/recipe/recipe-steps";
 import { RecipeNotes } from "@/components/recipe/recipe-notes";
 import { RecipeExtras } from "@/components/recipe/recipe-extras";
 import { RecipeActionsMenu } from "@/components/recipe/recipe-actions";
+import { useAddToMealPrep } from "@/hooks/use-add-to-meal-prep";
 import { RecipePrintView } from "@/components/recipe/recipe-print-view";
 import { RecipeTrackerSheet } from "@/components/recipe/recipe-tracker-sheet";
 import { getDisplayIngredients, getDisplayInstructions } from "@/components/recipe/recipe-utils";
@@ -76,6 +77,7 @@ export default function RecipeDetail() {
   const { user } = useAuth();
   const { toast } = useToast();
   const [, setLocation] = useLocation();
+  const mealPrep = useAddToMealPrep();
   // Opened from a meal prep plan: the back link returns there. Only meal prep
   // paths are accepted, so the link can't be pointed anywhere else.
   const backTo = useMemo(() => {
@@ -399,7 +401,9 @@ export default function RecipeDetail() {
             reEnrichDisabled={forceEnrichMutation.isPending || (recipe.enrichmentStatus !== "ready" && recipe.enrichmentStatus !== "failed")}
             reEnriching={forceEnrichMutation.isPending}
             deleting={deleteMutation.isPending}
+            addingToMealPrep={mealPrep.isPending}
             onAddToCookbook={() => setAddToCookbookOpen(true)}
+            onAddToMealPrep={() => mealPrep.add({ id: recipe.id, title: recipe.title })}
             onShare={shareRecipe}
             onLogInTracker={() => setTrackerOpen(true)}
             onMakeYourOwn={() => setMakeYourOwnOpen(true)}

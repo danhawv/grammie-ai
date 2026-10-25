@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Link, useLocation } from "wouter";
+import { Link, useLocation, useSearch } from "wouter";
 import { ChevronRight, RotateCcw, Sparkles } from "lucide-react";
 import type { PrepSetup } from "@shared/meal-prep/contract";
 import { getFoodProfile } from "@shared/food-profile";
 import { PageHeader } from "@/components/page-header";
 import { ErrorState, LoadingState } from "@/components/page-states";
 import { Button } from "@/components/ui/button";
-import { Walkthrough } from "@/components/meal-prep/walkthrough";
+import { PinnedNote, Walkthrough } from "@/components/meal-prep/walkthrough";
 import { BuildingState } from "@/components/meal-prep/building-state";
 import { SetupStepSheet, SetupSummaryList } from "@/components/meal-prep/setup-sheet";
 import { setupProblems } from "@/components/meal-prep/setup-steps";
@@ -23,6 +23,8 @@ import { defaultSetup, formatDay, sessionSkill, todayIso } from "@/lib/meal-prep
 // /meal-prep: the start of meal prep. First time through it's the guided
 // walkthrough; after that it's the saved setup as a short list of answers,
 // "Build my plan", and any plan still in progress to pick back up.
+// "?pin=<recipeId>" (from a recipe's "Add to this week's meal prep" when
+// there's no plan yet) makes that dish a must-have in the plan built here.
 
 const DRAFT_KEY = "grammie-meal-prep-draft";
 
@@ -44,8 +46,15 @@ function freshen(setup: PrepSetup, base: PrepSetup): PrepSetup {
   return setup.session.date < todayIso() ? { ...setup, session: { ...setup.session, date: base.session.date } } : setup;
 }
 
+/** The setup with this recipe as a must-have (no change when it's there already) */
+function withPin(setup: PrepSetup, recipeId: string | null): PrepSetup {
+  if (!recipeId || (setup.pinnedRecipeIds ?? []).includes(recipeId)) return setup;
+  return { ...setup, pinnedRecipeIds: [...(setup.pinnedRecipeIds ?? []), recipeId] };
+}
+
 export default function MealPrepPage() {
   const [, navigate] = useLocation();
+  const search = useSearch();
   const { user } = useAuth();
   const { preferences, isLoading: prefsLoading } = usePreferences();
 
@@ -53,6 +62,11 @@ export default function MealPrepPage() {
 
   const profileQuery = useQuery({ queryKey: mealPrepKeys.profile, queryFn: mealPrepApi.getProfile });
   const plansQuery = useQuery({ queryKey: mealPrepKeys.plans, queryFn: mealPrepApi.listPlans });
+
+  // A dish sent here from its "…" menu, to be a must-have in this plan
+  const pin = new URLSearchParams(search).get("pin");
+  const pinnedRecipeQuery = useQuery<{ title: string }>({ queryKey: ["/api/recipes", pin], enabled: !!pin });
+  const pinnedNote = pin ? `${pinnedRecipeQuery.data?.title ?? "That recipe"} will be in this plan.` : null;
 
   // Defaults come from what the app already knows (Food profile, name)
   const base = useMemo(() => {
@@ -76,12 +90,12 @@ export default function MealPrepPage() {
     if (setup || !profileQuery.data || prefsLoading) return;
     const draft = readDraft();
     if (draft && !profileQuery.data.walkthroughDone) {
-      setSetup(freshen(draft.setup, base));
+      setSetup(withPin(freshen(draft.setup, base), pin));
       setStep(draft.step);
     } else {
-      setSetup(setupFromDefaults(profileQuery.data.defaults, base));
+      setSetup(withPin(setupFromDefaults(profileQuery.data.defaults, base), pin));
     }
-  }, [profileQuery.data, prefsLoading, base, setup]);
+  }, [profileQuery.data, prefsLoading, base, setup, pin]);
 
   const showWalkthrough = tour || (profileQuery.data && !profileQuery.data.walkthroughDone);
 
@@ -94,7 +108,7 @@ export default function MealPrepPage() {
     mutationFn: async (s: PrepSetup) => {
       // Remember these answers as the defaults for next time
       await mealPrepApi.saveProfile(defaultsFromSetup(s), true);
-      return mealPrepApi.createPlan(s);
+      return mealPrepApi.createPlan(withPin(s, pin));
     },
     onSuccess: (record) => {
       writeDraft(null);
@@ -139,6 +153,7 @@ export default function MealPrepPage() {
         onBuild={() => build.mutate(setup)}
         onExit={() => (tour ? setTour(false) : navigate("/kitchen?tab=meal-plans"))}
         building={build.isPending}
+        note={pinnedNote}
       />,
     );
   }
@@ -156,6 +171,7 @@ export default function MealPrepPage() {
       {inProgress.length > 0 && <ResumeList plans={inProgress} />}
       <section aria-labelledby="setup-heading" className="space-y-3">
         <h2 id="setup-heading" className="text-xl font-semibold">This week's setup</h2>
+        {pinnedNote && <PinnedNote text={pinnedNote} />}
         <SetupSummaryList setup={setup} onEdit={setEditing} />
         {problems.length > 0 && (
           <ul role="alert" className="space-y-1 text-base text-destructive">{problems.map((p) => <li key={p}>{p}</li>)}</ul>
@@ -173,7 +189,6 @@ export default function MealPrepPage() {
     </>,
   );
 }
-
 
 export function ResumeList({ plans }: { plans: PrepPlanSummary[] }) {
   return (

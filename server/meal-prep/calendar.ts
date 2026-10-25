@@ -121,12 +121,43 @@ export interface PrepIntegrations {
   pushToCalendar(ownerId: string, plan: { name: string; startDate: string; endDate: string; entries: CalendarEntry[] }): Promise<string>;
   /** adds rows to the active grocery list (or a new one); returns the list id */
   addToGroceryList(ownerId: string, list: { name: string; lines: GroceryLine[]; mode: "add_to_existing" | "create_new"; mealPlanId: string | null }): Promise<string>;
+  /** one recipe's ingredients onto the active grocery list, the same way the recipe page's "Add to grocery list" does */
+  addRecipeToGroceryList(ownerId: string, recipeId: string, scale: number): Promise<void>;
+  /** one more dish on a calendar plan the owner made; false when the plan isn't theirs any more */
+  addCalendarEntry(ownerId: string, mealPlanId: string, entry: CalendarEntry): Promise<boolean>;
+}
+
+/** The part of the app's storage the integrations borrow (server/storage.ts) */
+export interface GroceryStorage {
+  addRecipeToGroceryList(userId: string, recipeId: string, scale?: number): Promise<void>;
 }
 
 type Db = typeof import("../db").db;
 
-export function createPgIntegrations(db: Db): PrepIntegrations {
+export function createPgIntegrations(db: Db, groceries: GroceryStorage): PrepIntegrations {
   return {
+    async addRecipeToGroceryList(ownerId, recipeId, scale) {
+      await groceries.addRecipeToGroceryList(ownerId, recipeId, scale);
+    },
+
+    async addCalendarEntry(ownerId, mealPlanId, entry) {
+      const [plan] = await db.select({ id: mealPlans.id }).from(mealPlans)
+        .where(and(eq(mealPlans.id, mealPlanId), eq(mealPlans.ownerUserId, ownerId)));
+      if (!plan) return false;
+      await db.insert(mealPlanEntries).values({
+        mealPlanId,
+        date: new Date(entry.date),
+        mealSlot: entry.mealSlot,
+        position: 0,
+        recipeId: entry.recipeId,
+        scaledServings: entry.scaledServings,
+        notes: entry.notes,
+        isLeftover: false,
+      });
+      await db.update(mealPlans).set({ updatedAt: new Date() }).where(eq(mealPlans.id, mealPlanId));
+      return true;
+    },
+
     async pushToCalendar(ownerId, plan) {
       return db.transaction(async tx => {
         const [created] = await tx.insert(mealPlans).values({

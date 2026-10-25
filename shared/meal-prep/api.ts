@@ -177,6 +177,21 @@ export interface PlanChanges {
   topUps: Array<{ personId: string; adjusterId: string; kind: "chicken" | "shake"; text: string; count: number; grams: number }>;
 }
 
+/**
+ * POST /this-week/recipes { recipeId } ("Add to this week's meal prep" from a
+ * recipe's menu). What happened depends on where this week's plan stands:
+ *   pinned     the plan is still a draft; the dish is a must-have and the plan is being redone
+ *   grocery    the plan is approved, so the ingredients went straight onto the grocery list
+ *              (and the dish onto the calendar when calendarAdded)
+ *   created    there was no plan this week; one was started from the saved defaults with this dish
+ *   already    the dish was in the plan already
+ *   needsSetup no saved defaults yet: open the walkthrough with ?pin=<recipeId>
+ */
+export type ThisWeekAddResult =
+  | { outcome: "pinned" | "created" | "already"; planId: string; planName: string }
+  | { outcome: "grocery"; planId: string; planName: string; calendarAdded: boolean }
+  | { outcome: "needsSetup" };
+
 export interface PrepPlanSummary {
   id: string;
   status: PrepPlanStatus;

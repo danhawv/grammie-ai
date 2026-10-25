@@ -46,6 +46,8 @@ export interface RecipeCardAction {
   destructive?: boolean;
   /** Draw a separator above this item */
   separated?: boolean;
+  /** Greyed out, e.g. while its request runs */
+  disabled?: boolean;
   testId?: string;
 }
 
@@ -204,6 +206,7 @@ export function RecipeCard({
               <DropdownMenuItem
                 className={cn("min-h-11", action.destructive && "text-destructive focus:text-destructive")}
                 onSelect={action.onSelect}
+                disabled={action.disabled}
                 data-testid={action.testId}
               >
                 {action.icon && <action.icon aria-hidden />}

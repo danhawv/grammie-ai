@@ -2,6 +2,7 @@
 // Instacart (when configured) and the engines registered in engines.ts.
 
 import { db } from "../db";
+import { storage } from "../storage";
 import { mealPlanWsManager } from "../websocket";
 import { createMealPrepRouter } from "../routes/meal-prep";
 import { isAuthenticated } from "../clerkAuth";
@@ -19,7 +20,7 @@ export function mealPrepRouter() {
     userIdOf: getUserId,
     store: createPgPrepStore(db),
     recipes: createPgPrepRecipes(db),
-    integrations: createPgIntegrations(db),
+    integrations: createPgIntegrations(db, storage),
     engines: getMealPrepEngines,
     ai: createGeminiMealPrepAI(),
     credits: {
