@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { navigate } from "wouter/use-browser-location";
 import { queryClient, apiRequest, getQueryFn } from "@/lib/queryClient";
 import { apiFetch } from "@/lib/platform";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useAuth as useClerkAuth } from "@clerk/react";
 
 export interface User {
@@ -39,8 +39,16 @@ export function useAuth() {
   // /api/user is first asked, which answers "signed out". Until Clerk has
   // loaded, and while Clerk says signed in but we have no user yet, report
   // loading and ask again, so pages don't show "Sign in" to someone who is.
+  // If Clerk never loads (blocked, offline, misconfigured), stop waiting after
+  // a few seconds and go by what the server says, rather than spin forever.
   const clerk = useClerkState();
-  const waitingForClerk = hasClerk && (!clerk.isLoaded || (clerk.isSignedIn === true && !user && isFetching));
+  const [gaveUp, setGaveUp] = useState(false);
+  useEffect(() => {
+    if (!hasClerk || clerk.isLoaded) return;
+    const t = setTimeout(() => setGaveUp(true), 6000);
+    return () => clearTimeout(t);
+  }, [clerk.isLoaded]);
+  const waitingForClerk = hasClerk && ((!clerk.isLoaded && !gaveUp) || (clerk.isSignedIn === true && !user && isFetching));
   useEffect(() => {
     if (hasClerk && clerk.isLoaded) void qc.invalidateQueries({ queryKey: ["/api/user"] });
   }, [qc, clerk.isLoaded, clerk.isSignedIn]);
