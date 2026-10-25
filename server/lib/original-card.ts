@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import { db } from "../db";
 import { recipes } from "@shared/schema";
 import type { CookbookPrintData } from "./pdf/generator";
-import { detectCardRotation, rotateImageDataUrl, type CardRotation } from "./card-orientation";
+import { detectCardRotation, rotateCardImages, type CardRotation } from "./card-orientation";
 
 // The original handwritten card (recipes.handwritten_image) for print pages
 // that show it beside the dish photo (the Heirloom template, or any custom
@@ -65,12 +65,25 @@ export function forgetOriginalCard(recipeId: string): void {
   Array.from(cache.keys()).forEach((k) => { if (k.startsWith(`${recipeId}:`)) cache.delete(k); });
 }
 
-/** Turns a recipe's original card clockwise and saves it */
+/**
+ * Turns a recipe's original card clockwise and saves it, along with the
+ * card's copy in dish_images (and the dish photo while it is still the card),
+ * so the recipe page and the print pages agree.
+ */
 export async function rotateOriginalCard(recipeId: string, degrees: CardRotation): Promise<boolean> {
-  const [row] = await db.select({ img: recipes.handwrittenImage }).from(recipes).where(eq(recipes.id, recipeId));
-  if (!row?.img) return false;
-  const turned = await rotateImageDataUrl(row.img, degrees);
-  await db.update(recipes).set({ handwrittenImage: turned }).where(eq(recipes.id, recipeId));
+  const [row] = await db
+    .select({
+      handwrittenImage: recipes.handwrittenImage,
+      dishImage: recipes.dishImage,
+      dishImageThumbnail: recipes.dishImageThumbnail,
+      dishImages: recipes.dishImages,
+    })
+    .from(recipes)
+    .where(eq(recipes.id, recipeId));
+  if (!row?.handwrittenImage) return false;
+  const updates = await rotateCardImages(row, degrees);
+  if (!updates) return false;
+  await db.update(recipes).set(updates).where(eq(recipes.id, recipeId));
   forgetOriginalCard(recipeId);
   return true;
 }

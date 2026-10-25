@@ -1,28 +1,53 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Recipe } from "@shared/schema";
 import { AlertTriangle, ImageIcon, Loader2, Sparkles, Wand2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CreditNote } from "@/components/credits";
 import { RecipeImageCarousel } from "@/components/recipe-image-manager";
+import { heroImages, type HeroImage } from "@/lib/recipe-images";
+import { CardViewer } from "./card-viewer";
 import { isPlaceholderImage } from "./recipe-utils";
 import grammieImage from "@assets/image_1763329917086.png";
 import { mediaUrl } from "@/lib/platform";
 
 // The dish photo, kept short (about a third of the screen) so the title, key
 // numbers and "Start cooking" are visible on a phone without scrolling, plus
-// plain-language status for background work on this recipe.
+// plain-language status for background work on this recipe. When the recipe
+// came from a handwritten card, a small snapshot of the card sits pinned over
+// the photo's corner; tapping it opens the card full screen.
 
 export function RecipeHero({
   recipe,
   onRemakePhoto,
   remakingPhoto = false,
+  canRotateCard = false,
 }: {
   recipe: Recipe;
   /** Owner only: make a new photo from the whole recipe */
   onRemakePhoto?: () => void;
   remakingPhoto?: boolean;
+  /** Owner only: lets the full-screen viewer turn a sideways card */
+  canRotateCard?: boolean;
 }) {
   const [displayImage, setDisplayImage] = useState<string | null>(null);
+  const [index, setIndex] = useState(0);
+  const [viewerOpen, setViewerOpen] = useState(false);
+  const [viewerIndex, setViewerIndex] = useState(0);
+
+  // Dish photo first, the card second, then the other photos
+  const images = useMemo(() => heroImages(recipe, displayImage), [recipe.dishImages, recipe.handwrittenImage, displayImage]);
+  useEffect(() => { setIndex(0); }, [recipe.id]);
+  const shownIndex = Math.min(index, Math.max(images.length - 1, 0));
+  const card = images.find((img) => img.isCard) ?? null;
+  const cardIndex = card ? images.indexOf(card) : -1;
+  // The snapshot is shown over the primary photo only; not on the card
+  // itself, and not while the "making a new photo" note covers the corner
+  const showSnapshot = !!card && images.length > 1 && shownIndex === 0 && !remakingPhoto;
+
+  const openViewer = (at: number) => {
+    setViewerIndex(at);
+    setViewerOpen(true);
+  };
 
   // Show the thumbnail first, then swap in the full image once it has loaded
   useEffect(() => {
@@ -52,7 +77,16 @@ export function RecipeHero({
 
   return (
     <div className="relative h-[30vh] max-h-[26rem] min-h-[11rem] sm:h-[35vh] w-full overflow-hidden rounded-lg bg-muted">
-      <RecipeImageCarousel dishImages={recipe.dishImages || []} currentImage={displayImage} />
+      <RecipeImageCarousel images={images} index={shownIndex} onIndexChange={setIndex} arrowsRaised={showSnapshot} />
+      {showSnapshot && card && <CardSnapshot card={card} onOpen={() => openViewer(cardIndex)} />}
+      <CardViewer
+        open={viewerOpen}
+        onOpenChange={setViewerOpen}
+        images={images}
+        initialIndex={viewerIndex}
+        recipeId={recipe.id}
+        canRotate={canRotateCard}
+      />
       {onRemakePhoto && !isPlaceholderImage(recipe.dishImage) && (
         <Button
           size="sm"
@@ -73,6 +107,40 @@ export function RecipeHero({
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * The handwritten card as a small tilted snapshot pinned over the photo's
+ * bottom-right corner: a white polaroid-style border, a strip of tape at the
+ * top and a soft shadow. About 36% of the hero's width on a phone, capped
+ * at 150px on iPad and desktop so it never covers much of the photo.
+ */
+function CardSnapshot({ card, onOpen }: { card: HeroImage; onOpen: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="group absolute bottom-3 right-3 z-20 w-[36%] max-w-[150px] min-w-[7rem] -rotate-[7deg] rounded-[2px] bg-white p-1 pb-6 text-left shadow-[0_6px_18px_rgba(0,0,0,0.35)] motion-safe:transition-transform motion-safe:duration-200 hover:-rotate-[5deg] hover:scale-[1.03] focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black/40"
+      aria-label="See the original handwritten card"
+      title="See the original handwritten card"
+      data-testid="button-card-snapshot"
+    >
+      <img
+        src={mediaUrl(card.thumbnailUrl || card.url)}
+        alt=""
+        draggable={false}
+        className="aspect-[4/3] w-full bg-neutral-100 object-cover"
+      />
+      <span className="absolute inset-x-0 bottom-1 text-center font-serif text-xs italic leading-none text-neutral-500">
+        the original
+      </span>
+      {/* Tape */}
+      <span
+        aria-hidden
+        className="absolute -top-2 left-1/2 h-4 w-12 -translate-x-1/2 rotate-[4deg] rounded-[1px] bg-amber-50/75 shadow-[0_1px_2px_rgba(0,0,0,0.15)] backdrop-blur-[1px]"
+      />
+    </button>
   );
 }
 

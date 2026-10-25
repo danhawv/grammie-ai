@@ -415,6 +415,7 @@ export default function RecipeDetail() {
             recipe={recipe}
             onRemakePhoto={isOwner ? () => remakePhotoMutation.mutate() : undefined}
             remakingPhoto={remakePhotoMutation.isPending}
+            canRotateCard={isOwner}
           />
           <RecipeStatus
             recipe={recipe}
