@@ -9,7 +9,7 @@ import type {
 } from "@shared/meal-prep/contract";
 import type { Catalog, CatalogIngredient } from "./catalog";
 import { parseUnit, toGrams } from "./units";
-import { storageFor } from "./storage";
+import { storageFor, type StorageInput } from "./storage";
 
 /** The recipe columns facts are computed from (a subset of the recipes table) */
 export interface RecipeInput {
@@ -243,25 +243,11 @@ export function computeRecipeFacts(r: RecipeInput, catalog: Catalog, opts: Facts
 
   const mainProtein = mainProteinFor(r.title, proteinByKind, usda.protein);
 
-  const share = (pred: (i: CatalogIngredient) => boolean) => {
-    if (!totalGrams) return 0;
-    let g = 0;
-    for (const [id, grams] of Array.from(gramsById)) { const i = catalog.byId.get(id); if (i && pred(i)) g += grams; }
-    return g / totalGrams;
-  };
+  const share = shareOf(gramsById, totalGrams, catalog);
   const kinds = (r.mealType ?? []).map((t) => t.toLowerCase());
   const mealTypes = mealSlotsFor(r.mealType, r.title);
 
-  const storage = storageFor({
-    mainProtein, kinds, cookingMethods: r.cookingMethods ?? [], tips: r.tips ?? [], title: r.title,
-    shares: {
-      creamyDressing: share((i) => /^(mayonnaise|mayonnaise-light|sour-cream|sour-cream-light|ranch|greek-yogurt|greek-yogurt-nonfat|yogurt-plain|yogurt-lowfat)$/.test(i.id)),
-      rawGreens: share((i) => /^(lettuce-romaine|arugula|spinach|kale|cucumber|watercress)$/.test(i.id)),
-      egg: share((i) => /^egg/.test(i.id)),
-      rice: share((i) => /^rice-|^quinoa/.test(i.id)),
-      pasta: share((i) => i.id === "pasta" || i.id === "rice-noodles"),
-    },
-  });
+  const storage = storageFor(storageInputFrom(r, mainProtein, share));
 
   return {
     recipeId: r.id,
@@ -283,6 +269,67 @@ export function computeRecipeFacts(r: RecipeInput, catalog: Catalog, opts: Facts
     nutritionCheck: { coverage: round2(coverage), aiPerServing: aiPerServing ? roundMacros(aiPerServing) : null, disagreesWithAi },
     equipment: equipmentFor(r),
   };
+}
+
+type ShareFn = (pred: (i: CatalogIngredient) => boolean) => number;
+
+/** Share (0..1) of the recipe's matched grams in ingredients passing `pred` */
+function shareOf(gramsById: Map<string, number>, totalGrams: number, catalog: Catalog): ShareFn {
+  return (pred) => {
+    if (!totalGrams) return 0;
+    let g = 0;
+    for (const [id, grams] of Array.from(gramsById)) { const i = catalog.byId.get(id); if (i && pred(i)) g += grams; }
+    return g / totalGrams;
+  };
+}
+
+/** The recipe columns storage is judged from */
+export type StorageRecipe = Pick<RecipeInput, "title" | "normalizedIngredients" | "mealType" | "cookingMethods" | "tips">;
+
+function storageInputFrom(r: StorageRecipe, mainProtein: string | null, share: ShareFn): StorageInput {
+  return {
+    mainProtein,
+    kinds: (r.mealType ?? []).map((t) => t.toLowerCase()),
+    cookingMethods: r.cookingMethods ?? [],
+    tips: (r.tips ?? []).filter((t) => t && typeof t.text === "string"),
+    title: r.title,
+    shares: {
+      creamyDressing: share((i) => /^(mayonnaise|mayonnaise-light|sour-cream|sour-cream-light|ranch|greek-yogurt|greek-yogurt-nonfat|yogurt-plain|yogurt-lowfat)$/.test(i.id)),
+      rawGreens: share((i) => /^(lettuce-romaine|arugula|spinach|kale|cucumber|watercress)$/.test(i.id)),
+      egg: share((i) => /^egg/.test(i.id)),
+      rice: share((i) => /^rice-|^quinoa/.test(i.id)),
+      pasta: share((i) => i.id === "pasta" || i.id === "rice-noodles"),
+    },
+  };
+}
+
+/**
+ * The StorageInput for a recipe on its own (no nutrition pass): main protein
+ * and ingredient shares from the matched ingredients' grams, plus the kinds,
+ * methods and tips as stored. computeRecipeFacts builds the same thing along
+ * the way; this is for judging storage without computing full facts.
+ */
+export function storageInputFor(r: StorageRecipe, catalog: Catalog): StorageInput {
+  const gramsById = new Map<string, number>();
+  const proteinByKind = new Map<string, number>();
+  let totalGrams = 0;
+  let totalProtein = 0;
+  for (const n of r.normalizedIngredients ?? []) {
+    if (!n || n.isToolOrConsumable) continue;
+    const raw = (n.raw ?? "").trim();
+    if (/:\s*$/.test(raw) || n.isOptional || /\(optional[^)]*\)|,\s*optional\b|^optional\b|\boptional\s*$/i.test(raw) || /^(or\b|option\s*[2-9]|alternatively)/i.test(raw)) continue;
+    const ing = catalog.resolve(n.item || "")?.ingredient;
+    if (!ing) continue;
+    const g = toGrams(n.quantity ?? null, parseUnit(n.unit, n.raw, n.quantity), catalog.gramFacts(ing)).grams;
+    if (g == null) continue;
+    gramsById.set(ing.id, (gramsById.get(ing.id) ?? 0) + g);
+    totalGrams += g;
+    const protein = macrosFor(ing, g).protein;
+    totalProtein += protein;
+    if (ing.protein) proteinByKind.set(ing.protein, (proteinByKind.get(ing.protein) ?? 0) + protein);
+    else if (ing.allergens.includes("dairy") && ing.per100g.protein >= 8) proteinByKind.set("dairy", (proteinByKind.get("dairy") ?? 0) + protein);
+  }
+  return storageInputFrom(r, mainProteinFor(r.title, proteinByKind, totalProtein), shareOf(gramsById, totalGrams, catalog));
 }
 
 /**

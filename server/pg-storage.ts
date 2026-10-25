@@ -4,6 +4,7 @@ import { eq, and, or, asc, desc, inArray, notInArray, sql, getTableColumns, isNu
 import { buildPrintImage } from "./lib/images";
 import { groceryMergeKey, findPantryItem } from "@shared/pantry-match";
 import { addToGroceryAggregate } from "./lib/grocery-aggregate";
+import { mealPrepColumns, mealPrepFit } from "./meal-prep/food/prep-fit";
 import {
   type Recipe,
   type RecipeListItem,
@@ -120,6 +121,8 @@ export interface RecipeFilterParams {
   fewIngredients?: boolean;
   onePot?: boolean;
   airFryer?: boolean;
+  /** only recipes judged good for meal prep (meal_prep_friendly = true) */
+  mealPrep?: boolean;
 }
 
 export interface IStorage {
@@ -521,6 +524,9 @@ export class PostgresStorage implements IStorage {
       allergens: recipes.allergens,
       seasonTags: recipes.seasonTags,
       occasionTags: recipes.occasionTags,
+
+      // "Good for meal prep" badge
+      mealPrepFriendly: recipes.mealPrepFriendly,
     };
   }
 
@@ -658,6 +664,10 @@ export class PostgresStorage implements IStorage {
       );
     }
 
+    if (filters.mealPrep) {
+      conditions.push(eq(recipes.mealPrepFriendly, true));
+    }
+
     return conditions;
   }
 
@@ -726,6 +736,7 @@ export class PostgresStorage implements IStorage {
       lowCalorie: sql<number>`SUM(CASE WHEN ${recipes.isLowCalorie} = true THEN 1 ELSE 0 END)::int`,
       highFiber: sql<number>`SUM(CASE WHEN ${recipes.isHighFiber} = true THEN 1 ELSE 0 END)::int`,
       mediterranean: sql<number>`SUM(CASE WHEN ${recipes.isMediterranean} = true THEN 1 ELSE 0 END)::int`,
+      mealPrep: sql<number>`SUM(CASE WHEN ${recipes.mealPrepFriendly} = true THEN 1 ELSE 0 END)::int`,
     }).from(recipes).where(wc);
 
     const toMap = (rows: any[]) => {
@@ -744,6 +755,7 @@ export class PostgresStorage implements IStorage {
       seasons: toMap(seasonRows as any[]),
       timeConvenience: toMap(timeRows as any[]),
       dietary: dietaryResult || {},
+      handy: { mealPrep: dietaryResult?.mealPrep ?? 0 },
     };
   }
 
@@ -820,6 +832,9 @@ export class PostgresStorage implements IStorage {
       seasonTags: recipes.seasonTags,
       occasionTags: recipes.occasionTags,
       allergens: recipes.allergens,
+
+      // "Good for meal prep" badge
+      mealPrepFriendly: recipes.mealPrepFriendly,
     };
   }
 
@@ -1409,10 +1424,31 @@ export class PostgresStorage implements IStorage {
       : {};
 
     const [updated] = await db.update(recipes)
-      .set({ ...updates as any, ...printReset, updatedAt: new Date() })
+      .set({ ...updates as any, ...printReset, ...this.mealPrepUpdate(recipe, updates), updatedAt: new Date() })
       .where(eq(recipes.id, id))
       .returning();
     return updated;
+  }
+
+  /**
+   * Re-judges "good for meal prep" when a change touches what it's judged
+   * from (title, ingredients, steps, tips, methods, meal types), once the
+   * recipe is enriched. A judgement passed in explicitly is kept as is.
+   */
+  private mealPrepUpdate(recipe: Recipe, updates: Partial<InsertRecipe>): Partial<InsertRecipe> {
+    const judgedFrom: Array<keyof InsertRecipe> = ['title', 'ingredients', 'normalizedIngredients', 'instructions', 'normalizedInstructions', 'tips', 'cookingMethods', 'mealType'];
+    if ('mealPrepFriendly' in updates || !judgedFrom.some((k) => k in updates)) return {};
+    const merged = { ...recipe, ...updates } as Recipe;
+    if (merged.enrichmentStatus !== 'ready') return {};
+    try {
+      return mealPrepColumns(mealPrepFit({
+        title: merged.title, normalizedIngredients: merged.normalizedIngredients as any, mealType: merged.mealType,
+        cookingMethods: merged.cookingMethods, tips: merged.tips,
+      }));
+    } catch (e: any) {
+      console.warn(`[MealPrep] fit not judged for ${recipe.id}:`, e.message);
+      return {};
+    }
   }
 
   async deleteRecipe(id: string, userId: string): Promise<boolean> {

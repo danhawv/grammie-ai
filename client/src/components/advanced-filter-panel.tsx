@@ -1,10 +1,11 @@
 import { Dispatch, useMemo, type ReactNode } from "react";
-import { SlidersHorizontal, X, RotateCcw } from "lucide-react";
+import { SlidersHorizontal, X, RotateCcw, Container } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { FiltersState, FilterAction, defaultFilters, countActiveFilters } from "@/lib/filters";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import {
@@ -32,6 +33,8 @@ interface FilterCounts {
   timeConvenience?: Record<string, number>;
   allergens?: Record<string, number>;
   dietary?: Record<string, number>;
+  /** one-toggle filters: mealPrep */
+  handy?: Record<string, number>;
 }
 
 function getCount(counts: Record<string, number> | undefined, label: string): number | undefined {
@@ -168,6 +171,7 @@ export function AdvancedFilterSheet({ open, onOpenChange, filters, dispatch, use
 
         <div className="flex-1 overflow-y-auto px-6 py-4" data-testid="sheet-filter-content">
           {leadingSections}
+          <MealPrepToggle filters={filters} dispatch={dispatch} filterCounts={filterCounts} />
           <MealTypeSection filters={filters} dispatch={dispatch} filterCounts={filterCounts} />
 
           <Accordion type="multiple" className="w-full space-y-2 mt-2">
@@ -189,6 +193,28 @@ export function AdvancedFilterSheet({ open, onOpenChange, filters, dispatch, use
         </SheetFooter>
       </SheetContent>
     </Sheet>
+  );
+}
+
+/** "Good for meal prep": dishes that reheat well and keep 3+ days (meal_prep_friendly) */
+function MealPrepToggle({ filters, dispatch, filterCounts }: AdvancedFilterPanelProps) {
+  const count = filterCounts?.handy?.mealPrep;
+  return (
+    <div className="mb-2 flex items-center justify-between gap-3 rounded-lg border px-4 py-3">
+      <Label htmlFor="filter-meal-prep" className="flex min-w-0 cursor-pointer items-center gap-2 text-base font-normal">
+        <Container className="h-5 w-5 shrink-0 text-muted-foreground" aria-hidden />
+        <span>
+          Good for meal prep
+          {count !== undefined && <span className="ml-1 text-muted-foreground">({count})</span>}
+        </span>
+      </Label>
+      <Switch
+        id="filter-meal-prep"
+        checked={filters.mealPrep}
+        onCheckedChange={() => dispatch({ type: "TOGGLE_QUICK_FILTER", payload: "mealPrep" })}
+        data-testid="switch-filter-meal-prep"
+      />
+    </div>
   );
 }
 
