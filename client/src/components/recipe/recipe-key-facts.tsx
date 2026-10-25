@@ -1,9 +1,10 @@
-import { Loader2, Minus, Plus } from "lucide-react";
+import { Container, Loader2, Minus, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatMinutes } from "@shared/recipe-display";
 
 // The numbers a cook checks first: prep, cook and total time, the basic
-// nutrition per serving, and a servings stepper that rescales the ingredients.
+// nutrition per serving, whether it's good for meal prep, and a servings
+// stepper that rescales the ingredients.
 
 export function RecipeKeyFacts({
   prepMinutes,
@@ -13,6 +14,7 @@ export function RecipeKeyFacts({
   onServingsChange,
   scaling,
   nutrition,
+  mealPrep,
 }: {
   prepMinutes?: number | null;
   cookMinutes?: number | null;
@@ -22,6 +24,8 @@ export function RecipeKeyFacts({
   scaling: boolean;
   /** per serving; any missing value is left out */
   nutrition?: { calories?: number | null; protein?: number | null; carbs?: number | null; fat?: number | null };
+  /** the stored judgement; nothing shows until the recipe has been judged */
+  mealPrep?: { friendly?: boolean | null; note?: string | null };
 }) {
   const times = [
     { label: "Prep", value: formatMinutes(prepMinutes), testId: "text-prep-time" },
@@ -64,6 +68,16 @@ export function RecipeKeyFacts({
         </div>
       )}
 
+      {mealPrep?.friendly != null && (
+        <p className="flex w-full items-start gap-2 border-t pt-3 text-sm text-muted-foreground" data-testid="text-meal-prep-fit">
+          <Container className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+          <span>
+            {mealPrep.friendly ? <span className="font-medium text-foreground">Good for meal prep</span> : "Best eaten fresh"}
+            {mealPrep.note && <> · {mealPrepDetail(mealPrep.note)}</>}
+          </span>
+        </p>
+      )}
+
       <div className="flex items-center gap-3">
         <p id="servings-label" className="text-sm text-muted-foreground">Servings</p>
         <div className="flex items-center gap-2" role="group" aria-labelledby="servings-label">
@@ -95,4 +109,9 @@ export function RecipeKeyFacts({
       </div>
     </section>
   );
+}
+
+/** The stored note starts with the verdict ("best eaten fresh · ..."); the line above already says it */
+function mealPrepDetail(note: string): string {
+  return note.replace(/^best eaten fresh\s*·\s*/i, "");
 }

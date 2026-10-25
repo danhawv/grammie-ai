@@ -436,6 +436,7 @@ export default function RecipeDetail() {
             onServingsChange={handleServingsChange}
             scaling={scaleMutation.isPending}
             nutrition={{ calories: recipe.calories, protein: recipe.protein, carbs: recipe.carbohydrates, fat: recipe.fat }}
+            mealPrep={{ friendly: recipe.mealPrepFriendly, note: recipe.mealPrepNote }}
           />
 
           <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">

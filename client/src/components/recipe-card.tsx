@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { Link } from "wouter";
 import type { LucideIcon } from "lucide-react";
-import { AlertTriangle, Check, ChefHat, Loader2, MoreHorizontal } from "lucide-react";
+import { AlertTriangle, Check, ChefHat, Container, Loader2, MoreHorizontal } from "lucide-react";
 import { formatTimeAndServings } from "@shared/format";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -31,6 +31,8 @@ export interface RecipeCardRecipe {
   totalTimeMinutes?: number | null;
   servings?: number | null;
   enrichmentStatus?: string | null;
+  /** judged good for meal prep (null = not judged yet) */
+  mealPrepFriendly?: boolean | null;
   owner?: {
     id: string;
     username?: string | null;
@@ -232,9 +234,15 @@ export function RecipeCard({
       <div className={cn("flex min-w-0 flex-1 items-start gap-1", compact ? "py-1" : "p-3 sm:p-4")}>
         <div className="min-w-0 flex-1">
           {titleEl}
-          {meta && (
-            <p className="mt-1 text-xs text-muted-foreground" data-testid={`text-recipe-meta-${recipe.id}`}>
-              {meta}
+          {(meta || recipe.mealPrepFriendly) && (
+            <p className="mt-1 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground" data-testid={`text-recipe-meta-${recipe.id}`}>
+              {meta && <span>{meta}</span>}
+              {recipe.mealPrepFriendly && (
+                <span className="inline-flex items-center gap-1" title="Good for meal prep" data-testid={`badge-meal-prep-${recipe.id}`}>
+                  <Container className="h-3.5 w-3.5" aria-hidden />
+                  Meal prep
+                </span>
+              )}
             </p>
           )}
           {contributor && (

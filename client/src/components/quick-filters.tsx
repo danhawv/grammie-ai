@@ -1,5 +1,5 @@
 import { Dispatch } from "react";
-import { Clock, Zap, Leaf, Wheat, Milk, Carrot, type LucideIcon } from "lucide-react";
+import { Clock, Zap, Leaf, Wheat, Milk, Carrot, Container, type LucideIcon } from "lucide-react";
 import { FiltersState, FilterAction } from "@/lib/filters";
 import { cn } from "@/lib/utils";
 
@@ -40,6 +40,13 @@ export const QUICK_FILTER_CHIPS: QuickChip[] = [
   diet("gluten-free", "Gluten-free", Wheat, "glutenFree"),
   diet("dairy-free", "Dairy-free", Milk, "dairyFree"),
   diet("high-protein", "High protein", Zap, "highProtein"),
+  {
+    id: "meal-prep",
+    label: "Meal prep",
+    icon: Container,
+    isActive: (f) => f.mealPrep,
+    toggle: { type: "TOGGLE_QUICK_FILTER", payload: "mealPrep" },
+  },
 ];
 
 interface QuickFiltersProps {
