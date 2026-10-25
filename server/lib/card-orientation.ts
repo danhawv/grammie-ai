@@ -64,3 +64,50 @@ export async function rotateImageDataUrl(dataUrl: string, degrees: CardRotation)
   const out = await sharp(Buffer.from(m[1], "base64")).rotate().rotate(degrees).jpeg({ quality: 90, mozjpeg: true }).toBuffer();
   return `data:image/jpeg;base64,${out.toString("base64")}`;
 }
+
+type CardImageFields = {
+  handwrittenImage: string | null;
+  dishImage: string | null;
+  dishImageThumbnail: string | null;
+  dishImages: Array<{ id: string; url: string; thumbnailUrl?: string; isAiGenerated: boolean; order: number; createdAt: string }> | null;
+};
+
+const isDataImage = (s: string | null | undefined): s is string => !!s && /^data:image\//.test(s);
+
+/**
+ * The recipe's image fields after turning its card: the card itself, the
+ * card's copy in dishImages (the entry that shows the same picture, or, for
+ * cards turned before the copy was kept in step, the first entry that isn't
+ * an AI photo, which is where uploads put the card), and the dish photo plus
+ * its thumbnail while they still show the card. Returns null when there is
+ * no card.
+ */
+export async function rotateCardImages(fields: CardImageFields, degrees: CardRotation): Promise<Partial<CardImageFields> | null> {
+  const card = fields.handwrittenImage;
+  if (!isDataImage(card)) return null;
+  const out: Partial<CardImageFields> = { handwrittenImage: await rotateImageDataUrl(card, degrees) };
+
+  const list = [...(fields.dishImages ?? [])].sort((a, b) => a.order - b.order);
+  let cardEntries = list.filter((img) => !img.isAiGenerated && img.url === card);
+  if (cardEntries.length === 0) {
+    const first = list.find((img) => !img.isAiGenerated);
+    if (first) cardEntries = [first];
+  }
+  if (cardEntries.length > 0) {
+    const turned = new Map<string, { url: string; thumbnailUrl?: string }>();
+    for (const img of cardEntries) {
+      turned.set(img.id, {
+        url: isDataImage(img.url) ? await rotateImageDataUrl(img.url, degrees) : img.url,
+        thumbnailUrl: isDataImage(img.thumbnailUrl) ? await rotateImageDataUrl(img.thumbnailUrl, degrees) : img.thumbnailUrl,
+      });
+    }
+    out.dishImages = (fields.dishImages ?? []).map((img) => (turned.has(img.id) ? { ...img, ...turned.get(img.id)! } : img));
+  }
+
+  const cardUrls = new Set([card, ...cardEntries.map((img) => img.url)]);
+  if (fields.dishImage && cardUrls.has(fields.dishImage)) {
+    out.dishImage = isDataImage(fields.dishImage) ? await rotateImageDataUrl(fields.dishImage, degrees) : fields.dishImage;
+    if (isDataImage(fields.dishImageThumbnail)) out.dishImageThumbnail = await rotateImageDataUrl(fields.dishImageThumbnail, degrees);
+  }
+  return out;
+}
