@@ -49,6 +49,7 @@ export function serializeFiltersToParams(f: FiltersState): Record<string, string
   if (f.fewIngredients) params.fewIngredients = "true";
   if (f.onePot) params.onePot = "true";
   if (f.airFryer) params.airFryer = "true";
+  if (f.mealPrep) params.mealPrep = "true";
   return params;
 }
 
@@ -121,6 +122,7 @@ export function filterChips(filters: FiltersState, dispatch: (a: FilterAction) =
   HANDY_FILTERS.forEach(({ key, label }) => {
     if (filters[key]) add(key, label, () => dispatch({ type: "TOGGLE_QUICK_FILTER", payload: key }));
   });
+  if (filters.mealPrep) add("mealPrep", "Meal prep", () => dispatch({ type: "TOGGLE_QUICK_FILTER", payload: "mealPrep" }));
   return list;
 }
 

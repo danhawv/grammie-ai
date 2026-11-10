@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, type PointerEvent as ReactPointerEvent } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { CreditNote } from "@/components/credits";
@@ -53,92 +53,134 @@ interface RecipeImageManagerProps {
   hideTrigger?: boolean;
 }
 
-export function RecipeImageCarousel({ 
-  dishImages, 
-  currentImage,
-  onIndexChange 
-}: { 
-  dishImages: DishImage[];
-  currentImage: string | null;
-  onIndexChange?: (index: number) => void;
+/** A carousel picture: a dish photo or the handwritten card */
+export interface CarouselImage {
+  id: string;
+  url: string;
+  isAiGenerated: boolean;
+}
+
+/**
+ * A thin white chevron with a soft shadow and no background, on a 44px tap
+ * target. Shared by the recipe hero carousel and the full-screen viewer.
+ */
+export function CarouselArrow({
+  direction,
+  onClick,
+  className,
+  label,
+  testId,
+}: {
+  direction: "prev" | "next";
+  onClick: () => void;
+  className?: string;
+  label: string;
+  testId?: string;
 }) {
-  const [currentIndex, setCurrentIndex] = useState(0);
-  
-  const images = dishImages.length > 0 
-    ? dishImages.sort((a, b) => a.order - b.order) 
-    : currentImage ? [{ id: 'legacy', url: currentImage, isAiGenerated: true, order: 0, createdAt: '' }] : [];
+  const Icon = direction === "prev" ? ChevronLeft : ChevronRight;
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      onClick={(e) => { e.stopPropagation(); onClick(); }}
+      className={`flex h-11 w-11 items-center justify-center rounded-full text-white [filter:drop-shadow(0_1px_3px_rgba(0,0,0,0.6))] focus:outline-none focus-visible:ring-2 focus-visible:ring-white ${className ?? ""}`}
+      data-testid={testId}
+    >
+      <Icon className="h-7 w-7" strokeWidth={1.75} aria-hidden />
+    </button>
+  );
+}
+
+/**
+ * Pointer handlers that call back on a sideways swipe (touch, pen or mouse)
+ * while leaving vertical scrolling alone.
+ */
+export function useSwipe(onPrev: () => void, onNext: () => void) {
+  const start = useRef<{ x: number; y: number; id: number } | null>(null);
+  return {
+    onPointerDown: (e: ReactPointerEvent) => {
+      if (e.pointerType === "mouse" && e.button !== 0) return;
+      start.current = { x: e.clientX, y: e.clientY, id: e.pointerId };
+    },
+    onPointerUp: (e: ReactPointerEvent) => {
+      const s = start.current;
+      start.current = null;
+      if (!s || s.id !== e.pointerId) return;
+      const dx = e.clientX - s.x;
+      const dy = e.clientY - s.y;
+      if (Math.abs(dx) < 40 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+      if (dx < 0) onNext(); else onPrev();
+    },
+    onPointerCancel: () => { start.current = null; },
+  };
+}
+
+/**
+ * The hero's picture strip: one image at a time, thin arrows at the sides
+ * and swipe to move. Controlled through `index` when the parent needs to
+ * know which picture is up (the recipe hero hides its card snapshot while
+ * the card itself is showing).
+ */
+export function RecipeImageCarousel({
+  images,
+  index: controlledIndex,
+  onIndexChange,
+  arrowsRaised = false,
+}: {
+  images: CarouselImage[];
+  index?: number;
+  onIndexChange?: (index: number) => void;
+  /** Lift the arrows above the hero's midline (room for the card snapshot) */
+  arrowsRaised?: boolean;
+}) {
+  const [internalIndex, setInternalIndex] = useState(0);
+  const currentIndex = Math.min(controlledIndex ?? internalIndex, Math.max(images.length - 1, 0));
+
+  const goTo = (i: number) => {
+    setInternalIndex(i);
+    onIndexChange?.(i);
+  };
+  const goToPrevious = () => goTo(currentIndex === 0 ? images.length - 1 : currentIndex - 1);
+  const goToNext = () => goTo(currentIndex === images.length - 1 ? 0 : currentIndex + 1);
+  const swipe = useSwipe(goToPrevious, goToNext);
 
   if (images.length === 0) return null;
-
-  const goToPrevious = () => {
-    const newIndex = currentIndex === 0 ? images.length - 1 : currentIndex - 1;
-    setCurrentIndex(newIndex);
-    onIndexChange?.(newIndex);
-  };
-
-  const goToNext = () => {
-    const newIndex = currentIndex === images.length - 1 ? 0 : currentIndex + 1;
-    setCurrentIndex(newIndex);
-    onIndexChange?.(newIndex);
-  };
-
   const currentDisplayImage = images[currentIndex];
+  const arrowTop = arrowsRaised ? "top-[38%]" : "top-1/2";
 
   return (
-    <div className="relative w-full h-full">
+    <div
+      className="relative h-full w-full select-none [touch-action:pan-y]"
+      {...(images.length > 1 ? swipe : {})}
+      data-testid="recipe-carousel"
+    >
       <img
         src={mediaUrl(currentDisplayImage?.url)}
-        alt="Recipe dish"
-        className="w-full h-full object-cover"
+        alt={currentDisplayImage?.isAiGenerated ? "Recipe dish" : "Original recipe card"}
+        className="h-full w-full object-cover"
+        draggable={false}
         data-testid="img-recipe-carousel"
       />
-      
+
       {images.length > 1 && (
         <>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={(e) => { e.stopPropagation(); goToPrevious(); }}
-            className="absolute left-4 top-1/2 -translate-y-1/2 z-20 bg-background/80 backdrop-blur-sm hover-elevate"
-            data-testid="button-carousel-prev"
-          >
-            <ChevronLeft className="h-6 w-6" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={(e) => { e.stopPropagation(); goToNext(); }}
-            className="absolute right-4 top-1/2 -translate-y-1/2 z-20 bg-background/80 backdrop-blur-sm hover-elevate"
-            data-testid="button-carousel-next"
-          >
-            <ChevronRight className="h-6 w-6" />
-          </Button>
-          
-          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2 z-20">
-            {images.map((_, idx) => (
-              <button
-                key={idx}
-                onClick={(e) => { e.stopPropagation(); setCurrentIndex(idx); onIndexChange?.(idx); }}
-                className={`w-2 h-2 rounded-full transition-all ${
-                  idx === currentIndex 
-                    ? 'bg-white w-6' 
-                    : 'bg-white/50 hover:bg-white/75'
-                }`}
-                data-testid={`button-carousel-dot-${idx}`}
-              />
-            ))}
-          </div>
-          
-          <Badge
-            variant="secondary"
-            className="absolute bottom-4 right-4 z-20 bg-background/80 backdrop-blur-sm"
-            data-testid="badge-image-count"
-          >
-            {currentIndex + 1} / {images.length}
-          </Badge>
+          <CarouselArrow
+            direction="prev"
+            label="Previous picture"
+            onClick={goToPrevious}
+            className={`absolute left-1 ${arrowTop} z-30 -translate-y-1/2`}
+            testId="button-carousel-prev"
+          />
+          <CarouselArrow
+            direction="next"
+            label="Next picture"
+            onClick={goToNext}
+            className={`absolute right-1 ${arrowTop} z-30 -translate-y-1/2`}
+            testId="button-carousel-next"
+          />
         </>
       )}
-      
+
       {currentDisplayImage?.isAiGenerated && (
         <Badge
           variant="secondary"

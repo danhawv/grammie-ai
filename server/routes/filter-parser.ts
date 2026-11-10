@@ -62,6 +62,7 @@ export function parseFiltersFromQuery(query: Record<string, any>): RecipeFilterP
   if (query.fewIngredients === 'true') filters.fewIngredients = true;
   if (query.onePot === 'true') filters.onePot = true;
   if (query.airFryer === 'true') filters.airFryer = true;
+  if (query.mealPrep === 'true') filters.mealPrep = true;
 
   return filters;
 }

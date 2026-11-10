@@ -2,6 +2,7 @@ import { Link } from "wouter";
 import {
   Activity,
   BookPlus,
+  CalendarCheck,
   Images,
   Loader2,
   MoreHorizontal,
@@ -36,7 +37,9 @@ export function RecipeActionsMenu({
   reEnrichDisabled,
   reEnriching,
   deleting,
+  addingToMealPrep,
   onAddToCookbook,
+  onAddToMealPrep,
   onShare,
   onLogInTracker,
   onMakeYourOwn,
@@ -53,7 +56,10 @@ export function RecipeActionsMenu({
   reEnrichDisabled: boolean;
   reEnriching: boolean;
   deleting: boolean;
+  addingToMealPrep: boolean;
   onAddToCookbook: () => void;
+  /** "Add to this week's meal prep" (signed in only) */
+  onAddToMealPrep: () => void;
   onShare: () => void;
   onLogInTracker: () => void;
   onMakeYourOwn: () => void;
@@ -82,6 +88,12 @@ export function RecipeActionsMenu({
           <DropdownMenuItem onClick={onAddToCookbook} className={ITEM} data-testid="menu-add-to-cookbook">
             <BookPlus aria-hidden />
             Add to cookbook
+          </DropdownMenuItem>
+        )}
+        {signedIn && (
+          <DropdownMenuItem onClick={onAddToMealPrep} disabled={addingToMealPrep} className={ITEM} data-testid="menu-add-to-meal-prep">
+            {addingToMealPrep ? <Loader2 className="motion-safe:animate-spin" aria-hidden /> : <CalendarCheck aria-hidden />}
+            Add to this week's meal prep
           </DropdownMenuItem>
         )}
         <DropdownMenuItem onClick={onShare} className={ITEM} data-testid="menu-share-recipe">

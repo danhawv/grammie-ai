@@ -474,6 +474,13 @@ export const recipes = pgTable("recipes", {
   uploadSessionId: varchar("upload_session_id").references((): any => uploadSessions.id, { onDelete: 'set null' }),
   sourceImageIndex: integer("source_image_index"), // Order in batch upload
   
+  // "Good for meal prep" (server/meal-prep/food/prep-fit.ts). Filled when
+  // enrichment finishes or ingredients/steps/tips change; null = not judged yet.
+  // Columns from migrations/2026-10-meal-prep-fit.sql.
+  mealPrepFriendly: boolean("meal_prep_friendly"),
+  mealPrepKeepsDays: integer("meal_prep_keeps_days"),
+  mealPrepNote: text("meal_prep_note"),
+  
   // Social media source attribution (for imported recipes)
   socialSourcePlatform: text("social_source_platform").$type<'instagram' | 'tiktok' | 'youtube'>(),
   socialSourceUrl: text("social_source_url"),
@@ -1751,6 +1758,11 @@ export type RecipeCardData = {
   allergens: string[] | null;
   seasonTags: string[] | null;
   occasionTags: string[] | null;
+  
+  // "Good for meal prep" (null = not judged yet)
+  mealPrepFriendly?: boolean | null;
+  mealPrepKeepsDays?: number | null;
+  mealPrepNote?: string | null;
   
   owner?: {
     id: string;

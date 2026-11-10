@@ -5,7 +5,7 @@ import { useQuery, useMutation, useInfiniteQuery } from "@tanstack/react-query";
 import { PaginatedRecipes, RecipeCardData } from "@shared/schema";
 import { pluralize } from "@shared/format";
 import {
-  Search, Camera, Link2, Type, X, BookOpen, ShoppingCart, Trash2, Heart, HeartOff, Share2,
+  Search, Camera, Link2, Type, X, BookOpen, ShoppingCart, Trash2, Heart, HeartOff, Share2, CalendarCheck,
   ArrowUpDown, SlidersHorizontal, MoreHorizontal, CheckSquare, Copy as CopyIcon, SearchX, UserRound, Loader2,
 } from "lucide-react";
 import { DuplicateRecipesDialog } from "@/components/duplicate-recipes-dialog";
@@ -43,6 +43,7 @@ import {
 import { filtersReducer, defaultFilters, countActiveFilters, type FiltersState } from "@/lib/filters";
 import { loadHomeState, saveHomeState, restoreFilters } from "@/lib/list-state";
 import { useAuth } from "@/hooks/useAuth";
+import { useAddToMealPrep } from "@/hooks/use-add-to-meal-prep";
 import { useToast } from "@/hooks/use-toast";
 import { useUndoable } from "@/hooks/use-undoable";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -94,6 +95,7 @@ function RecipesHome() {
   const { openAddRecipe } = useAddRecipe();
   const { user } = useAuth();
   const { toast } = useToast();
+  const mealPrep = useAddToMealPrep();
   const undoable = useUndoable();
 
   const [collectionFilter, setCollectionFilter] = useState<CollectionFilter>(
@@ -429,6 +431,13 @@ function RecipesHome() {
         label: "Add to grocery list",
         icon: ShoppingCart,
         onSelect: () => addToGroceryListMutation.mutate([recipe.id]),
+      });
+      actions.push({
+        label: "Add to this week's meal prep",
+        icon: CalendarCheck,
+        onSelect: () => mealPrep.add({ id: recipe.id, title: recipe.title }),
+        disabled: mealPrep.isAdding(recipe.id),
+        testId: `button-meal-prep-${recipe.id}`,
       });
     }
     if (recipe.owner && !isOwn && recipe.owner.id !== selectedCreatorId) {

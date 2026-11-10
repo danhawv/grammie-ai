@@ -18,6 +18,16 @@ const WELCOME_POINTS = [
   { icon: Printer, text: "Print a packet a helper can follow, with container labels" },
 ];
 
+/** "Mom's Chili will be in this plan." (a dish sent here from its "…" menu) */
+export function PinnedNote({ text }: { text: string }) {
+  return (
+    <p className="flex items-center gap-2 rounded-md border bg-card px-3 py-2 text-base" data-testid="text-pinned-recipe">
+      <CalendarCheck className="h-5 w-5 shrink-0 text-primary" aria-hidden />
+      {text}
+    </p>
+  );
+}
+
 export function Walkthrough({
   setup,
   onChange,
@@ -26,6 +36,7 @@ export function Walkthrough({
   building,
   initialStep = 0,
   onStepChange,
+  note,
 }: {
   setup: PrepSetup;
   onChange: (s: PrepSetup) => void;
@@ -34,6 +45,8 @@ export function Walkthrough({
   building?: boolean;
   initialStep?: number;
   onStepChange?: (i: number) => void;
+  /** one line shown on the welcome and review screens, e.g. "Mom's Chili will be in this plan." */
+  note?: string | null;
 }) {
   const steps = useMemo(() => setupSteps(setup), [setup]);
   // Screens: 0 = welcome, 1..n = questions, n+1 = review
@@ -73,6 +86,7 @@ export function Walkthrough({
               Cook once, eat well all week
             </h1>
           </div>
+          {note && <PinnedNote text={note} />}
           <p className="text-lg">Answer a few questions and Grammie will:</p>
           <ul className="space-y-3">
             {WELCOME_POINTS.map(({ icon: Icon, text }) => (
@@ -110,6 +124,7 @@ export function Walkthrough({
               Here's what you told Grammie. Tap any line to change it. Nothing is final until you approve the plan.
             </p>
           </div>
+          {note && <PinnedNote text={note} />}
           <ul className="divide-y rounded-lg border">
             {steps.map((s, i) => (
               <li key={s.id}>

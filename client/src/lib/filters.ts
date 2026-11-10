@@ -51,6 +51,8 @@ export interface FiltersState {
   fewIngredients: boolean;
   onePot: boolean;
   airFryer: boolean;
+  /** only recipes judged good for meal prep */
+  mealPrep: boolean;
 }
 
 export const defaultFilters: FiltersState = {
@@ -83,6 +85,7 @@ export const defaultFilters: FiltersState = {
   fewIngredients: false,
   onePot: false,
   airFryer: false,
+  mealPrep: false,
 };
 
 export type FilterAction =
@@ -95,7 +98,7 @@ export type FilterAction =
   | { type: "TOGGLE_SKILL_LEVEL"; payload: string }
   | { type: "TOGGLE_SEASON"; payload: string }
   | { type: "TOGGLE_ALLERGEN"; payload: string }
-  | { type: "TOGGLE_QUICK_FILTER"; payload: "budgetFriendly" | "fewIngredients" | "onePot" | "airFryer" }
+  | { type: "TOGGLE_QUICK_FILTER"; payload: "budgetFriendly" | "fewIngredients" | "onePot" | "airFryer" | "mealPrep" }
   | { type: "RESET_ALL" }
   | { type: "RESET_SECTION"; payload: keyof FiltersState };
 
@@ -256,6 +259,8 @@ export function filterRecipes(recipes: RecipeCardData[], filters: FiltersState):
       }
     }
 
+    if (filters.mealPrep && recipe.mealPrepFriendly !== true) return false;
+
     return true;
   });
 }
@@ -280,6 +285,7 @@ export function countActiveFilters(filters: FiltersState): number {
   if (filters.fewIngredients) count++;
   if (filters.onePot) count++;
   if (filters.airFryer) count++;
+  if (filters.mealPrep) count++;
   
   return count;
 }

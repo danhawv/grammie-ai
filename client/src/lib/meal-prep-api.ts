@@ -14,6 +14,7 @@ import type {
   PrepSubstitution,
   SwapOptionView,
   TaskProgress,
+  ThisWeekAddResult,
 } from "@shared/meal-prep/api";
 import { DEFAULT_SHAKE_ID, PROTEIN_SHAKES } from "@shared/meal-prep/shakes";
 import { productName } from "@shared/meal-prep/callouts";
@@ -26,7 +27,7 @@ import { apiFetch } from "./platform";
 // to "1" and every call is answered from client/src/lib/meal-prep-fixtures.ts
 // without touching the server. The fixtures load as a separate chunk.
 
-export type { CookView, PlanOptionView, PrepCookbookChoice, PrepPlanSummary, PrepPlanView, PrepProfile, PrepShakeChoice, SwapOptionView };
+export type { CookView, PlanOptionView, PrepCookbookChoice, PrepPlanSummary, PrepPlanView, PrepProfile, PrepShakeChoice, SwapOptionView, ThisWeekAddResult };
 
 const BASE = "/api/meal-prep";
 
@@ -160,6 +161,8 @@ export const mealPrepApi = {
   /** recipeId = the replacement chosen from swapOptions */
   chooseSwap: (id: string, recipeId: string) => get<PrepPlanView>("POST", `/plans/${id}/choose-swap`, { recipeId }),
   approve: (id: string, options: ApproveOptions) => get<PrepPlanView>("POST", `/plans/${id}/approve`, options),
+  /** "Add to this week's meal prep" from a recipe's menu; see ThisWeekAddResult for what happened */
+  addToThisWeek: (recipeId: string) => get<ThisWeekAddResult>("POST", "/this-week/recipes", { recipeId }),
   share: (id: string, label?: string) => get<PrepShareCreated>("POST", `/plans/${id}/share`, label ? { label } : {}),
   setOwnerProgress: (id: string, taskId: string, done: boolean) => get<PrepPlanView>("POST", `/plans/${id}/progress`, { taskId, done }),
   substitutionsSeen: (id: string) => get<PrepPlanView>("POST", `/plans/${id}/substitutions/seen`),

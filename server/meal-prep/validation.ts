@@ -136,6 +136,8 @@ export const patchPlanSchema = z.object({
 });
 
 export const swapSchema = z.object({ recipeId: id });
+/** POST /this-week/recipes: one recipe from its "…" menu */
+export const thisWeekRecipeSchema = z.object({ recipeId: id });
 export const chooseOptionSchema = z.object({ key: z.enum(["balanced", "protein", "variety", "quick"]) });
 export const chooseSwapSchema = z.object({ recipeId: id });
 
