@@ -4,6 +4,7 @@ import { ui } from "@clerk/ui/no-rhc";
 import { ClerkProvider } from "@clerk/react";
 import { Preferences } from "@capacitor/preferences";
 import { Browser } from "@capacitor/browser";
+import { registerPlugin } from "@capacitor/core";
 import { PUBLIC_ORIGIN } from "@/lib/platform";
 import { reportBack, waitForSsoCallback } from "./returns";
 
@@ -92,6 +93,7 @@ export type SocialProvider = "oauth_google" | "oauth_apple";
  * signed in, false when the person closed the browser.
  */
 export async function signInWithProvider(strategy: SocialProvider): Promise<boolean> {
+  if (strategy === "oauth_apple") return signInWithAppleNative();
   const clerk = instance;
   if (!clerk?.client) throw new Error("Sign-in isn't ready yet. Try again in a moment.");
   const signIn = clerk.client.signIn;
@@ -112,6 +114,40 @@ export async function signInWithProvider(strategy: SocialProvider): Promise<bool
   // First time with this Google/Apple account: finish by creating the account
   if (signIn.firstFactorVerification.status === "transferable") {
     const signUp = await clerk.client.signUp.create({ transfer: true });
+    sessionId = signUp.createdSessionId;
+  }
+  if (!sessionId) throw new Error("Sign-in didn't finish. Try again.");
+  await clerk.setActive({ session: sessionId });
+  return true;
+}
+
+// Native Sign in with Apple: the system sheet (Face ID) instead of a browser
+// page. The Swift side lives in ios/App/App/SceneDelegate.swift. Clerk takes
+// Apple's identity token directly; no Apple web credentials are needed.
+const AppleSignIn = registerPlugin<{
+  authorize(): Promise<{ identityToken: string; givenName: string; familyName: string }>;
+}>("AppleSignIn");
+
+async function signInWithAppleNative(): Promise<boolean> {
+  const clerk = instance;
+  if (!clerk?.client) throw new Error("Sign-in isn't ready yet. Try again in a moment.");
+  let apple;
+  try {
+    apple = await AppleSignIn.authorize();
+  } catch (err: any) {
+    if (err?.code === "CANCELED") return false;
+    throw new Error("Sign in with Apple didn't work. Try again, or use your email.");
+  }
+  const signIn = await clerk.client.signIn.create({ strategy: "oauth_token_apple", token: apple.identityToken } as any);
+  let sessionId = signIn.createdSessionId;
+  // First time with this Apple ID: create the account (Apple only sends the
+  // name on the very first sign-in, so keep it)
+  if (signIn.firstFactorVerification.status === "transferable") {
+    const signUp = await clerk.client.signUp.create({
+      transfer: true,
+      ...(apple.givenName ? { firstName: apple.givenName } : {}),
+      ...(apple.familyName ? { lastName: apple.familyName } : {}),
+    } as any);
     sessionId = signUp.createdSessionId;
   }
   if (!sessionId) throw new Error("Sign-in didn't finish. Try again.");

@@ -53,6 +53,14 @@ const PartyGuest = lazy(() => import("@/pages/party-guest"));
 const PartyDish = lazy(() => import("@/pages/party-dish"));
 const NotFound = lazy(() => import("@/pages/not-found"));
 // The app's sign-in (bundled Clerk, token instead of cookies): native only
+// Apple sign-in is set up for the iPhone app only (native, no Apple web
+// credentials), so the website hides Clerk's Apple button.
+const WEB_CLERK_APPEARANCE = {
+  elements: {
+    socialButtonsIconButton__apple: { display: "none" },
+    socialButtonsBlockButton__apple: { display: "none" },
+  },
+};
 const NativeClerkProvider = __APP_BUILD__ ? lazy(() => import("@/native/auth")) : null;
 
 const CLERK_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string | undefined;
@@ -173,7 +181,7 @@ function App() {
   if (CLERK_KEY) {
     return (
       <ErrorBoundary>
-        <ClerkProvider publishableKey={CLERK_KEY}>
+        <ClerkProvider publishableKey={CLERK_KEY} appearance={WEB_CLERK_APPEARANCE as any}>
           <AuthTokenBridge />
           <AppCore />
         </ClerkProvider>
