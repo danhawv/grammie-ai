@@ -319,11 +319,11 @@ export function UploadRecipeModal({ open, onOpenChange, initialMode, prefill }: 
   };
 
   useEffect(() => {
-    if (!open || !prefillLink.current || link !== prefillLink.current || !authStatus?.isAuthenticated || busy) return;
+    if (!open || !prefillLink.current || link !== prefillLink.current || authLoading || busy) return;
     prefillLink.current = null;
     void submitLink();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, link, authStatus?.isAuthenticated, busy]);
+  }, [open, link, authLoading, busy]);
 
   const submitText = async () => {
     setError(null);
