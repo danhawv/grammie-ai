@@ -18,6 +18,7 @@ import { isNativeApp, setAuthTokenGetter } from "@/lib/platform";
 import { clearImagePass } from "@/lib/image-pass";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { DisplayPrefsApplier } from "@/hooks/use-display-prefs";
+import { GuestClaimer } from "@/components/guest-claimer";
 
 const Home = lazy(() => import("@/pages/home"));
 const RecipeDetail = lazy(() => import("@/pages/recipe-detail"));
@@ -114,6 +115,7 @@ function AppCore() {
           <UploadProgressProvider>
             <AddRecipeProvider>
               <DisplayPrefsApplier />
+              <GuestClaimer />
               <AppShell />
               <Toaster />
               <main id="main">

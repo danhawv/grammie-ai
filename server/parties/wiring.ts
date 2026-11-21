@@ -9,6 +9,7 @@ import { createPgPartyStore } from "./store";
 import { fetchInvitePreview } from "./invite-preview";
 import { credits, gate } from "../lib/credits";
 import { importLink, importPastedText, importPhoto } from "../lib/recipe-importers";
+import { guestAccess } from "../guests/wiring";
 
 export function partyRouter() {
   return createPartyRouter({
@@ -26,5 +27,7 @@ export function partyRouter() {
       balance: async (userId) => (await credits()?.balance(userId)) ?? null,
     },
     preview: (url) => fetchInvitePreview(url),
+    appGuestUserOf: (req) => guestAccess.guestUserOf(req),
+    onGuestClaimed: (guestUserId) => guestAccess.forget(guestUserId),
   });
 }

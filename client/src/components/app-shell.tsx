@@ -32,7 +32,7 @@ const ME = { href: "/settings", label: "Me", icon: CircleUser, match: (p: string
 const BARE = [/^\/login/, /^\/grocery-list\/shared\//, /^\/prep\/cook\//, /^\/meal-prep\/[^/]+\/(packet|cook)/];
 
 export function AppShell() {
-  const [location, setLocation] = useLocation();
+  const [location] = useLocation();
   const { user } = useAuth();
   const { openAddRecipe } = useAddRecipe();
   // Party invite links (/p/…) open without the app chrome for people who
@@ -80,11 +80,10 @@ export function AppShell() {
           </nav>
 
           <div className="ml-auto flex items-center gap-1">
-            {user && (
-              <Button variant="outline" className="hidden md:inline-flex" onClick={() => openAddRecipe()} data-testid="button-add-recipe-header">
-                <Plus aria-hidden /> Add recipe
-              </Button>
-            )}
+            {/* Works signed out too: a few recipes can be added without an account */}
+            <Button variant="outline" className="hidden md:inline-flex" onClick={() => openAddRecipe()} data-testid="button-add-recipe-header">
+              <Plus aria-hidden /> Add recipe
+            </Button>
             {/* Balance on desktop; on phones it's on the Me page */}
             {user && <CreditsPill className="hidden md:inline-flex" />}
             {user && <PendingInvitationsPopover />}
@@ -106,7 +105,7 @@ export function AppShell() {
           ))}
           <button
             type="button"
-            onClick={() => (user ? openAddRecipe() : setLocation("/login"))}
+            onClick={() => openAddRecipe()}
             className="flex flex-col items-center justify-center gap-1 text-xs font-medium text-primary"
             aria-label="Add recipe"
             data-testid="tab-add-recipe"

@@ -3,7 +3,7 @@ import { z } from "zod";
 import { readFileSync, existsSync } from "fs";
 import { join } from "path";
 import heicConvert from "heic-convert";
-import { isAuthenticated, optionalAuth } from "../clerkAuth";
+import { isAuthenticated } from "../clerkAuth";
 import { storage } from "../storage";
 import type { RecipeFilterParams } from "../pg-storage";
 import { parseFiltersFromQuery } from "./filter-parser";
@@ -28,11 +28,18 @@ import { recordImport } from "../recipe-imports";
 import { charge, gate, jobRefs, refundJob } from "../lib/credits";
 import { straightenNewCard, rotateOriginalCard } from "../lib/original-card";
 import { whatCanIMake } from "../lib/what-can-i-make";
+import { guestAccess } from "../guests/wiring";
+import { importOptionsFor as importOpts, isGuestRequest } from "../guests/access";
+
+// Adding a recipe works without an account: these routes take a signed-in
+// account or this device's guest (shared/guest.ts), and guests get their
+// recipe limit. Guests' recipes are always private.
+const addRecipe = guestAccess.addRecipe;
 
 const router = Router();
 
 // Get all recipes (with optional filtering by user scope)
-router.get("/recipes", optionalAuth, async (req: any, res) => {
+router.get("/recipes", guestAccess.optionalAccountOrGuest, async (req: any, res) => {
   try {
     const userId = getUserId(req);
     const scope = req.query.scope as string;
@@ -482,7 +489,7 @@ router.post("/recipes/merge-duplicates", isAuthenticated, async (req: any, res) 
 });
 
 // Get single recipe by ID
-router.get("/recipes/:id", optionalAuth, async (req: any, res) => {
+router.get("/recipes/:id", guestAccess.optionalAccountOrGuest, async (req: any, res) => {
   try {
     const { id } = req.params;
     const userId = getUserId(req);
@@ -500,7 +507,7 @@ router.get("/recipes/:id", optionalAuth, async (req: any, res) => {
 });
 
 // Create recipe manually (requires auth)
-router.post("/recipes", isAuthenticated, async (req: any, res) => {
+router.post("/recipes", ...addRecipe, async (req: any, res) => {
   try {
     const userId = getUserId(req);
     if (!userId) {
@@ -514,7 +521,7 @@ router.post("/recipes", isAuthenticated, async (req: any, res) => {
 
     // Add ownership
     recipeData.ownerUserId = userId;
-    recipeData.isPublic = recipeData.isPublic !== undefined ? recipeData.isPublic : true;
+    recipeData.isPublic = isGuestRequest(req) ? false : recipeData.isPublic !== undefined ? recipeData.isPublic : true;
 
     const validated = insertRecipeSchema.parse(recipeData);
     const recipe = await storage.createRecipe(validated);
@@ -528,7 +535,7 @@ router.post("/recipes", isAuthenticated, async (req: any, res) => {
 // ===== UPLOAD SESSION ROUTES =====
 
 // Create a new upload session for multi-image uploads
-router.post("/uploads/sessions", isAuthenticated, async (req: any, res) => {
+router.post("/uploads/sessions", guestAccess.accountOrGuest, async (req: any, res) => {
   try {
     const userId = getUserId(req);
     if (!userId) {
@@ -556,7 +563,7 @@ router.post("/uploads/sessions", isAuthenticated, async (req: any, res) => {
 });
 
 // Get upload session status with recipe details
-router.get("/uploads/sessions/:id", isAuthenticated, async (req: any, res) => {
+router.get("/uploads/sessions/:id", guestAccess.accountOrGuest, async (req: any, res) => {
   try {
     const userId = getUserId(req);
     if (!userId) {
@@ -580,7 +587,7 @@ router.get("/uploads/sessions/:id", isAuthenticated, async (req: any, res) => {
 // Upload and extract recipe from handwritten image with two-phase enrichment (requires auth)
 router.post(
   "/recipes/upload",
-  isAuthenticated,
+  ...addRecipe,
   upload.single("image"),
   async (req: any, res) => {
     try {
@@ -594,7 +601,7 @@ router.post(
       }
       if (!(await gate(res, userId, "recipe_import"))) return;
 
-      const result = await importPhoto(req.file, userId, req.body);
+      const result = await importPhoto(req.file, userId, req.body, importOpts(req));
       res.status(result.status).json(result.body);
     } catch (error) {
       console.error("Error uploading recipe:", error);
@@ -611,7 +618,7 @@ router.post(
 // Upload multiple images for a single recipe (requires auth)
 router.post(
   "/recipes/upload-multi-image",
-  isAuthenticated,
+  ...addRecipe,
   upload.array("images", 5),
   async (req: any, res) => {
     try {
@@ -691,7 +698,7 @@ router.post(
       // Create placeholder recipe with first handwritten image
       const recipeData: any = {
         ownerUserId: userId,
-        isPublic: true,
+        isPublic: !isGuestRequest(req),
         title: "Your Recipe",
         prepTime: "0 mins",
         totalTime: "0 mins",
@@ -757,7 +764,7 @@ router.post("/recipes/:id/original-card/rotate", isAuthenticated, async (req: an
 
 // Extract recipe from URL endpoint (requires auth). Social links pasted here
 // go to the social importer.
-router.post("/recipes/extract-url", isAuthenticated, async (req: any, res) => {
+router.post("/recipes/extract-url", ...addRecipe, async (req: any, res) => {
   try {
     const userId = getUserId(req);
     if (!userId) {
@@ -770,7 +777,7 @@ router.post("/recipes/extract-url", isAuthenticated, async (req: any, res) => {
     }
     if (!(await gate(res, userId, "recipe_import"))) return;
 
-    const result = detectPlatform(url) === "web" ? await importWebLink(url, userId) : await importSocialLink(url, userId);
+    const result = detectPlatform(url) === "web" ? await importWebLink(url, userId, undefined, importOpts(req)) : await importSocialLink(url, userId, importOpts(req));
     res.status(result.status).json(result.body);
   } catch (error) {
     console.error("Error extracting recipe from URL:", error);
@@ -782,7 +789,7 @@ router.post("/recipes/extract-url", isAuthenticated, async (req: any, res) => {
 });
 
 // Extract recipe from pasted text (requires auth)
-router.post("/recipes/extract-text", isAuthenticated, async (req: any, res) => {
+router.post("/recipes/extract-text", ...addRecipe, async (req: any, res) => {
   try {
     const userId = getUserId(req);
     if (!userId) {
@@ -796,7 +803,7 @@ router.post("/recipes/extract-text", isAuthenticated, async (req: any, res) => {
 
     if (!(await gate(res, userId, "recipe_import"))) return;
     // A caption pasted after a post couldn't be read keeps its link (sourceUrl)
-    const result = await importPastedText(text, req.body.sourceUrl, userId);
+    const result = await importPastedText(text, req.body.sourceUrl, userId, importOpts(req));
     res.status(result.status).json(result.body);
   } catch (error) {
     console.error("Error extracting recipe from text:", error);
@@ -814,7 +821,7 @@ router.get("/admin/instagram-check", isAuthenticated, async (req: any, res) => {
   res.json(await diagnoseInstagram(req.query.url));
 });
 
-router.post("/recipes/import-social", isAuthenticated, async (req: any, res) => {
+router.post("/recipes/import-social", ...addRecipe, async (req: any, res) => {
   try {
     const userId = getUserId(req);
     if (!userId) {
@@ -828,7 +835,7 @@ router.post("/recipes/import-social", isAuthenticated, async (req: any, res) => 
     if (!(await gate(res, userId, "recipe_import"))) return;
 
     // Web pages go through the web importer
-    const result = detectPlatform(url) === "web" ? await importWebLink(url, userId) : await importSocialLink(url, userId);
+    const result = detectPlatform(url) === "web" ? await importWebLink(url, userId, undefined, importOpts(req)) : await importSocialLink(url, userId, importOpts(req));
     res.status(result.status).json(result.body);
   } catch (error) {
     console.error("[Social Import] Error:", error);

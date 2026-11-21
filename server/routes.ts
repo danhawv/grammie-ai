@@ -28,6 +28,7 @@ import { createFoodData } from "./meal-prep/food";
 import { createPlanner } from "./meal-prep/planner";
 import { createSessionBuilder } from "./meal-prep/session";
 import { partyRouter } from "./parties/wiring";
+import { guestRouter } from "./guests/wiring";
 import { mcpRouter } from "./mcp/wiring";
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -39,6 +40,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Mount API route modules at /api
   app.use("/api", authRoutes);
+  // Adding recipes without an account (guest tokens, the claim on sign-up)
+  app.use("/api", guestRouter());
   app.use("/api", recipeImportRoutes);
   app.use("/api", recipesRoutes);
   app.use("/api", cookbooksRoutes);

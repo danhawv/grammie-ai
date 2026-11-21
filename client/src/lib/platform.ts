@@ -12,6 +12,8 @@
 // client/src/native/ at startup through registerNativeAdapters(); without it
 // everything falls back to the browser version.
 
+import { GUEST_TOKEN_HEADER, GUEST_TOKEN_STORAGE_KEY } from "@shared/guest";
+
 /** True inside the iPhone/iPad (or later Android) app */
 export function isNativeApp(): boolean {
   const cap = (globalThis as any).Capacitor;
@@ -76,9 +78,36 @@ export async function authToken(): Promise<string | null> {
   }
 }
 
+// ---------- Guest token (adding recipes without an account) ----------
+//
+// Someone who adds a recipe without signing in gets a guest token
+// (shared/guest.ts, client/src/lib/guest.ts). It's kept in localStorage, in
+// the browser and the app alike (it lasts in the app's web view), and sent on
+// every API call; a signed-in account always wins on the server.
+
+/** This device's guest token, if it has added recipes without an account */
+export function guestToken(): string | null {
+  try {
+    const v = typeof localStorage === "undefined" ? null : localStorage.getItem(GUEST_TOKEN_STORAGE_KEY);
+    return v && /^[A-Za-z0-9_-]{43}$/.test(v) ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+export function setGuestToken(token: string | null): void {
+  try {
+    if (token) localStorage.setItem(GUEST_TOKEN_STORAGE_KEY, token);
+    else localStorage.removeItem(GUEST_TOKEN_STORAGE_KEY);
+  } catch {
+    /* private mode: not remembered */
+  }
+}
+
 /**
  * fetch() for our own server. Use it for every request to /api: it points at
- * the right host and carries sign-in in both the browser and the app.
+ * the right host and carries sign-in (and this device's guest token) in both
+ * the browser and the app.
  */
 export async function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
   const headers = new Headers(init.headers);
@@ -86,6 +115,8 @@ export async function apiFetch(path: string, init: RequestInit = {}): Promise<Re
     const token = await authToken();
     if (token) headers.set("Authorization", `Bearer ${token}`);
   }
+  const guest = guestToken();
+  if (guest && !headers.has(GUEST_TOKEN_HEADER)) headers.set(GUEST_TOKEN_HEADER, guest);
   return fetch(apiUrl(path), { credentials: "include", ...init, headers });
 }
 

@@ -43,6 +43,7 @@ import {
 import { filtersReducer, defaultFilters, countActiveFilters, type FiltersState } from "@/lib/filters";
 import { loadHomeState, saveHomeState, restoreFilters } from "@/lib/list-state";
 import { useAuth } from "@/hooks/useAuth";
+import { GuestRecipes } from "@/components/guest-recipes";
 import { useAddToMealPrep } from "@/hooks/use-add-to-meal-prep";
 import { useToast } from "@/hooks/use-toast";
 import { useUndoable } from "@/hooks/use-undoable";
@@ -549,6 +550,9 @@ function RecipesHome() {
           }
         />
       )}
+
+      {/* Recipes added on this device without an account */}
+      {!user && <GuestRecipes />}
 
       {showBrowse && (
         <>

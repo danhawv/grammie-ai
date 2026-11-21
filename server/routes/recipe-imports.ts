@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { and, eq, inArray } from "drizzle-orm";
-import { isAuthenticated } from "../clerkAuth";
+import { guestAccess } from "../guests/wiring";
 import { storage } from "../storage";
 import { db } from "../db";
 import { jobQueue } from "../job-queue";
@@ -26,7 +26,8 @@ import { charge, gate, jobRefs } from "../lib/credits";
 
 // The review step for AI imports (docs/DESIGN_PRINCIPLES.md §6.2): status for
 // JobStatus, the import record for the review screen, saving the checked
-// recipe, and Retry for failed reads.
+// recipe, and Retry for failed reads. Guests who added recipes without an
+// account use these too (accountOrGuest, server/guests/access.ts).
 
 const router = Router();
 
@@ -34,7 +35,7 @@ const sameLines = (a: string[] | null | undefined, b: string[]) =>
   Array.isArray(a) && a.length === b.length && a.every((line, i) => line === b[i]);
 
 // Imports still waiting for a look (persists across devices and sessions)
-router.get("/recipe-imports/pending", isAuthenticated, async (req: any, res) => {
+router.get("/recipe-imports/pending", guestAccess.accountOrGuest, async (req: any, res) => {
   const userId = getUserId(req);
   if (!userId) return res.status(401).json({ error: "Unauthorized" });
   const rows = await listPendingImports(userId);
@@ -53,7 +54,7 @@ router.get("/recipe-imports/pending", isAuthenticated, async (req: any, res) => 
 });
 
 // Light status for polling (no images, no full recipe)
-router.get("/recipe-imports/status", isAuthenticated, async (req: any, res) => {
+router.get("/recipe-imports/status", guestAccess.accountOrGuest, async (req: any, res) => {
   const userId = getUserId(req);
   if (!userId) return res.status(401).json({ error: "Unauthorized" });
   const ids = String(req.query.ids ?? "")
@@ -96,7 +97,7 @@ router.get("/recipe-imports/status", isAuthenticated, async (req: any, res) => {
 });
 
 // The import record: kept source (extra pages, link, pasted text) and review state
-router.get("/recipe-imports/:id", isAuthenticated, async (req: any, res) => {
+router.get("/recipe-imports/:id", guestAccess.accountOrGuest, async (req: any, res) => {
   const userId = getUserId(req);
   if (!userId) return res.status(401).json({ error: "Unauthorized" });
   const recipe = await storage.getRecipe(req.params.id, userId);
@@ -127,7 +128,7 @@ const reviewSchema = z.object({
 
 // Save the checked recipe. Only touches what the person saw and edited
 // (title, servings, ingredients, steps), and keeps normalized data in step.
-router.post("/recipe-imports/:id/review", isAuthenticated, async (req: any, res) => {
+router.post("/recipe-imports/:id/review", guestAccess.accountOrGuest, async (req: any, res) => {
   try {
     const userId = getUserId(req);
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
@@ -171,7 +172,7 @@ router.post("/recipe-imports/:id/review", isAuthenticated, async (req: any, res)
 });
 
 // "Not now": stop asking about this import; the recipe stays as it is
-router.post("/recipe-imports/:id/dismiss", isAuthenticated, async (req: any, res) => {
+router.post("/recipe-imports/:id/dismiss", guestAccess.accountOrGuest, async (req: any, res) => {
   const userId = getUserId(req);
   if (!userId) return res.status(401).json({ error: "Unauthorized" });
   const recipe = await storage.getRecipe(req.params.id, userId);
@@ -186,7 +187,7 @@ function base64FromDataUrl(url: string | null | undefined): string | null {
 }
 
 // Retry a failed import: re-read the kept photo(s), or re-run enrichment
-router.post("/recipe-imports/:id/retry", isAuthenticated, async (req: any, res) => {
+router.post("/recipe-imports/:id/retry", guestAccess.accountOrGuest, async (req: any, res) => {
   try {
     const userId = getUserId(req);
     if (!userId) return res.status(401).json({ error: "Unauthorized" });

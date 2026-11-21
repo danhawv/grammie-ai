@@ -2361,3 +2361,23 @@ export const partyDishes = pgTable("party_dishes", {
 }));
 
 export type PartyDishRow = typeof partyDishes.$inferSelect;
+
+// ============================================================================
+// ADD WITHOUT AN ACCOUNT (shared/guest.ts, migrations/2026-11-guest-add.sql)
+// ============================================================================
+
+// A device's guest token for "add a recipe without an account". Only the
+// token's SHA-256 is kept. The user is a guest user (users.is_guest), the same
+// kind party guests get; the rows go when the guest signs up (the claim).
+export const guestSessions = pgTable("guest_sessions", {
+  tokenHash: varchar("token_hash", { length: 64 }).primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  // SHA-256 of the address it was started from (salted), for the daily cap
+  ipHash: varchar("ip_hash", { length: 64 }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  userIdx: index("guest_sessions_user_idx").on(table.userId),
+  ipIdx: index("guest_sessions_ip_idx").on(table.ipHash, table.createdAt),
+}));
+
+export type GuestSessionRow = typeof guestSessions.$inferSelect;

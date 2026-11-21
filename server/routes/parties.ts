@@ -49,6 +49,13 @@ export interface PartyRouterDeps {
     balance(userId: string): Promise<number | null>;
   };
   preview(url: string): Promise<InvitePreview>;
+  /**
+   * The guest user of "add a recipe without an account" on this device
+   * (X-Grammie-Guest, server/guests/access.ts), so joining reuses it
+   */
+  appGuestUserOf?: (req: any) => Promise<string | null>;
+  /** After a claim moved a guest user to an account: end their add-without-account tokens */
+  onGuestClaimed?: (guestUserId: string) => Promise<void>;
   /** Where invite links point, e.g. https://grammie.ai */
   publicOrigin?: string;
   now?: () => Date;
@@ -138,6 +145,15 @@ function firstIssue(err: z.ZodError): string {
 
 // ---------------------------------------------------------------- router
 
+/** Account holders in the party get viewer shares on its private recipes */
+export async function syncPartyShares(store: PartyStore, partyId: string): Promise<void> {
+  const [guests, dishes] = await Promise.all([store.listGuests(partyId), store.listDishes(partyId)]);
+  const recipeIds = Array.from(new Set(dishes.map((d) => d.recipeId).filter((id): id is string => !!id)));
+  if (recipeIds.length === 0) return;
+  const users = await store.getUsers(guests.map((g) => g.userId));
+  await store.shareRecipes(recipeIds, users.filter((u) => !u.isGuest).map((u) => u.id));
+}
+
 export function createPartyRouter(deps: PartyRouterDeps): Router {
   const router = Router();
   const { store } = deps;
@@ -172,14 +188,7 @@ export function createPartyRouter(deps: PartyRouterDeps): Router {
     });
   }
 
-  /** Account holders in the party get viewer shares on its private recipes */
-  async function syncShares(partyId: string) {
-    const [guests, dishes] = await Promise.all([store.listGuests(partyId), store.listDishes(partyId)]);
-    const recipeIds = Array.from(new Set(dishes.map((d) => d.recipeId).filter((id): id is string => !!id)));
-    if (recipeIds.length === 0) return;
-    const users = await store.getUsers(guests.map((g) => g.userId));
-    await store.shareRecipes(recipeIds, users.filter((u) => !u.isGuest).map((u) => u.id));
-  }
+  const syncShares = (partyId: string) => syncPartyShares(store, partyId);
 
   /** After a dish with a recipe is added: party cookbook and shares */
   async function recipeAdded(party: PartyRow, recipeId: string) {
@@ -502,7 +511,9 @@ export function createPartyRouter(deps: PartyRouterDeps): Router {
       // Someone who is already a guest at another party (the app sends that
       // party's guest token) keeps one guest user: one set of credits, and
       // one claim moves all their places
-      const [known] = v.otherPartyGuest ? await store.getUsers([v.otherPartyGuest.userId]) : [];
+      // (or who added recipes without an account on this device)
+      const knownId = v.otherPartyGuest?.userId ?? (deps.appGuestUserOf ? await deps.appGuestUserOf(req) : null);
+      const [known] = knownId ? await store.getUsers([knownId]) : [];
       const userId = known?.isGuest ? known.id : await store.createGuestUser(body.name);
       const { token, tokenHash } = newShareToken();
       const guest = await store.addGuest({ partyId: v.party.id, userId, ...facts, isHost: false, guestTokenHash: tokenHash });
@@ -667,6 +678,7 @@ export function createPartyRouter(deps: PartyRouterDeps): Router {
       if (user.id !== v.accountId) {
         const touched = await store.claimGuest(user.id, v.accountId);
         for (const partyId of touched) await syncShares(partyId);
+        if (deps.onGuestClaimed) await deps.onGuestClaimed(user.id);
       }
       const mine = await store.findGuestByUser(v.party.id, v.accountId);
       res.json({ guestId: mine?.id ?? null });

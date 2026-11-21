@@ -27,12 +27,19 @@ import {
 import { cn } from "@/lib/utils";
 import { AddCreditsLink, CreditNote, LowCreditsNotice } from "@/components/credits";
 import { isNeedCredits, refreshCredits } from "@/lib/credits-api";
+import { useAuth } from "@/hooks/useAuth";
+import { ensureGuest, fetchGuestStatus, guestSignInPath, guestStopFrom, guestToken, type GuestStop } from "@/lib/guest";
+import { DEFAULT_GUEST_RECIPE_LIMIT, guestLimitMessage } from "@shared/guest";
 
 // The one "Add recipe" sheet (docs/DESIGN_PRINCIPLES.md §3, §4, §6): three
 // large choices — Photo, Link or post, Type or paste. Batch import is the
 // "Add several recipes" link inside Photo. Every import ends on the review
 // screen (one recipe) or the progress list (several), never saved unseen.
 // Dialog on desktop, bottom sheet on phones.
+//
+// It works signed out: the first add makes this device a guest
+// (client/src/lib/guest.ts), and after the guest limit the sheet asks them to
+// make a free account (their recipes come with them).
 
 type View = "choose" | "photo" | "link" | "text";
 type InitialMode = "image" | "link" | "text";
@@ -62,7 +69,7 @@ const viewFor = (mode?: InitialMode): View => (mode === "image" ? "photo" : mode
 
 export function UploadRecipeModal({ open, onOpenChange, initialMode }: UploadRecipeModalProps) {
   const isMobile = useIsMobile();
-  const [, navigate] = useLocation();
+  const [location, navigate] = useLocation();
   const queryClient = useQueryClient();
   const { addRecipe, startPhotoBatch } = useUploadProgress();
   // Straight to the recipe, unless "Check each recipe" is on in Me → Adding recipes
@@ -84,11 +91,33 @@ export function UploadRecipeModal({ open, onOpenChange, initialMode }: UploadRec
   const photosRef = useRef(photos);
   photosRef.current = photos;
 
-  const { data: authStatus } = useQuery<{ isAuthenticated: boolean }>({
-    queryKey: ["/api/auth/status"],
-    enabled: open,
+  // Signed out, adding works as a guest until the guest limit
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
+  const isGuest = !authLoading && !isAuthenticated;
+  const [stop, setStop] = useState<GuestStop | null>(null);
+  const { data: guestStatus } = useQuery({
+    queryKey: ["/api/guest/me"],
+    queryFn: fetchGuestStatus,
+    enabled: open && isGuest && !!guestToken(),
+    staleTime: 0,
   });
-  const needsSignIn = open && authStatus && !authStatus.isAuthenticated;
+  const guestFull = isGuest && !!guestStatus?.isGuest && guestStatus.recipeCount >= guestStatus.limit;
+  const shownStop: GuestStop | null = stop ?? (guestFull ? { kind: "limit", limit: guestStatus!.limit } : null);
+  const needsSignIn = open && !!shownStop;
+
+  /** Before an add: a guest token for a signed-out device */
+  const beforeAdd = async () => {
+    if (isGuest) await ensureGuest();
+  };
+  /** True (and the sign-up sheet shown) when the error means "make an account" */
+  const stoppedBy = (err: unknown) => {
+    const found = isGuest ? guestStopFrom(err) : null;
+    if (!found) return false;
+    setBusy(null);
+    setStop(found);
+    if (found.kind === "limit") void queryClient.invalidateQueries({ queryKey: ["/api/guest/me"] });
+    return true;
+  };
 
   useEffect(() => {
     if (open) setView(viewFor(initialMode));
@@ -105,6 +134,7 @@ export function UploadRecipeModal({ open, onOpenChange, initialMode }: UploadRec
     setCookbookId(undefined);
     setBusy(null);
     setError(null);
+    setStop(null);
   };
 
   const close = () => {
@@ -185,6 +215,25 @@ export function UploadRecipeModal({ open, onOpenChange, initialMode }: UploadRec
     if (photos.length === 0) return;
     setError(null);
     if (batch) {
+      if (isGuest) {
+        // Without an account only the free recipes that are left can go
+        try {
+          await beforeAdd();
+          const status = await fetchGuestStatus();
+          const left = Math.max(0, status.limit - status.recipeCount);
+          if (left === 0) {
+            setStop({ kind: "limit", limit: status.limit });
+            return;
+          }
+          if (photos.length > left) {
+            setError(`You can add ${left} more ${left === 1 ? "recipe" : "recipes"} without an account. Remove some photos, or make a free account to add them all.`);
+            return;
+          }
+        } catch (err) {
+          if (!stoppedBy(err)) setError(apiErrorMessage(err, "The photos didn't upload. Check your connection and try again."));
+          return;
+        }
+      }
       const blobs = await finalBlobs();
       startPhotoBatch(blobs.map((blob, i) => ({ blob, thumbnail: photos[i].thumbnail })), { cookbookId });
       refreshCredits();
@@ -194,11 +243,13 @@ export function UploadRecipeModal({ open, onOpenChange, initialMode }: UploadRec
     }
     setBusy(photos.length === 1 ? "Sending your photo…" : `Sending ${photos.length} photos…`);
     try {
+      await beforeAdd();
       const recipeId = await uploadRecipePhotos(await finalBlobs(), captionFor?.url);
       addRecipe(recipeId, "Your Recipe", { kind: captionFor ? "social" : "photo", thumbnail: photos[0].thumbnail });
       await addToCookbook(cookbookId, recipeId);
       done(recipePageAfterImport(recipeId));
     } catch (err) {
+      if (stoppedBy(err)) return;
       setBusy(null);
       setError(apiErrorMessage(err, "The photo didn't upload. Check your connection and try again."));
     }
@@ -216,11 +267,13 @@ export function UploadRecipeModal({ open, onOpenChange, initialMode }: UploadRec
     }
     setBusy(platform === "web" ? "Reading the page…" : "Reading the post…");
     try {
+      await beforeAdd();
       const { recipeId } = await importLink(link);
       addRecipe(recipeId, "Your Recipe", { kind: platform === "web" ? "link" : "social" });
       await addToCookbook(cookbookId, recipeId);
       done(recipePageAfterImport(recipeId));
     } catch (err) {
+      if (stoppedBy(err)) return;
       setBusy(null);
       const message = apiErrorMessage(err, "Grammie couldn't read that link. Check it opens in your browser, or paste the recipe text instead.");
       if ((platform === "instagram" || platform === "tiktok") && !isNeedCredits(message)) {
@@ -243,18 +296,20 @@ export function UploadRecipeModal({ open, onOpenChange, initialMode }: UploadRec
     }
     setBusy("Reading your recipe…");
     try {
+      await beforeAdd();
       const recipeId = await importText(text, captionFor?.url);
       addRecipe(recipeId, "Your Recipe", { kind: captionFor ? "social" : "text" });
       await addToCookbook(cookbookId, recipeId);
       done(recipePageAfterImport(recipeId));
     } catch (err) {
+      if (stoppedBy(err)) return;
       setBusy(null);
       setError(apiErrorMessage(err, "Grammie couldn't find a recipe in that text. Include a title, ingredients and steps."));
     }
   };
 
   const done = (href: string) => {
-    queryClient.invalidateQueries({ predicate: (q) => q.queryKey[0] === "/api/recipes" });
+    queryClient.invalidateQueries({ predicate: (q) => q.queryKey[0] === "/api/recipes" || q.queryKey[0] === "/api/guest/me" });
     refreshCredits();
     setBusy(null);
     close();
@@ -263,8 +318,8 @@ export function UploadRecipeModal({ open, onOpenChange, initialMode }: UploadRec
 
   // ---- Layout ----------------------------------------------------------------
 
-  const title = needsSignIn
-    ? "Sign in to add recipes"
+  const title = shownStop
+    ? shownStop.kind === "limit" ? "Make a free account to keep going" : "Sign in to add recipes"
     : view === "choose"
       ? "Add a recipe"
       : view === "photo"
@@ -273,8 +328,10 @@ export function UploadRecipeModal({ open, onOpenChange, initialMode }: UploadRec
           ? "Link or post"
           : "Type or paste";
 
-  const description = needsSignIn
-    ? "Your recipes are saved to your account, so you'll need to sign in first."
+  const description = shownStop
+    ? shownStop.kind === "limit"
+      ? shownStop.message ?? guestLimitMessage(shownStop.limit ?? 5)
+      : shownStop.message ?? "Make a free account or sign in, and your recipes are saved there."
     : view === "choose"
       ? "Grammie reads handwriting, cookbook pages and recipe posts. You'll check everything before it's saved."
       : view === "photo"
@@ -285,9 +342,14 @@ export function UploadRecipeModal({ open, onOpenChange, initialMode }: UploadRec
           ? "Paste a link to a recipe website, or an Instagram, TikTok or YouTube post."
           : "Type the recipe or paste it from somewhere else. Grammie sorts it into ingredients and steps.";
 
+  // Back here after signing in; the recipes move over on their own (GuestClaimer)
+  const comeBackTo = location.startsWith("/login") ? "/" : location;
   const body = needsSignIn ? (
     <div className="flex flex-col gap-3 sm:flex-row">
-      <Button className="h-12 flex-1" onClick={() => { close(); navigate("/login"); }} data-testid="button-sign-in">
+      <Button className="h-12 flex-1 text-base" onClick={() => { close(); navigate(guestSignInPath("signup", comeBackTo)); }} data-testid="button-sign-up">
+        Sign up — it's free
+      </Button>
+      <Button variant="outline" className="h-12 flex-1 text-base" onClick={() => { close(); navigate(guestSignInPath("signin", comeBackTo)); }} data-testid="button-sign-in">
         Sign in
       </Button>
     </div>
@@ -296,6 +358,11 @@ export function UploadRecipeModal({ open, onOpenChange, initialMode }: UploadRec
       <ChoiceButton icon={<Camera className="h-7 w-7" aria-hidden />} title="Photo" detail="Take a photo of a recipe card or cookbook page, or choose one" onClick={() => goTo("photo")} testId="choice-photo" />
       <ChoiceButton icon={<Link2 className="h-7 w-7" aria-hidden />} title="Link or post" detail="A recipe website, Instagram, TikTok or YouTube" onClick={() => goTo("link")} testId="choice-link" />
       <ChoiceButton icon={<FileText className="h-7 w-7" aria-hidden />} title="Type or paste" detail="Write it in, or paste it from an email or note" onClick={() => goTo("text")} testId="choice-text" />
+      {isGuest && (
+        <p className="text-base text-muted-foreground" data-testid="text-guest-allowance">
+          {guestAllowanceText(guestStatus?.isGuest ? guestStatus : null)}
+        </p>
+      )}
     </div>
   ) : view === "photo" ? (
     <div className="space-y-4">
@@ -371,7 +438,7 @@ export function UploadRecipeModal({ open, onOpenChange, initialMode }: UploadRec
       >
         {batch ? "Back to one recipe with several pages" : "Add several recipes at once"}
       </button>
-      {batch && (
+      {batch && !isGuest && (
         <button
           type="button"
           className="block min-h-11 text-left text-base font-medium text-primary underline-offset-4 hover:underline disabled:opacity-50"
@@ -498,7 +565,7 @@ export function UploadRecipeModal({ open, onOpenChange, initialMode }: UploadRec
 
       {body}
 
-      {!needsSignIn && view !== "choose" && (
+      {!needsSignIn && view !== "choose" && !isGuest && (
         <div className="space-y-2">
           <Label className="text-base">Add to a cookbook <span className="font-normal text-muted-foreground">(optional)</span></Label>
           <CookbookSelect value={cookbookId} onValueChange={setCookbookId} />
@@ -541,6 +608,16 @@ export function UploadRecipeModal({ open, onOpenChange, initialMode }: UploadRec
       </DialogContent>
     </Dialog>
   );
+}
+
+/** "You can add 5 recipes without an account." / "3 of your 5 free recipes are left." */
+function guestAllowanceText(status: { recipeCount: number; limit: number } | null): string {
+  const limit = status?.limit ?? DEFAULT_GUEST_RECIPE_LIMIT;
+  if (!status || status.recipeCount === 0) {
+    return `You can add ${limit} ${limit === 1 ? "recipe" : "recipes"} without an account. Make a free account any time to keep them.`;
+  }
+  const left = Math.max(0, limit - status.recipeCount);
+  return `${left} of your ${limit} free recipes ${left === 1 ? "is" : "are"} left. Make a free account any time to keep them.`;
 }
 
 function ChoiceButton({ icon, title, detail, onClick, testId }: { icon: ReactNode; title: string; detail: string; onClick: () => void; testId: string }) {
