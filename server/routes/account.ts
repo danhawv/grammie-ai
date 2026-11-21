@@ -43,8 +43,8 @@ export function createAccountRouter(deps: AccountRouterDeps): Router {
         return res.status(409).json({
           code: PRINT_ORDER_IN_PROGRESS_CODE,
           error: inProgress === 1
-            ? "You have a printed book on its way. Once it's delivered you can delete your account. If you need help sooner, email support@grammie.ai."
-            : "You have printed books on their way. Once they're delivered you can delete your account. If you need help sooner, email support@grammie.ai.",
+            ? "You have a printed book on its way. Once it's delivered you can delete your account. If you need help sooner, email danhawv@gmail.com."
+            : "You have printed books on their way. Once they're delivered you can delete your account. If you need help sooner, email danhawv@gmail.com.",
         });
       }
 
@@ -83,7 +83,7 @@ export function createAccountRouter(deps: AccountRouterDeps): Router {
       res.json({ deleted: true });
     } catch (err) {
       log.error(`[Account] Deleting user ${userId} failed:`, err);
-      res.status(500).json({ error: "We couldn't delete your account just now. Nothing was removed. Please try again, or email support@grammie.ai." });
+      res.status(500).json({ error: "We couldn't delete your account just now. Nothing was removed. Please try again, or email danhawv@gmail.com." });
     }
   });
 

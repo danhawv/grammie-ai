@@ -4,7 +4,7 @@ import { PageHeader } from "@/components/page-header";
 
 // Layout for the plain-language policy pages (/privacy, /terms, /support).
 
-export const SUPPORT_EMAIL = "support@grammie.ai";
+export const SUPPORT_EMAIL = "danhawv@gmail.com";
 
 export function LegalPage({ title, effective, children }: { title: string; effective?: string; children: ReactNode }) {
   return (
