@@ -11,6 +11,15 @@ Read and follow `docs/DESIGN_PRINCIPLES.md`. In particular:
 - Every data screen has loading, empty and error states; deletes are undoable.
 - Run the pre-merge checklist at the end of that document.
 
+## iPhone/iPad app (every feature)
+
+The same code ships as a Capacitor app (`docs/MOBILE_APP.md`). For every feature:
+- Works at phone and iPad widths, inside the safe areas.
+- Server calls, images, outside links, downloads, printing and photos go through `client/src/lib/platform.ts` (`apiFetch`, `mediaUrl`, `openExternal`/`ExternalAnchor`, `saveFile`, `PhotoPicker`), never straight to `fetch("/api…")`, `window.location` or `<a download>`.
+- Native-only code lives in `client/src/native/` and is imported only behind `__APP_BUILD__`.
+- No new native permission, plugin or entitlement without a planned App Store release (web code can update over the air; native can't).
+- Test on the web, the iOS simulator and TestFlight.
+
 ## Working notes
 
 - Run `npm test` (vitest) and `npx tsc --noEmit -p .` before committing.

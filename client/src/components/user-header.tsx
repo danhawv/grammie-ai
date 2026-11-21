@@ -13,7 +13,7 @@ import {
 import { User, LogOut, Settings } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { UserButton, Show, SignInButton } from "@clerk/react";
-import { mediaUrl } from "@/lib/platform";
+import { isNativeApp, mediaUrl } from "@/lib/platform";
 
 const CLERK_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 
@@ -21,15 +21,22 @@ function ClerkUserHeader() {
   return (
     <>
       <Show when="signed-out">
-        <SignInButton mode="modal">
-          <Button
-            variant="default"
-            className="inline-flex items-center justify-center touch-target px-4"
-            data-testid="button-login"
-          >
-            Sign In
+        {isNativeApp() ? (
+          // The app's sign-in page has the Google and Apple buttons that work there
+          <Button asChild variant="default" className="inline-flex items-center justify-center touch-target px-4" data-testid="button-login">
+            <Link href="/login">Sign In</Link>
           </Button>
-        </SignInButton>
+        ) : (
+          <SignInButton mode="modal">
+            <Button
+              variant="default"
+              className="inline-flex items-center justify-center touch-target px-4"
+              data-testid="button-login"
+            >
+              Sign In
+            </Button>
+          </SignInButton>
+        )}
       </Show>
       <Show when="signed-in">
         <UserButton

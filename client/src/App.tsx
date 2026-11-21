@@ -46,12 +46,23 @@ const MealPrep = lazy(() => import("@/pages/meal-prep"));
 const MealPrepPlan = lazy(() => import("@/pages/meal-prep-plan"));
 const MealPrepCook = lazy(() => import("@/pages/meal-prep-cook"));
 const MealPrepPacket = lazy(() => import("@/pages/meal-prep-packet"));
+const SsoCallback = lazy(() => import("@/pages/sso-callback"));
 const Credits = lazy(() => import("@/pages/credits"));
 const Party = lazy(() => import("@/pages/party"));
 const PartyPrint = lazy(() => import("@/pages/party-print"));
 const PartyGuest = lazy(() => import("@/pages/party-guest"));
 const PartyDish = lazy(() => import("@/pages/party-dish"));
 const NotFound = lazy(() => import("@/pages/not-found"));
+// The app's sign-in (bundled Clerk, token instead of cookies): native only
+// Apple sign-in is set up for the iPhone app only (native, no Apple web
+// credentials), so the website hides Clerk's Apple button.
+const WEB_CLERK_APPEARANCE = {
+  elements: {
+    socialButtonsIconButton__apple: { display: "none" },
+    socialButtonsBlockButton__apple: { display: "none" },
+  },
+};
+const NativeClerkProvider = __APP_BUILD__ ? lazy(() => import("@/native/auth")) : null;
 
 const CLERK_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string | undefined;
 
@@ -101,6 +112,7 @@ function Router() {
         <Route path="/processing" component={Processing} />
         <Route path="/import" component={BulkImport} />
         <Route path="/import/:id" component={BulkImport} />
+        <Route path="/sso-callback" component={SsoCallback} />
         <Route component={NotFound} />
       </Switch>
     </Suspense>
@@ -122,8 +134,8 @@ function AppCore() {
                 <Router />
               </main>
               <GrammieChat />
-              <ShareHandler />
-              {/* The app installs and updates through the App Store */}
+              {/* The app has its own share sheet, and installs and updates through the App Store */}
+              {!isNativeApp() && <ShareHandler />}
               {!isNativeApp() && <InstallPrompt />}
               {!isNativeApp() && <UpdateBanner />}
             </AddRecipeProvider>
@@ -155,10 +167,23 @@ function AuthTokenBridge() {
 }
 
 function App() {
+  if (CLERK_KEY && NativeClerkProvider && isNativeApp()) {
+    return (
+      <ErrorBoundary>
+        <Suspense fallback={<PageLoader />}>
+          <NativeClerkProvider publishableKey={CLERK_KEY}>
+            <AuthTokenBridge />
+            <AppCore />
+          </NativeClerkProvider>
+        </Suspense>
+      </ErrorBoundary>
+    );
+  }
+
   if (CLERK_KEY) {
     return (
       <ErrorBoundary>
-        <ClerkProvider publishableKey={CLERK_KEY}>
+        <ClerkProvider publishableKey={CLERK_KEY} appearance={WEB_CLERK_APPEARANCE as any}>
           <AuthTokenBridge />
           <AppCore />
         </ClerkProvider>

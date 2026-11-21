@@ -2,12 +2,15 @@ import { useRef, useState, type ReactNode } from "react";
 import { Camera, FolderOpen, ImagePlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { hasNativePhotoPicker, pickPhotos } from "@/lib/platform";
 
 // The one photo picker (docs/DESIGN_PRINCIPLES.md §4): take a photo (phones)
 // or choose from the library, plus drag and drop on desktop. Hands back the
 // chosen files; callers shrink them with downscaleImage() before upload.
 // With `bulk`, it also takes a whole folder or .zip files (bulk intake) and
 // hands back the raw drop, so folders inside it can be opened.
+// In the iPhone/iPad app the two buttons use the system camera and photo
+// picker instead (lib/platform.ts) and hand back File objects the same way.
 
 interface PhotoPickerProps {
   onPick: (files: File[]) => void;
@@ -48,14 +51,23 @@ export function PhotoPicker({
     if (files.length) onPick(multiple ? files : files.slice(0, 1));
   };
 
+  const native = hasNativePhotoPicker();
+  const fromApp = async (source: "camera" | "library") => {
+    const files = await pickPhotos(source, multiple);
+    if (files?.length) onPick(multiple ? files : files.slice(0, 1));
+  };
+  const openCamera = () => (native ? void fromApp("camera") : cameraRef.current?.click());
+  // Bulk keeps the file chooser so .zip files from Files can be picked too
+  const openLibrary = () => (native && !bulk ? void fromApp("library") : libraryRef.current?.click());
+
   const buttons = (
     <div className="flex flex-wrap justify-center gap-3">
       {allowCamera && (
-        <Button type="button" variant="outline" disabled={disabled} onClick={() => cameraRef.current?.click()} className="md:hidden">
+        <Button type="button" variant="outline" disabled={disabled} onClick={openCamera} className={native ? undefined : "md:hidden"}>
           <Camera aria-hidden /> Take photo
         </Button>
       )}
-      <Button type="button" variant={variant === "zone" ? "default" : "outline"} disabled={disabled} onClick={() => libraryRef.current?.click()}>
+      <Button type="button" variant={variant === "zone" ? "default" : "outline"} disabled={disabled} onClick={openLibrary}>
         <ImagePlus aria-hidden /> {libraryLabel}
       </Button>
       {bulk && (

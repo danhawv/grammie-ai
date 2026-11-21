@@ -133,6 +133,13 @@ export interface NativeAdapters {
   keepAwake(on: boolean): Promise<void>;
   /** Light tap feedback for important actions */
   haptic(kind: "light" | "success" | "warning"): void;
+  /**
+   * Open a website outside the app and wait until the person is back in
+   * Grammie (closed the browser, or a grammie.ai link brought them back)
+   */
+  openExternalAndWait(url: string): Promise<void>;
+  /** Take a photo or choose from the library with the system picker; null if they backed out */
+  pickPhotos(source: "camera" | "library", multiple: boolean): Promise<File[] | null>;
 }
 
 let native: Partial<NativeAdapters> = {};
@@ -182,4 +189,24 @@ export async function keepAwake(on: boolean): Promise<boolean> {
 
 export function haptic(kind: "light" | "success" | "warning" = "light"): void {
   native.haptic?.(kind);
+}
+
+/**
+ * Opens a website (Stripe checkout, a sign-in page) and resolves once the
+ * person is back in Grammie. In a browser it opens a new tab and resolves
+ * right away.
+ */
+export async function openExternalAndWait(url: string): Promise<void> {
+  if (native.openExternalAndWait) return native.openExternalAndWait(url);
+  window.open(url, "_blank", "noopener,noreferrer");
+}
+
+/** True when photos come from the system camera/library picker (the app) */
+export function hasNativePhotoPicker(): boolean {
+  return !!native.pickPhotos;
+}
+
+/** The app's camera or library picker; null when cancelled or not in the app */
+export async function pickPhotos(source: "camera" | "library", multiple = true): Promise<File[] | null> {
+  return native.pickPhotos ? native.pickPhotos(source, multiple) : null;
 }
