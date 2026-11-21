@@ -76,7 +76,24 @@ async function fetchClerkUserDetails(clerkUserId: string): Promise<{
  * 3. Look up by verified email (link existing account)
  * 4. Create new user record
  */
+// Clerk ids whose accounts were just deleted (routes/account.ts). Their
+// session tokens stay valid for a minute or so; without this, a request in
+// that window would make a fresh, empty account for them.
+const deletedClerkIds = new Map<string, number>();
+const DELETED_MEMORY_MS = 60 * 60 * 1000;
+
+export function markClerkUserDeleted(clerkUserId: string): void {
+  const now = Date.now();
+  for (const [id, at] of Array.from(deletedClerkIds.entries())) if (now - at > DELETED_MEMORY_MS) deletedClerkIds.delete(id);
+  deletedClerkIds.set(clerkUserId, now);
+}
+
 export async function upsertUserFromClerk(clerkUserId: string) {
+  const deletedAt = deletedClerkIds.get(clerkUserId);
+  if (deletedAt && Date.now() - deletedAt < DELETED_MEMORY_MS) {
+    throw new Error("This account was deleted");
+  }
+
   // Fast path: already linked
   const existingByClerkId = await storage.getUserByClerkId(clerkUserId);
   if (existingByClerkId) {

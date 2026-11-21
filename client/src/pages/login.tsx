@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect } from "react";
 import { useAuth } from "@/hooks/useAuth";
-import { useLocation, useSearch } from "wouter";
+import { Link, useLocation, useSearch } from "wouter";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import logoUrl from "@assets/IMG_0339_1767940282618.jpeg";
 import { SignIn, SignUp } from "@clerk/react";
@@ -61,6 +61,11 @@ export default function Login() {
               />
             )}
           </div>
+          <p className="text-center text-sm text-muted-foreground" data-testid="text-login-policies">
+            By continuing you agree to our{" "}
+            <Link href="/terms" className="underline hover:text-foreground">Terms of use</Link> and{" "}
+            <Link href="/privacy" className="underline hover:text-foreground">Privacy policy</Link>.
+          </p>
         </div>
       </div>
     );

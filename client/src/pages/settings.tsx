@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useClerk, useUser } from "@clerk/react";
 import { AlertCircle, Check, ChevronDown, Copy, Loader2, LogOut, Minus, Plus, X } from "lucide-react";
@@ -41,6 +41,8 @@ import {
 } from "@shared/food-profile";
 import { apiFetch, mediaUrl, publicUrl } from "@/lib/platform";
 import { useToast } from "@/hooks/use-toast";
+import { DeleteAccount, noteAccountDeleted } from "@/components/delete-account";
+import { LegalLinks } from "@/components/legal-page";
 
 // The "Me" page: Account, Food profile, Display. One place for every
 // preference (docs/DESIGN_PRINCIPLES.md §4). Changes save automatically.
@@ -112,6 +114,8 @@ export default function Settings() {
 
           {isSignedIn && <AdminSettings />}
         </div>
+
+        <LegalLinks className="mt-10 border-t pt-6" />
       </div>
     </div>
   );
@@ -177,6 +181,7 @@ function AccountCard({
   profileHref,
   onManage,
   onSignOut,
+  onDeleted,
 }: {
   name: string;
   email?: string | null;
@@ -184,6 +189,8 @@ function AccountCard({
   profileHref?: string;
   onManage?: () => void;
   onSignOut: () => void;
+  /** After "Delete my account" succeeds: sign out and go home */
+  onDeleted?: () => Promise<void> | void;
 }) {
   const initials = (name || email || "?").split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase();
   return (
@@ -213,6 +220,7 @@ function AccountCard({
           <LogOut aria-hidden /> Sign out
         </Button>
       </div>
+      {onDeleted && <DeleteAccount onDeleted={onDeleted} />}
     </div>
   );
 }
@@ -224,6 +232,7 @@ function displayName(u: { firstName?: string | null; lastName?: string | null; u
 
 function ClerkAccount() {
   const { user: dbUser, isLoading, isAuthenticated, logout } = useAuth();
+  const [, setLocation] = useLocation();
   const { isLoaded, isSignedIn, user: clerkUser } = useUser();
   const clerk = useClerk();
 
@@ -242,6 +251,12 @@ function ClerkAccount() {
         if (isSignedIn) void clerk.signOut({ redirectUrl: "/" });
         else logout();
       }}
+      onDeleted={dbUser ? async () => {
+        noteAccountDeleted();
+        // The Clerk user is already gone, so signing out may complain; go home regardless
+        try { if (isSignedIn) await clerk.signOut({ redirectUrl: "/" }); } catch { /* ignore */ }
+        setLocation("/");
+      } : undefined}
     />
   );
 }
@@ -257,6 +272,7 @@ function LegacyAccount() {
       imageUrl={user?.avatar}
       profileHref={user ? `/profile/${user.id}` : undefined}
       onSignOut={() => logout()}
+      onDeleted={user ? () => { noteAccountDeleted(); logout(); } : undefined}
     />
   );
 }
