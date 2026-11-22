@@ -48,7 +48,7 @@ export default function PrintPolicy() {
         <section className="space-y-2">
           <h2 className="text-xl font-semibold">Contact</h2>
           <p>
-            Email <a className="text-primary underline" href="mailto:support@grammie.ai">support@grammie.ai</a> with your
+            Email <a className="text-primary underline" href="mailto:danhawv@gmail.com">danhawv@gmail.com</a> with your
             order number.
           </p>
         </section>

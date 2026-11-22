@@ -19,6 +19,7 @@ import { clearImagePass } from "@/lib/image-pass";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { DisplayPrefsApplier } from "@/hooks/use-display-prefs";
 import { GuestClaimer } from "@/components/guest-claimer";
+import { AccountDeletedToast } from "@/components/delete-account";
 
 const Home = lazy(() => import("@/pages/home"));
 const RecipeDetail = lazy(() => import("@/pages/recipe-detail"));
@@ -41,6 +42,9 @@ const MealPlans = lazy(() => import("@/pages/meal-plans"));
 const MealPlanDetail = lazy(() => import("@/pages/meal-plan-detail"));
 const RecipeCreator = lazy(() => import("@/pages/recipe-creator"));
 const PrintPolicy = lazy(() => import("@/pages/print-policy"));
+const Privacy = lazy(() => import("@/pages/privacy"));
+const Terms = lazy(() => import("@/pages/terms"));
+const Support = lazy(() => import("@/pages/support"));
 const BulkImport = lazy(() => import("@/pages/bulk-import"));
 const MealPrep = lazy(() => import("@/pages/meal-prep"));
 const MealPrepPlan = lazy(() => import("@/pages/meal-prep-plan"));
@@ -88,6 +92,9 @@ function Router() {
         <Route path="/kitchen" component={Kitchen} />
         <Route path="/cookbooks" component={Cookbooks} />
         <Route path="/print-policy" component={PrintPolicy} />
+        <Route path="/privacy" component={Privacy} />
+        <Route path="/terms" component={Terms} />
+        <Route path="/support" component={Support} />
         <Route path="/grocery-list" component={GroceryList} />
         <Route path="/grocery-list/shared/:token" component={SharedGroceryList} />
         <Route path="/pantry" component={Pantry} />
@@ -130,6 +137,7 @@ function AppCore() {
               <GuestClaimer />
               <AppShell />
               <Toaster />
+              <AccountDeletedToast />
               <main id="main">
                 <Router />
               </main>
