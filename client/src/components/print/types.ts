@@ -36,15 +36,28 @@ export interface Section {
 }
 
 export const STEPS = [
-  { id: "recipes", label: "Recipes", title: "Recipes and chapters" },
-  { id: "look", label: "Look", title: "Choose a look" },
-  { id: "personalize", label: "Personalize", title: "Make it yours" },
-  { id: "review", label: "Review", title: "Ready to print?" },
-  { id: "order", label: "Order", title: "Order your book" },
+  { id: "book", label: "Book", title: "Pick your book" },
+  { id: "cover", label: "Cover", title: "Design the cover" },
+  { id: "pages", label: "Pages", title: "Fill the pages" },
+  { id: "order", label: "Order", title: "Review and order" },
 ] as const;
 
 export type StepId = (typeof STEPS)[number]["id"];
 
+/** Old links (and Stripe's return URL) used the five-step names */
+const LEGACY_STEPS: Record<string, StepId> = {
+  look: "book",
+  personalize: "cover",
+  recipes: "pages",
+  review: "order",
+};
+
 export function isStepId(v: string | null | undefined): v is StepId {
   return STEPS.some((s) => s.id === v);
+}
+
+/** A step from the URL, mapping the old names to the new steps */
+export function stepFromParam(v: string | null | undefined): StepId | null {
+  if (isStepId(v)) return v;
+  return v && LEGACY_STEPS[v] ? LEGACY_STEPS[v] : null;
 }

@@ -72,6 +72,7 @@ export function RecipesStep({ cookbookId, sections, allRecipes, onChange, stepsF
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set(sections.length === 1 ? [sections[0].id] : []));
   const [activeId, setActiveId] = useState<string | null>(null);
   const [newChapterOpen, setNewChapterOpen] = useState(false);
+  const [showOrganize, setShowOrganize] = useState(false);
   const [newChapterTitle, setNewChapterTitle] = useState("");
   const [addingTo, setAddingTo] = useState<Section | null>(null);
 
@@ -149,15 +150,22 @@ export function RecipesStep({ cookbookId, sections, allRecipes, onChange, stepsF
         </div>
       )}
 
-      <OrganizeByCourse
-        cookbookId={cookbookId}
-        hasExistingSections={sections.length > 1}
-        onApply={(next) => onChange(next, "Organized by course")}
-      />
+      {/* Once the book has chapters, sorting again is a small link, not a big card */}
+      {sections.length <= 1 || showOrganize ? (
+        <OrganizeByCourse
+          cookbookId={cookbookId}
+          hasExistingSections={sections.length > 1}
+          onApply={(next) => { setShowOrganize(false); onChange(next, "Organized by course"); }}
+        />
+      ) : (
+        <button type="button" className="text-sm text-muted-foreground underline-offset-4 hover:underline" onClick={() => setShowOrganize(true)}>
+          Sort the recipes into chapters by course again
+        </button>
+      )}
 
       <section aria-labelledby="chapters-heading" className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 id="chapters-heading" className="text-xl font-semibold">Chapters</h2>
+          <h4 id="chapters-heading" className="text-base font-semibold">Chapters</h4>
           <Button variant="outline" onClick={() => setNewChapterOpen(true)} data-testid="button-add-section">
             <Plus aria-hidden /> Add chapter
           </Button>

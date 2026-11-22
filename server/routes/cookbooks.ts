@@ -389,6 +389,26 @@ router.get("/cookbooks/:id/recipes/print", optionalAuth, async (req: any, res) =
   }
 });
 
+// Which recipes in a cookbook have an original handwritten card, for the
+// print builder's cover photo picker (titles only; images load on demand)
+router.get("/cookbooks/:id/cover-options", isAuthenticated, async (req: any, res) => {
+  try {
+    const userId = getUserId(req);
+    const cookbookId = Number(req.params.id);
+    const cookbook = await storage.getCookbook(cookbookId, userId);
+    if (!cookbook) return res.status(404).json({ error: "Cookbook not found or not accessible" });
+    const rows = await db.select({ id: recipes.id, title: recipes.title })
+      .from(recipes)
+      .innerJoin(cookbookRecipes, eq(cookbookRecipes.recipeId, recipes.id))
+      .where(and(eq(cookbookRecipes.cookbookId, cookbookId), isNotNull(recipes.handwrittenImage)))
+      .limit(200);
+    res.json({ cards: rows });
+  } catch (error) {
+    console.error("Error listing cover options:", error);
+    res.status(500).json({ error: "Couldn't load the cover photos" });
+  }
+});
+
 // A small copy of a recipe's original handwritten card, for the print preview
 router.get("/cookbooks/:id/original-cards/:recipeId", acceptImagePass(optionalAuth), async (req: any, res) => {
   try {
@@ -1120,6 +1140,42 @@ Grams for protein/carbohydrates/fat/fiber/sugar, milligrams for sodium/cholester
 
 // Builds the PDF input for a cookbook layout exactly as "Download PDF" does.
 // Shared with family photo placement so gaps are measured on the same book.
+// The cover photo picked in the print builder, as an image the PDF can embed.
+// Only photos from this cookbook (or its recipes) are used.
+async function resolveCoverPhoto(cookbookId: number, layout: PrintLayoutData): Promise<string | undefined> {
+  const pick = layout.coverData?.photo;
+  if (!pick) return undefined;
+  try {
+    if (pick.kind === "family") {
+      const [row] = await db.select({ image: cookbookPhotos.image }).from(cookbookPhotos)
+        .where(and(eq(cookbookPhotos.cookbookId, cookbookId), eq(cookbookPhotos.id, pick.id)));
+      return row?.image || undefined;
+    }
+    const [row] = await db
+      .select({ dish: recipes.dishImage })
+      .from(recipes)
+      .innerJoin(cookbookRecipes, eq(cookbookRecipes.recipeId, recipes.id))
+      .where(and(eq(cookbookRecipes.cookbookId, cookbookId), eq(recipes.id, pick.id)));
+    if (!row) return undefined;
+    if (pick.kind === "card") {
+      // Same upright copy the book's Heirloom pages use
+      const jpeg = await originalCardJpeg(pick.id, 2400);
+      return jpeg ? `data:image/jpeg;base64,${jpeg.toString("base64")}` : undefined;
+    }
+    return (await toEmbeddableImage(row.dish)) || undefined;
+  } catch (err) {
+    console.warn("[print] cover photo unavailable:", err);
+    return undefined;
+  }
+}
+
+async function coverDataForPrint(cookbookId: number, layout: PrintLayoutData) {
+  const frontImageUrl = await resolveCoverPhoto(cookbookId, layout);
+  if (!layout.coverData && !frontImageUrl) return undefined;
+  const { photo: _photo, ...rest } = layout.coverData ?? {};
+  return { ...rest, ...(frontImageUrl ? { frontImageUrl } : {}) };
+}
+
 async function buildPrintDataFromLayout(
   cookbookId: number,
   cookbookName: string,
@@ -1204,7 +1260,7 @@ async function buildPrintDataFromLayout(
           };
         }).filter(Boolean)
       ) as CookbookPrintData['recipes'],
-      coverData: layout.coverData,
+      coverData: await coverDataForPrint(cookbookId, layout),
       customizations: layout.customizations ? {
         showNutrition: layout.customizations.showNutrition,
         showTips: layout.customizations.showTips,
@@ -1539,7 +1595,7 @@ async function buildOrderPrintData(order: PrintOrder): Promise<CookbookPrintData
           };
         }).filter(Boolean)
       ) as CookbookPrintData['recipes'],
-      coverData: layout.coverData,
+      coverData: await coverDataForPrint(order.cookbookId, layout),
       customizations: layout.customizations ? {
         showNutrition: layout.customizations.showNutrition,
         showTips: layout.customizations.showTips,

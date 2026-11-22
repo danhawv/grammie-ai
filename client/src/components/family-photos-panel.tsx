@@ -20,7 +20,7 @@ import { privateImageUrl, useImagePass } from "@/lib/image-pass";
 
 const BATCH = 6;
 
-async function downscale(file: File, maxSide = 2400): Promise<Blob> {
+export async function downscale(file: File, maxSide = 2400): Promise<Blob> {
   try {
     const bitmap = await createImageBitmap(file);
     const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));

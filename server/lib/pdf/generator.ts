@@ -8,6 +8,7 @@ import type { BookSizeConfig, BindingType, PaperType, TrimSize } from '../lulu/t
 import type { NormalizedRecipe } from './types';
 import type { CustomTemplateData } from '@shared/schema';
 import { buildThemeConfigFromTemplate, isColorDark, type ThemeConfig } from '@shared/template-theme';
+import { coverPaletteFor, frontCoverHtml } from '@shared/cover-design';
 import { getBookSizeConfig } from '../lulu/book-sizes';
 import { calculateSpineWidth } from '../lulu/spine-calculator';
 import { getCoverDimensions } from '../lulu/client';
@@ -810,8 +811,10 @@ function buildCoverHtml(
   // Resolve cover styling from custom template or defaults
   const customCover = cookbook.customTemplateData?.cover;
   const customFonts = cookbook.customTemplateData?.fonts;
-  const coverBgColor = coverData.backgroundColor || customCover?.backgroundColor || '#2c1810';
-  const coverTextColor = customCover?.textColor || '#ffffff';
+  // Same palette as the print builder's cover mockup (shared/cover-design.ts)
+  const palette = coverPaletteFor(cookbook.templateId, customCover ?? null);
+  const coverBgColor = coverData.backgroundColor || palette.bg;
+  const coverTextColor = palette.text;
   const coverIsDark = isColorDark(coverBgColor);
   const titleFontFamily = customCover?.titleFont
     || (customFonts?.heading ? `'${customFonts.heading.family}', serif` : "'Merriweather', serif");
@@ -924,13 +927,6 @@ function buildCoverHtml(
 </head>
 <body>
   <div class="cover-spread">
-    ${(() => {
-      const imgUrl = coverData.frontImageUrl || customCover?.coverImage;
-      return imgUrl
-        ? `<img src="${imgUrl}" style="position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;opacity:0.3;" />
-           <div style="position:absolute;top:0;left:0;width:100%;height:100%;background:linear-gradient(to top, rgba(0,0,0,0.6) 0%, transparent 50%);"></div>`
-        : '';
-    })()}
     <div class="back-cover">
       ${coverData.backText ? `<p class="back-text">${escapeHtml(coverData.backText)}</p>` : ''}
     </div>
@@ -940,11 +936,16 @@ function buildCoverHtml(
         : ''
       }
     </div>
-    <div class="front-cover">
-      <h1 class="front-title">${escapeHtml(cookbook.title)}</h1>
-      ${cookbook.subtitle ? `<p class="front-subtitle">${escapeHtml(cookbook.subtitle)}</p>` : ''}
-      <div style="width:1.5in;height:1px;background:rgba(255,255,255,0.4);margin:0.15in 0;"></div>
-      <p class="front-author">${escapeHtml(cookbook.authorName)}</p>
+    <div class="front-cover" style="padding:0;">
+      ${frontCoverHtml({
+        title: cookbook.title,
+        subtitle: cookbook.subtitle,
+        author: cookbook.authorName && cookbook.authorName !== 'Unknown' ? cookbook.authorName : null,
+        photoSrc: coverData.frontImageUrl || customCover?.coverImage || null,
+        palette: { ...palette, bg: coverBgColor },
+        widthIn: trimWidth,
+        heightIn: totalHeight - (bleed + wrap) * 2,
+      })}
     </div>
   </div>
 </body>

@@ -617,6 +617,12 @@ export const printLayoutDataSchema = z.object({
     spineText: z.string().optional(),
     backText: z.string().optional(),
     frontImageUrl: z.string().optional(),
+    // The photo on the front cover, picked in the print builder. Stored as a
+    // reference; the server loads the full-size image when it prints.
+    photo: z.object({
+      kind: z.enum(['family', 'recipe', 'card']),
+      id: z.string().max(100),
+    }).nullable().optional(),
   }).optional(),
   // Family photos placed in the empty space under recipes (or in a Family
   // Album section). Image data lives in cookbook_photos; this keeps only the

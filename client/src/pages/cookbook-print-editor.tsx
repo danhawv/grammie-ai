@@ -1,14 +1,8 @@
 import { Component, useCallback, useEffect, useMemo, useRef, useState, type ErrorInfo, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "wouter";
-import { Download, Loader2, MoreHorizontal } from "lucide-react";
+import { Download, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { ToastAction } from "@/components/ui/toast";
 import { PageHeader } from "@/components/page-header";
 import { ErrorState, LoadingState } from "@/components/page-states";
@@ -18,12 +12,16 @@ import { CookbookPrintPreview } from "@/components/cookbook-print-preview";
 import { RecipeReviewDialog } from "@/components/recipe-review-dialog";
 import { PrintOrderPanel } from "@/components/print-order-panel";
 import { RecipesStep } from "@/components/print/recipes-step";
-import { LookStep } from "@/components/print/look-step";
-import { PersonalizeStep } from "@/components/print/personalize-step";
+import { BookStep } from "@/components/print/book-step";
+import { CoverMockup, CoverStep, coverPhotoSrc } from "@/components/print/cover-step";
+import { coverPaletteFor } from "@shared/cover-design";
+import { PagesStep } from "@/components/print/pages-step";
+import { formatPrice, usePrintEstimate } from "@/components/print/use-print-estimate";
+import { useImagePass } from "@/lib/image-pass";
 import { ReadyToPrint } from "@/components/print/ready-to-print";
 import { SaveStatus, StepBar, StepList } from "@/components/print/step-nav";
 import { usePrintAutosave } from "@/components/print/use-print-autosave";
-import { STEPS, isStepId, type BookDraft, type RecipeSummary, type Section, type StepId } from "@/components/print/types";
+import { STEPS, stepFromParam, type BookDraft, type RecipeSummary, type Section, type StepId } from "@/components/print/types";
 import { estimateBookPages, type BookPageDetails } from "@shared/print-readiness";
 import { stepsVersionFor } from "@shared/print-recipe-transform";
 import { replacePhotosForBook } from "@/lib/place-photos";
@@ -33,8 +31,9 @@ import type { BindingTypeId, ColorTypeId, CoverFinishId, PaperTypeId, TrimSizeId
 import { apiFetch, saveFile } from "@/lib/platform";
 
 // The print builder, as a short guided flow (docs/DESIGN_PRINCIPLES.md §8):
-// 1 Recipes & chapters · 2 Look · 3 Personalize · 4 Ready to print? · 5 Order.
-// Every change autosaves; the preview is one tap away on every step.
+// 1 Pick your book · 2 Design the cover · 3 Fill the pages · 4 Review and order.
+// Every change autosaves, the price is always in the bottom bar, and the
+// preview is one tap away on every step.
 
 interface CookbookInfo {
   id: number;
@@ -85,10 +84,10 @@ function CookbookPrintEditorInner() {
   const cookbookId = parseInt(id || "0");
   const { user, isLoading: userLoading } = useAuth();
   const { toast } = useToast();
+  const imagePass = useImagePass();
 
   const [step, setStepState] = useState<StepId>(() => {
-    const s = new URLSearchParams(window.location.search).get("step");
-    return isStepId(s) ? s : "recipes";
+    return stepFromParam(new URLSearchParams(window.location.search).get("step")) ?? "book";
   });
   const [draft, setDraft] = useState<BookDraft | null>(null);
   const draftRef = useRef<BookDraft | null>(null);
@@ -283,7 +282,7 @@ function CookbookPrintEditorInner() {
     }
   };
 
-  const container = "mx-auto max-w-4xl px-4 py-6 md:px-6 [--print-bar-bottom:calc(4.5rem+env(safe-area-inset-bottom,0px))] md:[--print-bar-bottom:0px]";
+  const container = "mx-auto max-w-4xl px-4 pt-6 md:px-6";
 
   if (cookbookQuery.isLoading || userLoading || (isOwner && (recipesQuery.isLoading || projectsQuery.isLoading)) || (isOwner && !draft && !recipesQuery.isError && !projectsQuery.isError)) {
     return (
@@ -342,79 +341,86 @@ function CookbookPrintEditorInner() {
   };
   const estimatedPageCount = estimateBookPages(recipeCount, layout.sections.filter((s) => s.recipeIds.length).length, draft.trimSize, pageDetails);
   const stepInfo = STEPS.find((s) => s.id === step)!;
+  // The preview shows the picked cover photo on the title page
+  const coverSrc = coverPhotoSrc(cookbookId, layout.coverData?.photo, allRecipes, imagePass);
+  const previewLayout = coverSrc ? { ...layout, coverData: { ...(layout.coverData ?? {}), frontImageUrl: coverSrc } } : layout;
 
   return (
     <div className={container}>
       <PageHeader
         title="Print your cookbook"
-        description={cookbook.name}
         back={{ href: `/cookbook/${cookbookId}`, label: cookbook.name }}
-        secondaryActions={
-          <>
-            <SaveStatus state={autosave.state} onRetry={() => void autosave.retry()} />
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="icon" aria-label="More actions" title="More actions">
-                  <MoreHorizontal aria-hidden />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={handleDownloadPdf} disabled={isGeneratingPdf || !hasRecipes} data-testid="button-download-pdf">
-                  <Download className="mr-2 h-4 w-4" aria-hidden /> Download PDF
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setShowIngredientReview(true)} data-testid="button-review-recipes">
-                  Check ingredient amounts
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </>
-        }
+        secondaryActions={<SaveStatus state={autosave.state} onRetry={() => void autosave.retry()} />}
       />
 
       <StepList current={step} onSelect={setStep} />
 
       <h2 className="mb-4 font-serif text-2xl font-bold">{stepInfo.title}</h2>
 
-      {step === "recipes" && (
-        <RecipesStep
+      {step === "book" && <BookStep cookbookId={cookbookId} draft={draft} pageCount={estimatedPageCount} update={update} />}
+
+      {step === "cover" && (
+        <CoverStep cookbookId={cookbookId} draft={draft} allRecipes={allRecipes} update={update} updateLayout={updateLayout} />
+      )}
+
+      {step === "pages" && (
+        <PagesStep
           cookbookId={cookbookId}
-          sections={layout.sections}
-          allRecipes={allRecipes}
-          onChange={setSections}
-          stepsFor={(id) => stepsVersionFor(id, layout)}
-          onSetSteps={(id, steps) => {
-            const settings = { ...(layout.recipePrintSettings ?? {}) };
-            const rest = { ...(settings[id] ?? {}) };
-            // Matching the book's choice clears the override, so a later book-wide change still applies
-            if (steps === (layout.customizations?.stepsVersion ?? "improved")) delete rest.steps;
-            else rest.steps = steps;
-            if (Object.keys(rest).length) settings[id] = rest;
-            else delete settings[id];
-            updateLayout({ recipePrintSettings: settings });
-          }}
+          draft={draft}
+          updateLayout={updateLayout}
+          updateCustomization={updateCustomization}
+          recipeTitles={recipeTitles}
+          recipes={
+            <RecipesStep
+              cookbookId={cookbookId}
+              sections={layout.sections}
+              allRecipes={allRecipes}
+              onChange={setSections}
+              stepsFor={(id) => stepsVersionFor(id, layout)}
+              onSetSteps={(id, steps) => {
+                const settings = { ...(layout.recipePrintSettings ?? {}) };
+                const rest = { ...(settings[id] ?? {}) };
+                // Matching the book's choice clears the override, so a later book-wide change still applies
+                if (steps === (layout.customizations?.stepsVersion ?? "improved")) delete rest.steps;
+                else rest.steps = steps;
+                if (Object.keys(rest).length) settings[id] = rest;
+                else delete settings[id];
+                updateLayout({ recipePrintSettings: settings });
+              }}
+            />
+          }
         />
       )}
 
-      {step === "look" && (
-        <LookStep cookbookId={cookbookId} draft={draft} update={update} updateCustomization={updateCustomization} />
-      )}
-
-      {step === "personalize" && (
-        <PersonalizeStep cookbookId={cookbookId} draft={draft} updateLayout={updateLayout} recipeTitles={recipeTitles} />
-      )}
-
-      {step === "review" && (
-        <div className="space-y-6">
-          <ReadyToPrint
+      {step === "order" && (
+        <div className="space-y-8">
+          <PrintOrderPanel
             cookbookId={cookbookId}
-            draft={draft}
-            updateLayout={updateLayout}
-            goToStep={setStep}
-            onOpenPreview={() => setShowPreview(true)}
-            onReviewIngredients={() => setShowIngredientReview(true)}
-            onResult={setAttentionCount}
-            pageDetails={pageDetails}
+            cookbookName={cookbook.name}
+            coverImage={cookbook.coverImage}
+            coverPreview={<CoverStepMockup draft={draft} src={coverSrc} />}
+            book={draft}
+            estimatedPageCount={estimatedPageCount}
+            flushSave={autosave.flush}
+            attentionCount={attentionCount}
+            onGoToReview={() => document.getElementById("checks-heading")?.scrollIntoView({ behavior: "smooth" })}
+            onGoToLook={() => setStep("book")}
+            customTemplateName={selectedTemplate?.name}
+            existingOrder={currentProject?.luluOrderId ? { id: currentProject.luluOrderId, status: currentProject.luluOrderStatus } : null}
           />
+          <section aria-labelledby="checks-heading" className="space-y-3">
+            <h3 id="checks-heading" className="text-lg font-semibold">Before you order</h3>
+            <ReadyToPrint
+              cookbookId={cookbookId}
+              draft={draft}
+              updateLayout={updateLayout}
+              goToStep={setStep}
+              onOpenPreview={() => setShowPreview(true)}
+              onReviewIngredients={() => setShowIngredientReview(true)}
+              onResult={setAttentionCount}
+              pageDetails={pageDetails}
+            />
+          </section>
           <div className="flex flex-col gap-3 rounded-lg border p-4 sm:flex-row sm:items-center">
             <p className="flex-1 text-sm text-muted-foreground">Want to print it yourself? Download the pages as a PDF.</p>
             <Button variant="outline" onClick={handleDownloadPdf} disabled={isGeneratingPdf || !hasRecipes}>
@@ -425,28 +431,20 @@ function CookbookPrintEditorInner() {
         </div>
       )}
 
-      {step === "order" && (
-        <PrintOrderPanel
-          cookbookId={cookbookId}
-          cookbookName={cookbook.name}
-          coverImage={cookbook.coverImage}
-          book={draft}
-          estimatedPageCount={estimatedPageCount}
-          flushSave={autosave.flush}
-          attentionCount={attentionCount}
-          onGoToReview={() => setStep("review")}
-          onGoToLook={() => setStep("look")}
-          customTemplateName={selectedTemplate?.name}
-          existingOrder={currentProject?.luluOrderId ? { id: currentProject.luluOrderId, status: currentProject.luluOrderStatus } : null}
-        />
-      )}
-
-      <StepBar current={step} onSelect={setStep} onPreview={() => setShowPreview(true)} previewDisabled={!hasRecipes} />
+      <PricedStepBar
+        cookbookId={cookbookId}
+        draft={draft}
+        pageCount={estimatedPageCount}
+        step={step}
+        onSelect={setStep}
+        onPreview={() => setShowPreview(true)}
+        previewDisabled={!hasRecipes}
+      />
 
       <CookbookPrintPreview
         open={showPreview}
         onClose={() => setShowPreview(false)}
-        layoutData={layout}
+        layoutData={previewLayout}
         templateStyle={draft.templateStyle}
         cookbookId={cookbookId}
         trimSize={draft.trimSize}
@@ -457,6 +455,47 @@ function CookbookPrintEditorInner() {
       <RecipeReviewDialog cookbookId={cookbookId} open={showIngredientReview} onClose={() => setShowIngredientReview(false)} />
     </div>
   );
+}
+
+/** The bottom bar, with the live price for the book as it stands */
+function PricedStepBar({
+  cookbookId,
+  draft,
+  pageCount,
+  step,
+  onSelect,
+  onPreview,
+  previewDisabled,
+}: {
+  cookbookId: number;
+  draft: BookDraft;
+  pageCount: number;
+  step: StepId;
+  onSelect: (s: StepId) => void;
+  onPreview: () => void;
+  previewDisabled: boolean;
+}) {
+  const estimate = usePrintEstimate(cookbookId, pageCount, draft, step !== "order");
+  return (
+    <StepBar
+      current={step}
+      onSelect={onSelect}
+      onPreview={onPreview}
+      previewDisabled={previewDisabled}
+      price={step === "order" ? undefined : {
+        amount: estimate.data ? formatPrice(estimate.data.totalCost, estimate.data.currency) : null,
+        pages: pageCount,
+        loading: estimate.isFetching,
+      }}
+    />
+  );
+}
+
+/** The cover as it will print, for the order summary */
+function CoverStepMockup({ draft, src }: { draft: BookDraft; src: string | null }) {
+  const { data: customTemplates = [] } = useQuery<CustomTemplate[]>({ queryKey: ["/api/templates"] });
+  const custom = draft.customTemplateId ? customTemplates.find((t) => t.id === draft.customTemplateId) : undefined;
+  return <CoverMockup draft={draft} palette={coverPaletteFor(draft.templateStyle, (custom?.templateData as any)?.cover ?? null)} photoSrc={src} widthPx={76} />;
 }
 
 export default function CookbookPrintEditor() {

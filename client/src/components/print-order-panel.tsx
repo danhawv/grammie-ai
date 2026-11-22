@@ -22,7 +22,7 @@ import {
 } from "@shared/print-checkout";
 import type { PrintLayoutData } from "@shared/schema";
 import { BOOK_SIZES, BINDING_TYPES, PAPER_TYPES, COLOR_TYPES, COVER_FINISHES } from "@/lib/print-constants";
-import { TEMPLATE_STYLES } from "@/components/print/look-step";
+import { STYLES as TEMPLATE_STYLES } from "@/components/print/cover-step";
 import { mediaUrl, publicUrl } from "@/lib/platform";
 import { ExternalAnchor } from "@/components/external-anchor";
 
@@ -47,6 +47,8 @@ interface PrintOrderPanelProps {
   cookbookId: number;
   cookbookName: string;
   coverImage?: string | null;
+  /** The printed cover, drawn; shown instead of the cookbook's own image */
+  coverPreview?: React.ReactNode;
   book: BookOrderSpec;
   estimatedPageCount: number;
   /** Save any pending edits before quoting/ordering */
@@ -134,6 +136,7 @@ export function PrintOrderPanel({
   cookbookId,
   cookbookName,
   coverImage,
+  coverPreview,
   book,
   estimatedPageCount,
   flushSave,
@@ -161,6 +164,17 @@ export function PrintOrderPanel({
   }));
   const [errors, setErrors] = useState<Partial<Record<AddressField, string>>>({});
   const [showApt, setShowApt] = useState(false);
+  // Shipping straight to someone else: their name and address, our email
+  const [isGift, setIsGift] = useState(false);
+  const toggleGift = (on: boolean) => {
+    setIsGift(on);
+    const mine = [user?.firstName, user?.lastName].filter(Boolean).join(" ");
+    setAddress((a) => ({
+      ...a,
+      name: on ? (a.name === mine ? "" : a.name) : a.name || mine,
+      phone_number: on ? "" : a.phone_number,
+    }));
+  };
   const [quote, setQuote] = useState<Quote | null>(null);
   // The order being placed or just paid for; Stripe sends people back with ?order=
   const [orderRef, setOrderRef] = useState<string | null>(() => new URLSearchParams(window.location.search).get("order"));
@@ -286,7 +300,7 @@ export function PrintOrderPanel({
     setShippingLevel(cheapest.id);
   }, [levelChoices, shippingLevel]);
 
-  const cover = (
+  const cover = coverPreview ? <div className="shrink-0 pr-1">{coverPreview}</div> : (
     <div className="flex h-28 w-20 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-primary/10 shadow-sm">
       {coverImage ? <img src={mediaUrl(coverImage)} alt="" className="h-full w-full object-cover" /> : <BookOpen className="h-8 w-8 text-primary" aria-hidden />}
     </div>
@@ -460,14 +474,38 @@ export function PrintOrderPanel({
     return (
       <div className="space-y-5">
         <h2 className="text-xl font-semibold">Where should we send it?</h2>
+        <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Who it's for">
+          {[
+            { gift: false, label: "To me" },
+            { gift: true, label: "It's a gift" },
+          ].map((o) => (
+            <Button
+              key={o.label}
+              type="button"
+              role="radio"
+              aria-checked={isGift === o.gift}
+              variant="outline"
+              className={cn("min-h-11", isGift === o.gift && "border-primary bg-primary/5 ring-1 ring-primary")}
+              onClick={() => toggleGift(o.gift)}
+              data-testid={o.gift ? "ship-gift" : "ship-me"}
+            >
+              {o.label}
+            </Button>
+          ))}
+        </div>
+        {isGift && (
+          <p className="rounded-md bg-muted/60 p-3 text-sm text-muted-foreground">
+            We'll ship it straight to them. Order updates still come to you. Want a note inside? Add it as the dedication on the Pages step.
+          </p>
+        )}
         <form
           className="space-y-4"
           autoComplete="on"
           noValidate
           onSubmit={(e) => { e.preventDefault(); void goToReview(); }}
         >
-          <Field id="name" label="Full name" error={errors.name}>
-            <Input id="ship-name" name="name" autoComplete="shipping name" value={address.name} onChange={(e) => setField("name", e.target.value)} onBlur={() => blurField("name")} aria-invalid={!!errors.name} aria-describedby={errors.name ? "err-name" : undefined} data-testid="input-shipping-name" />
+          <Field id="name" label={isGift ? "Their full name" : "Full name"} error={errors.name}>
+            <Input id="ship-name" name="name" autoComplete={isGift ? "off" : "shipping name"} value={address.name} onChange={(e) => setField("name", e.target.value)} onBlur={() => blurField("name")} aria-invalid={!!errors.name} aria-describedby={errors.name ? "err-name" : undefined} data-testid="input-shipping-name" />
           </Field>
 
           <Field id="country_code" label="Country">
@@ -541,7 +579,7 @@ export function PrintOrderPanel({
             </Field>
           </div>
 
-          <Field id="phone_number" label="Phone" hint="Only for the delivery driver, if they need to reach you." error={errors.phone_number}>
+          <Field id="phone_number" label="Phone" hint={isGift ? "Theirs or yours, only for the delivery driver if they need to reach someone." : "Only for the delivery driver, if they need to reach you."} error={errors.phone_number}>
             <Input id="ship-phone_number" name="tel" type="tel" inputMode="tel" autoComplete="shipping tel" value={address.phone_number} onChange={(e) => setField("phone_number", e.target.value)} onBlur={() => blurField("phone_number")} aria-invalid={!!errors.phone_number} aria-describedby={`hint-phone_number${errors.phone_number ? " err-phone_number" : ""}`} data-testid="input-shipping-phone" />
           </Field>
 

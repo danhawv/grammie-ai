@@ -31,6 +31,9 @@ const ME = { href: "/settings", label: "Me", icon: CircleUser, match: (p: string
 /** Pages that render without the app chrome */
 const BARE = [/^\/login/, /^\/grocery-list\/shared\//, /^\/prep\/cook\//, /^\/meal-prep\/[^/]+\/(packet|cook)/];
 
+/** Guided flows with their own bottom bar: the phone tab bar steps aside */
+const NO_TAB_BAR = [/^\/cookbook\/\d+\/print-editor/];
+
 export function AppShell() {
   const [location] = useLocation();
   const { user } = useAuth();
@@ -39,11 +42,13 @@ export function AppShell() {
   // aren't signed in: every tab there needs an account
   const bare = BARE.some((r) => r.test(location)) || (!user && /^\/p\//.test(location));
 
+  const tabBar = !bare && !NO_TAB_BAR.some((r) => r.test(location));
+
   // Reserve space for the phone tab bar
   useEffect(() => {
-    document.body.classList.toggle("has-tab-bar", !bare);
+    document.body.classList.toggle("has-tab-bar", tabBar);
     return () => document.body.classList.remove("has-tab-bar");
-  }, [bare]);
+  }, [tabBar]);
 
   if (bare) return null;
 
@@ -94,7 +99,7 @@ export function AppShell() {
       </header>
 
       {/* Phone tab bar */}
-      <nav
+      {tabBar && <nav
         className="fixed inset-x-0 bottom-0 z-40 border-t bg-background/95 backdrop-blur md:hidden"
         style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
         aria-label="Main"
@@ -118,7 +123,7 @@ export function AppShell() {
           <TabLink item={NAV[2]} active={NAV[2].match(location)} />
           <TabLink item={ME} active={ME.match(location)} />
         </div>
-      </nav>
+      </nav>}
     </>
   );
 }

@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useRef, useLayoutEffect, useCallback } from "react";
+import { coverPaletteFor, frontCoverHtml } from "@shared/cover-design";
 import { useQuery } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { paginateToc, tocFontSizes, tocMetrics } from "@shared/toc-layout";
@@ -179,6 +180,7 @@ const ALBUM_TOC_INDEX = -1;
 const photoUrl = (id: string) => `/api/cookbook-photos/${id}`;
 
 type PageContent =
+  | { type: "front" }
   | { type: "cover" }
   | { type: "dedication" }
   | { type: "colophon" }
@@ -272,7 +274,7 @@ export function CookbookPrintPreview({
   const showVariations = layoutData?.customizations?.showVariations === true;
 
   // Fetch recipes
-  const { data: recipesData } = useQuery<{ recipes: Recipe[] }>({
+  const { data: recipesData, isLoading: recipesLoading } = useQuery<{ recipes: Recipe[] }>({
     queryKey: ['/api/cookbooks', cookbookId, 'recipes', 'print'],
     queryFn: async () => {
       const response = await apiFetch(`/api/cookbooks/${cookbookId}/recipes/print`, { credentials: 'include' });
@@ -334,6 +336,8 @@ export function CookbookPrintPreview({
   // Build pages
   const pages: PageContent[] = useMemo(() => {
     const p: PageContent[] = [];
+    // The printed front cover first, then the title page inside
+    p.push({ type: "front" });
     p.push({ type: "cover" });
     p.push(layoutData?.dedication ? { type: "dedication" } : { type: "colophon" });
     if (orderedRecipes.length > 0) {
@@ -395,11 +399,13 @@ export function CookbookPrintPreview({
   const totalPages = pages.length;
 
   // Preview page number for each recipe, so the TOC matches the printed book
+  // (the outside cover comes first in the preview but isn't a numbered page)
   const recipePageNumbers = useMemo(() => {
     const map = new Map<number, number>();
+    const offset = pages[0]?.type === 'front' ? 0 : 1;
     pages.forEach((p, i) => {
-      if (p.type === 'recipe') map.set(p.index, i + 1);
-      if (p.type === 'section-divider' && p.album) map.set(ALBUM_TOC_INDEX, i + 1);
+      if (p.type === 'recipe') map.set(p.index, i + offset);
+      if (p.type === 'section-divider' && p.album) map.set(ALBUM_TOC_INDEX, i + offset);
     });
     return map;
   }, [pages]);
@@ -427,11 +433,11 @@ export function CookbookPrintPreview({
   useEffect(() => {
     if (!open) return;
     setCurrentPage(0);
-    const fit = Math.min(
-      (window.innerHeight * 0.95 - 150) / pageH,
-      (window.innerWidth * 0.95 - 140) / pageW,
-    );
-    setZoom(Math.max(0.3, Math.min(1, Math.floor(fit * 20) / 20)));
+    const phone = window.innerWidth < 640;
+    const fit = phone
+      ? Math.min((window.innerHeight - 170) / pageH, (window.innerWidth - 24) / pageW)
+      : Math.min((window.innerHeight * 0.95 - 150) / pageH, (window.innerWidth * 0.95 - 140) / pageW);
+    setZoom(Math.max(0.2, Math.min(1, Math.floor(fit * 50) / 50)));
   }, [open, pageW, pageH]);
 
   // Clamp currentPage when pages change
@@ -442,73 +448,111 @@ export function CookbookPrintPreview({
   }, [totalPages, currentPage]);
 
   const page = pages[currentPage];
+  // Swipe left and right to turn pages on a phone
+  const touchStart = useRef<{ x: number; y: number } | null>(null);
+  const onTouchStart = (e: React.TouchEvent) => {
+    const t = e.touches[0];
+    touchStart.current = { x: t.clientX, y: t.clientY };
+  };
+  const onTouchEnd = (e: React.TouchEvent) => {
+    const start = touchStart.current;
+    touchStart.current = null;
+    if (!start) return;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - start.x;
+    if (Math.abs(dx) < 40 || Math.abs(dx) < Math.abs(t.clientY - start.y)) return;
+    setCurrentPage((p) => (dx < 0 ? Math.min(p + 1, totalPages - 1) : Math.max(p - 1, 0)));
+  };
+  // Shortcuts to the parts of the book, instead of hundreds of tiny pages
+  const jumps = useMemo(() => {
+    const out: { label: string; page: number }[] = [];
+    const first = (t: string) => pages.findIndex((p) => p.type === t);
+    if (first("front") >= 0) out.push({ label: "Cover", page: first("front") });
+    if (first("cover") >= 0) out.push({ label: "Title page", page: first("cover") });
+    if (first("dedication") >= 0) out.push({ label: "Dedication", page: first("dedication") });
+    if (first("toc") >= 0) out.push({ label: "Contents", page: first("toc") });
+    pages.forEach((p, i) => {
+      if (p.type === "section-divider") out.push({ label: p.title, page: i });
+    });
+    if (!pages.some((p) => p.type === "section-divider")) {
+      const r = pages.findIndex((p) => p.type === "recipe");
+      if (r >= 0) out.push({ label: "Recipes", page: r });
+    }
+    if (first("back") >= 0) out.push({ label: "Back", page: first("back") });
+    return out;
+  }, [pages]);
+  const activeJump = jumps.reduce((best, j, i) => (j.page <= currentPage ? i : best), 0);
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent
-        className="max-w-[95vw] max-h-[95vh] p-0 border-0 bg-stone-900 overflow-hidden grid-cols-[minmax(0,1fr)] [&>button]:hidden"
-        style={{ width: '95vw', height: '95vh' }}
+        className="h-[100dvh] w-screen max-w-none p-0 border-0 bg-stone-900 overflow-hidden grid-cols-[minmax(0,1fr)] rounded-none sm:h-[95vh] sm:w-[95vw] sm:max-w-[95vw] sm:rounded-lg [&>button]:hidden"
         aria-describedby={undefined}
       >
         {/* min-w-0 keeps the thumbnail strip from widening the dialog's grid
             column (it scrolls instead), which pushed the page off-screen */}
         <div className="flex flex-col h-full min-w-0 min-h-0">
           {/* Top toolbar */}
-          <div className="flex items-center justify-between px-4 py-2 bg-stone-800 text-white border-b border-stone-700 shrink-0">
-            <div className="flex items-center gap-3">
-              <DialogTitle className="text-sm font-medium">
-                {layoutData?.title || 'Cookbook'} — Preview
+          <div className="flex items-center gap-2 bg-stone-800 px-3 py-2 text-white border-b border-stone-700 shrink-0" style={{ paddingTop: 'max(0.5rem, env(safe-area-inset-top, 0px))' }}>
+            <div className="min-w-0 flex-1">
+              <DialogTitle className="truncate text-sm font-medium">
+                {layoutData?.title || 'Cookbook'}
               </DialogTitle>
-              <span className="text-xs text-stone-400">
-                Page {currentPage + 1} / {totalPages} &bull; {bookSize.description}
-              </span>
+              <p className="truncate text-xs text-stone-400">
+                {recipesLoading ? "Laying out the recipes…" : `Page ${currentPage + 1} of ${totalPages}`} · {bookSize.width}″ × {bookSize.height}″
+              </p>
             </div>
 
-            <div className="flex items-center gap-1">
+            <div className="hidden items-center gap-1 sm:flex">
               <Button
                 variant="ghost" size="sm"
-                className="text-stone-300 hover:text-white hover:bg-stone-700 h-7 px-2"
-                onClick={() => setZoom(z => Math.max(0.3, z - 0.1))}
+                className="text-stone-300 hover:text-white hover:bg-stone-700 h-9 px-2"
+                onClick={() => setZoom(z => Math.max(0.2, z - 0.1))}
+                aria-label="Zoom out"
               >
-                <ZoomOut className="h-3.5 w-3.5" />
+                <ZoomOut className="h-4 w-4" aria-hidden />
               </Button>
               <span className="text-xs text-stone-400 w-10 text-center">
                 {Math.round(zoom * 100)}%
               </span>
               <Button
                 variant="ghost" size="sm"
-                className="text-stone-300 hover:text-white hover:bg-stone-700 h-7 px-2"
+                className="text-stone-300 hover:text-white hover:bg-stone-700 h-9 px-2"
                 onClick={() => setZoom(z => Math.min(2, z + 0.1))}
+                aria-label="Zoom in"
               >
-                <ZoomIn className="h-3.5 w-3.5" />
+                <ZoomIn className="h-4 w-4" aria-hidden />
               </Button>
               <Button
                 variant="ghost" size="sm"
-                className={`h-7 px-2 ${showGuides ? 'text-blue-400 bg-stone-700' : 'text-stone-300 hover:text-white hover:bg-stone-700'}`}
+                className={`h-9 px-2 ${showGuides ? 'text-blue-400 bg-stone-700' : 'text-stone-300 hover:text-white hover:bg-stone-700'}`}
                 onClick={() => setShowGuides(!showGuides)}
-                title="Toggle measurement guides"
+                aria-label="Show margins"
+                aria-pressed={showGuides}
+                title="Show margins"
               >
-                <Ruler className="h-3.5 w-3.5" />
-              </Button>
-              <Button
-                variant="ghost" size="sm"
-                className="text-stone-300 hover:text-white hover:bg-stone-700 h-7 px-2"
-                onClick={onClose}
-              >
-                <X className="h-4 w-4" />
+                <Ruler className="h-4 w-4" aria-hidden />
               </Button>
             </div>
+            <Button
+              variant="ghost"
+              className="h-10 shrink-0 px-3 text-stone-200 hover:text-white hover:bg-stone-700"
+              onClick={onClose}
+            >
+              <X className="h-4 w-4" aria-hidden /> Done
+            </Button>
           </div>
 
           {/* Main preview area */}
-          <div className="flex-1 flex items-center justify-center min-h-0 overflow-auto p-4">
+          <div className="relative flex-1 flex items-center justify-center min-h-0 overflow-auto p-3 sm:p-4" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
             {/* Left arrow */}
             <button
               onClick={() => setCurrentPage(p => Math.max(p - 1, 0))}
               disabled={currentPage === 0}
-              className="flex items-center justify-center w-10 h-10 rounded-full hover:bg-white/10 transition disabled:opacity-20 mr-3 shrink-0"
+              aria-label="Previous page"
+              className="absolute left-1 top-1/2 z-10 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-black/40 transition disabled:opacity-0 sm:static sm:mr-3 sm:translate-y-0 sm:bg-transparent sm:hover:bg-white/10 sm:disabled:opacity-20 shrink-0"
             >
-              <ChevronLeft className="h-6 w-6 text-white" />
+              <ChevronLeft className="h-6 w-6 text-white" aria-hidden />
             </button>
 
             {/* Page wrapper — scales the fixed-size page to fit the viewport */}
@@ -536,6 +580,22 @@ export function CookbookPrintPreview({
                   color: theme.textColor || '#44403c',
                 }}
               >
+                {page?.type === "front" && (
+                  <div
+                    style={{ width: pageW, height: pageH }}
+                    dangerouslySetInnerHTML={{
+                      __html: frontCoverHtml({
+                        title: layoutData?.title || '',
+                        subtitle: layoutData?.subtitle,
+                        author: layoutData?.authorName,
+                        photoSrc: layoutData?.coverData?.frontImageUrl || null,
+                        palette: coverPaletteFor(templateStyle, (customTemplateData as any)?.cover ?? null),
+                        widthIn: bookSize.width,
+                        heightIn: bookSize.height,
+                      }),
+                    }}
+                  />
+                )}
                 {page?.type === "cover" && (
                   <CoverPage layoutData={layoutData} theme={theme} recipes={orderedRecipes} w={pageW} h={pageH} customTemplateData={customTemplateData} />
                 )}
@@ -583,7 +643,7 @@ export function CookbookPrintPreview({
                   />
                 )}
                 {page?.type === "album" && (
-                  <AlbumPage photos={page.photos} theme={theme} w={pageW} h={pageH} pageNumber={currentPage + 1} />
+                  <AlbumPage photos={page.photos} theme={theme} w={pageW} h={pageH} pageNumber={pages[0]?.type === 'front' ? currentPage : currentPage + 1} />
                 )}
                 {page?.type === "recipe" && !theme.recipeLayout && (
                   <RecipePage
@@ -622,47 +682,38 @@ export function CookbookPrintPreview({
             <button
               onClick={() => setCurrentPage(p => Math.min(p + 1, totalPages - 1))}
               disabled={currentPage === totalPages - 1}
-              className="flex items-center justify-center w-10 h-10 rounded-full hover:bg-white/10 transition disabled:opacity-20 ml-3 shrink-0"
+              aria-label="Next page"
+              className="absolute right-1 top-1/2 z-10 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-black/40 transition disabled:opacity-0 sm:static sm:ml-3 sm:translate-y-0 sm:bg-transparent sm:hover:bg-white/10 sm:disabled:opacity-20 shrink-0"
             >
-              <ChevronRight className="h-6 w-6 text-white" />
+              <ChevronRight className="h-6 w-6 text-white" aria-hidden />
             </button>
           </div>
 
-          {/* Page thumbnails */}
-          <div className="flex items-center gap-1.5 px-4 py-2 bg-stone-800 border-t border-stone-700 overflow-x-auto shrink-0">
-            {pages.map((p, i) => {
-              const aspect = bookSize.height / bookSize.width;
-              const thumbW = 36;
-              const thumbH = thumbW * aspect;
-              const label = p.type === 'cover' ? 'C' :
-                p.type === 'back' ? 'B' :
-                p.type === 'toc' ? 'TOC' :
-                p.type === 'section-divider' ? 'S' :
-                p.type === 'album' ? 'A' :
-                p.type === 'dedication' ? 'D' :
-                p.type === 'recipe-extras' ? `${(p as any).index + 1}+` :
-                p.type === 'recipe' ? `${(p as any).index + 1}` : '';
-              return (
+          {/* Where you are in the book, and shortcuts to its parts */}
+          <div className="shrink-0 space-y-2 border-t border-stone-700 bg-stone-800 px-3 pt-2" style={{ paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom, 0px))' }}>
+            <input
+              type="range"
+              min={1}
+              max={Math.max(1, totalPages)}
+              value={currentPage + 1}
+              onChange={(e) => setCurrentPage(Number(e.target.value) - 1)}
+              className="w-full accent-orange-500"
+              aria-label="Page"
+            />
+            <div className="flex gap-1.5 overflow-x-auto pb-1">
+              {jumps.map((j, i) => (
                 <button
-                  key={i}
-                  onClick={() => setCurrentPage(i)}
-                  className={`shrink-0 rounded transition-all ${
-                    i === currentPage
-                      ? 'ring-2 ring-blue-500 shadow-lg shadow-blue-500/30'
-                      : 'opacity-50 hover:opacity-90'
+                  key={`${j.label}-${j.page}`}
+                  type="button"
+                  onClick={() => setCurrentPage(j.page)}
+                  className={`min-h-9 shrink-0 rounded-full px-3 text-xs font-medium transition ${
+                    i === activeJump ? 'bg-white text-stone-900' : 'bg-stone-700 text-stone-200 hover:bg-stone-600'
                   }`}
-                  style={{ width: thumbW, height: thumbH }}
-                  title={`Page ${i + 1} (${p.type})`}
                 >
-                  <div
-                    className="w-full h-full bg-white rounded-sm flex items-center justify-center"
-                    style={{ fontSize: 8, color: '#666' }}
-                  >
-                    {label}
-                  </div>
+                  {j.label}
                 </button>
-              );
-            })}
+              ))}
+            </div>
           </div>
         </div>
       </DialogContent>

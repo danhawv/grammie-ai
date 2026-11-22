@@ -199,7 +199,7 @@ export function ReadyToPrint({ cookbookId, draft, updateLayout, goToStep, onOpen
         key: "photos_not_placed",
         level: "look",
         text: `${notYet.length} family ${plural(notYet.length, "photo isn't", "photos aren't")} placed in the book yet.`,
-        actions: [{ label: "Go to photos", onClick: () => goToStep("personalize") }],
+        actions: [{ label: "Go to photos", onClick: () => goToStep("pages") }],
       });
     }
     for (const p of photos) {
@@ -261,7 +261,7 @@ export function ReadyToPrint({ cookbookId, draft, updateLayout, goToStep, onOpen
     function describe(item: ReadinessItem, n: number, names: { label: string; href?: string }[], res: ReadinessResult): Omit<Finding, "key" | "level"> | null {
       switch (item.code) {
         case "no_recipes":
-          return { text: "There are no recipes in the book yet.", actions: [{ label: "Add recipes", primary: true, onClick: () => goToStep("recipes") }] };
+          return { text: "There are no recipes in the book yet.", actions: [{ label: "Add recipes", primary: true, onClick: () => goToStep("pages") }] };
         case "recipes_missing":
           return {
             text: `${n} ${plural(n, "recipe", "recipes")} in the book can't be found. ${plural(n, "It was", "They were")} deleted or ${plural(n, "is", "are")} no longer shared with you, so ${plural(n, "it", "they")} would be left out.`,
@@ -300,7 +300,7 @@ export function ReadyToPrint({ cookbookId, draft, updateLayout, goToStep, onOpen
         case "too_many_pages":
           return {
             text: `The book is about ${n} pages, more than this binding can hold (${res.maxPages}). Choose another binding, or take some recipes out.`,
-            actions: [{ label: "Change binding", primary: true, onClick: () => goToStep("look") }],
+            actions: [{ label: "Change binding", primary: true, onClick: () => goToStep("book") }],
           };
         case "photo_low_res":
           return {
@@ -315,11 +315,11 @@ export function ReadyToPrint({ cookbookId, draft, updateLayout, goToStep, onOpen
             actions: [{ label: "That's fine", onClick: () => dismiss("photo_missing") }],
           };
         case "book_title_missing":
-          return { text: "The book doesn't have a title yet.", actions: [{ label: "Add a title", primary: true, onClick: () => goToStep("personalize") }] };
+          return { text: "The book doesn't have a title yet.", actions: [{ label: "Add a title", primary: true, onClick: () => goToStep("cover") }] };
         case "author_missing":
           return {
             text: "There's no author name for the cover.",
-            actions: [{ label: "Add a name", onClick: () => goToStep("personalize") }, { label: "Leave it off", onClick: () => dismiss("author_missing") }],
+            actions: [{ label: "Add a name", onClick: () => goToStep("cover") }, { label: "Leave it off", onClick: () => dismiss("author_missing") }],
           };
         case "near_page_limit":
           return { text: `The book is about ${n} pages, close to this binding's limit of ${res.maxPages}.`, actions: [{ label: "OK", onClick: () => dismiss("near_page_limit") }] };

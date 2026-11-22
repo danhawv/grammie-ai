@@ -34,10 +34,14 @@ export default function CookbooksPage() {
 
   const mine = useQuery<CookbookListItem[]>({ queryKey: ["/api/cookbooks"], enabled: !!user });
   const shared = useQuery<CookbookListItem[]>({ queryKey: ["/api/cookbooks", { scope: "shared" }], enabled: !!user });
-  // Printed-book orders, to show "Printing" / "Shipped" on the cookbook
+  // Printed-book orders, to show "Printing" / "Shipped" on the cookbook. An
+  // order that ended (canceled or refused by the printer, which is refunded)
+  // isn't news on the shelf; its details stay on the print page.
   const projects = useQuery<CookbookPrintProject[]>({ queryKey: ["/api/print-projects"], enabled: !!user });
   const orderByCookbook = new Map(
-    (projects.data ?? []).filter((p) => p.luluOrderId).map((p) => [p.cookbookId, p.luluOrderStatus]),
+    (projects.data ?? [])
+      .filter((p) => p.luluOrderId && !["CANCELED", "REJECTED", "ERROR"].includes(p.luluOrderStatus ?? ""))
+      .map((p) => [p.cookbookId, p.luluOrderStatus]),
   );
 
   const newButton = (
